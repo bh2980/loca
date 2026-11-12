@@ -14,6 +14,12 @@ describe('what goes in at first', () => {
     expect([...startStatuses('view', statuses, { statuses: ['review'] })]).toEqual(['review']);
     expect([...startStatuses('units', statuses)]).toEqual(['new', 'review', 'done']);
   });
+
+  it('from the review inbox, is the statuses the inbox shows (those of them the list is filtered to)', () => {
+    const inbox = statuses.map((status) => ({ ...status, inReview: status.id !== 'done' }));
+    expect([...startStatuses('view', inbox, { review: true })]).toEqual(['new', 'review']);
+    expect([...startStatuses('view', inbox, { review: true, statuses: ['review', 'done'] })]).toEqual(['review']);
+  });
 });
 
 describe('why the rest does not go in', () => {

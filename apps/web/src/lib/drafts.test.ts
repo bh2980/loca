@@ -1,9 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import { useDraft } from './drafts';
+import { draftText, useDirtyDrafts, useDraft } from './drafts';
+import { resetStoredForTest } from './storage';
 
 // Exercise the persistent store across renders/remounts without a DOM renderer.
-vi.mock('react', () => ({ useCallback: (fn: unknown) => fn, useSyncExternalStore: (_subscribe: unknown, snapshot: () => string) => snapshot() }));
+vi.mock('react', () => ({ useCallback: (fn: unknown) => fn, useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown) => snapshot() }));
 beforeEach(() => {
+  resetStoredForTest();
   const data = new Map<string, string>();
   vi.stubGlobal('sessionStorage', { getItem: (key: string) => data.get(key) ?? null, setItem: (key: string, value: string) => data.set(key, value), removeItem: (key: string) => data.delete(key) });
 });
@@ -28,8 +30,12 @@ describe('translation draft base', () => {
     expect(state[2]('newer')).toBe(true);
     expect(useDraft('line:a', 'newer')[0]).toBe('newer');
   });
-  it('does not assume a legacy draft began at the current server value', () => {
-    sessionStorage.setItem('tw.draft.line:a', 'old draft');
-    expect(useDraft('line:a', 'latest')[3]).toBeNull();
+  it('is the one store every draft reads: text set outside React shows in the hook, and as dirty', () => {
+    draftText('chat.s1').write('hello');
+    expect(useDraft('chat.s1', '')[0]).toBe('hello');
+    expect(useDirtyDrafts([{ key: 'chat.s1', saved: '' }, { key: 'chat.s2', saved: '' }])).toEqual([true, false]);
+    draftText('chat.s1').write(null);
+    expect(draftText('chat.s1').read()).toBeNull();
+    expect(sessionStorage.getItem('loca.draft.chat.s1')).toBeNull();
   });
 });

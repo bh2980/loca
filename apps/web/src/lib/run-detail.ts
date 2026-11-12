@@ -1,22 +1,28 @@
-import { useEffect, useMemo, useRef } from 'react';
-import { keepPreviousData, queryOptions, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useRef } from 'react';
+import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
+import type { Subject } from '@loca/shared';
 import { client, unwrap } from './api';
-import { heldCollection, useHeld, useLines, type Held } from './units';
+import type { FeedRow } from './collections';
+import { heldCollection, heldFeed, useHeld, type Held } from './held';
+import { key, ownKey } from './query-keys';
+import { useLines } from './units';
 import { useTaxonomy } from './knowledge';
 
 /**
  * A run's page: which of its items are on the page (a question: GET runs/:id/items/ids), the items
  * themselves from a collection that holds the ones shown and reads one again when the feed names it
  * (a line's item takes its line from the units collection, a term's carries the term), how the run is doing (a progress row read again when the run's row
- * changes), and what it started with (definition, models), fetched once and again only when the run
- * itself changes (continued, paused, finished).
+ * changes), and what it started with (definition, models, caps), asked again only when the run itself changes
+ * (continued, paused, finished).
  */
-export type RunItem = InferResponseType<(typeof client.projects)[':projectId']['run-items']['$post']>['rows'][number];
+export type RunItem = FeedRow['runItems'];
 /** A run item as the run page lists it: with its line's (or term's) words and the line's status. */
 export type RunItemRow = RunItem & { key: string; speaker: string | null; source: string; target: string | null; statusName: string | null; statusColor: string | null };
 export type RunProgress = InferResponseType<(typeof client.projects)[':projectId']['run-progress']['$post']>['rows'][number];
-type RunDetail = InferResponseType<(typeof client.runs)[':id']['$get']>;
+type RunStart = InferResponseType<(typeof client.runs)[':id']['start']['$get']>;
+/** A run's detail: what it started with and how it is doing now. */
+export type RunDetail = RunStart & RunProgress;
 export type RunStep = InferResponseType<(typeof client.projects)[':projectId']['run-steps']['$post']>['rows'][number];
 
 const items = new Map<string, Held<RunItem>>();
@@ -26,17 +32,8 @@ const steps = new Map<string, Held<RunStep>>();
 function itemsOf(projectId: string) {
   let held = items.get(projectId);
   if (!held) {
-    held = heldCollection<RunItem>({
-      id: `run-items:${projectId}`,
-      projectId,
-      read: (ids) => unwrap(client.projects[':projectId']['run-items'].$post({ param: { projectId }, json: { ids } })),
-      signal: (rows) => rows.runItems,
-      // A term's item carries the term's words (the glossary leaves out rejected terms); a line's reads its line from the units collection.
-      staleBy: (rows) => {
-        const changed = new Set(((rows.terms?.upsert ?? []) as { id: string }[]).map((term) => term.id));
-        return changed.size ? (item) => item.term !== null && changed.has(item.unitId) : undefined;
-      },
-    });
+    // A term's item carries the term's words (the glossary leaves out rejected terms); a line's reads its line from the units collection.
+    held = heldFeed('runItems', projectId);
     items.set(projectId, held);
   }
   return held;
@@ -77,12 +74,12 @@ export type RunItemQuery = { state?: string; nodeId?: string; through?: string; 
 /** A page of a run's items as ids (runs topic: an item may move in or out of a state or a node). */
 const runItemIds = (runId: string, query: RunItemQuery) =>
   queryOptions({
-    queryKey: ['runs', 'item-ids', runId, query],
+    queryKey: key('runs', 'item-ids', runId, query),
     queryFn: () => unwrap(client.runs[':id'].items.ids.$get({ param: { id: runId }, query: { ...query, offset: query.offset?.toString() } as never })),
     placeholderData: keepPreviousData,
   });
 
-type RunItemsPage = { total: number; subject: 'lines' | 'terms'; rows: RunItemRow[] };
+type RunItemsPage = { total: number; subject: Subject; rows: RunItemRow[] };
 
 /**
  * One page of a run's items: { total, subject, rows } once the page's items and their lines are held; each row with its
@@ -125,7 +122,7 @@ export function useRunItems(projectId: string, runId: string, query: RunItemQuer
 /** What a node did with its items (runs topic: an item may reach or leave it at any time). */
 export const runNodeExits = (runId: string, nodeId: string) =>
   queryOptions({
-    queryKey: ['runs', 'node-exits', runId, nodeId],
+    queryKey: key('runs', 'node-exits', runId, nodeId),
     queryFn: () => unwrap(client.runs[':id']['node-exits'].$get({ param: { id: runId }, query: { nodeId } })),
     placeholderData: keepPreviousData,
   });
@@ -133,7 +130,7 @@ export const runNodeExits = (runId: string, nodeId: string) =>
 /** A run's latest model calls as ids (runs topic: a call is logged as the run goes). */
 const runStepIds = (runId: string) =>
   queryOptions({
-    queryKey: ['runs', 'step-ids', runId],
+    queryKey: key('runs', 'step-ids', runId),
     queryFn: () => unwrap(client.runs[':id'].steps.ids.$get({ param: { id: runId } })),
     placeholderData: keepPreviousData,
   });
@@ -144,20 +141,22 @@ export function useRunSteps(projectId: string, runId: string, enabled: boolean) 
   return { data: useHeld(stepsOf(projectId), enabled ? page.data?.ids : undefined).rows };
 }
 
-/** What a run started with: not under a topic, read again when the run itself changes (useRunDetail). */
-const runStart = (runId: string) => queryOptions({ queryKey: ['run-start', runId], queryFn: () => unwrap(client.runs[':id'].$get({ param: { id: runId } })) });
+/**
+ * What a run started with (GET runs/:id/start): nothing of how it is doing now. Not under the runs topic, which
+ * changes with every item: the key carries the run's own turn instead (lib/query-keys.ts), so a continue, a switch
+ * of models, a pause or the end asks it again and nothing else does.
+ */
+const runStart = (runId: string, turn: string) =>
+  queryOptions({ ...ownKey('run-start', runId, turn), queryFn: () => unwrap(client.runs[':id'].start.$get({ param: { id: runId } })), placeholderData: keepPreviousData });
 
-/** A run's detail: what it started with, and how it is doing now from its progress row. */
+/** A run's detail: what it started with, joined with how it is doing now from its progress row. */
 export function useRunDetail(projectId: string, runId: string) {
-  const start = useQuery(runStart(runId));
   const ids = useMemo(() => [runId], [runId]);
   const now = useHeld(progressOf(projectId), ids).rows?.[0];
-  // A continue, a switch of models, a pause or the end: the run's own fields change and what it started with is read again.
-  const queryClient = useQueryClient();
   const turn = now ? `${now.status}|${now.notice ?? ''}|${now.total}|${now.finishedAt ?? ''}` : '';
-  useEffect(() => {
-    if (turn && start.data && turn !== `${start.data.status}|${start.data.notice ?? ''}|${start.data.total}|${start.data.finishedAt ?? ''}`) void queryClient.invalidateQueries({ queryKey: runStart(runId).queryKey });
-  }, [turn]); // eslint-disable-line react-hooks/exhaustive-deps
-  const data = useMemo<RunDetail | undefined>(() => (start.data ? (now ? { ...start.data, ...now } : start.data) : undefined), [start.data, now]);
-  return { ...start, data };
+  const start = useQuery(runStart(runId, turn));
+  // The kept answer of another run (the page changed runs) is not this run's.
+  const started = start.data?.id === runId ? start.data : undefined;
+  const data = useMemo<RunDetail | undefined>(() => (started && now ? { ...started, ...now } : undefined), [started, now]);
+  return { data, isError: start.isError, error: start.error, refetch: start.refetch };
 }

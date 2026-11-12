@@ -1,4 +1,4 @@
-import { BATCH_MODE_LABELS } from '@tw/shared';
+import { BATCH_MODE_LABELS } from '@loca/shared';
 
 /** The part of a preflight node estimate these lines read (NodeSplit in the server's preflight). */
 interface Split {

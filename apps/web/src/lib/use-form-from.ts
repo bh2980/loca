@@ -61,7 +61,7 @@ const parse = <T,>(stored: string): FormEdit<T> | null => {
  * A form's draft over a saved value from a query. Fields the person has not touched follow the
  * saved value whenever it changes (chat, CLI, workflow, another tab); fields they edited keep their
  * typing, and one that changed elsewhere meanwhile is reported in `conflicts` (keepMine / takeSaved).
- * With a `key` (the item's id) the unsaved edit lives in sessionStorage, so it survives moving to
+ * With a `key` (the item's id) the unsaved edit is a draft kept for the tab (lib/drafts.ts), so it survives moving to
  * another item, Back/Forward and reloads; without one (a new item's form) it is kept in memory.
  * The edit is dropped once the saved value has caught up with it (after a save) or it is typed back.
  */

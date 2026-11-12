@@ -7,8 +7,8 @@ import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, lineFilterSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema, lineFilterSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { sourceRoutes } from '../routes/source.ts';
@@ -54,13 +54,13 @@ describe('unit seq', () => {
 
   it('the source list route keeps scenes unmixed', async () => {
     const { db, projectId } = interleaved();
-    const app = new Hono<Env>().use(async (c, next) => {
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
     }).route('/', sourceRoutes);
     // The list's page is ids (the browser reads the lines by id).
     const keyOf = (id: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key;
-    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units/ids?limit=4&offset=${offset}`)).json()) as { total: number; ids: string[] });
+    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units/ids`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filter: { limit: 4, offset } }) })).json()) as { total: number; ids: string[] });
     const first = await page(0);
     expect(first.total).toBe(6);
     expect([...first.ids, ...(await page(4)).ids].map(keyOf)).toEqual(expected);

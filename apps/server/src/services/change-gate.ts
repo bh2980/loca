@@ -1,51 +1,37 @@
-import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
-import { tool, type ToolSet } from 'ai';
-import { eq } from 'drizzle-orm';
-import type { z } from 'zod';
-import { AGENT_TOOLS, CANDIDATE_ONLY_TOOLS, PERMISSION_MODE_INFO, type PermissionMode } from '@tw/shared';
+import { and, eq, inArray, isNull } from 'drizzle-orm';
+import { itemCount, PERMISSION_MODE_INFO, toolClass, toolRoute, toolSpec, type PermissionMode } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { prepareProposal, reportText } from './proposal-check.ts';
+import { agentCatalog, checkAgentPermission, prepareProposal } from './agent-catalog.ts';
+import { projectAgentSettings } from './agent-permission-check.ts';
+import { reportText, type BatchCheck } from './proposal-check.ts';
+import { dropConflicts, isRecord, orderedCalls, type Inverse } from './proposal-undo.ts';
 import { decideProposal, propose, proposedText } from './proposals.ts';
 import { fitText } from './tool-output.ts';
-import { agentTools } from './agent-tools.ts';
 
 /**
- * The one way an agent's change reaches the project (#45), for every chat backend (API, CLI):
- * check it (prepareProposal), store it as a proposal, then let the conversation's permission mode
- * decide: ask → the person decides on the card (#43 tells the agent); auto → applied now when the
- * review below passes, otherwise asked; bypass → applied now. Applied changes are proposals too
- * (decided_by auto/bypass), so the change log is one and the agent hears the result in the same turn.
+ * The one way an agent's change reaches the project (#45), from every surface (the app's API chat, CLI
+ * chats, the `loca` CLI): check it (its tool's check), store it as a proposal, then let the permission
+ * mode decide (the conversation's, or the project's terminal mode): ask → the person decides on the
+ * card (#43 tells the agent); auto → applied now when the review below passes, otherwise asked; bypass
+ * → applied now. Applied changes are proposals too (decided_by auto/bypass), so the change log is one
+ * and the agent hears the result in the same turn. Undoing an accepted change is a path of the same
+ * gate (undoChanges).
  */
-
-/** How change tools are described to every backend. */
-export const CHANGE_NOTE = '대화의 권한 모드에 따라 바로 반영되거나, 사용자가 카드에서 결정할 때까지 제안으로 기다립니다. 어느 쪽인지는 도구 결과에 나옵니다';
 
 /** A batch larger than this is never applied without asking in auto review. */
 export const AUTO_MAX_ITEMS = 20;
 
-/** How many things a change touches, for the review. */
-const KNOWLEDGE_KEYS = ['characters', 'relationships', 'speechRules', 'events', 'documents'];
-export function itemCount(input: Record<string, unknown>) {
-  const knowledge = KNOWLEDGE_KEYS.reduce((sum, key) => sum + (Array.isArray(input[key]) ? (input[key] as unknown[]).length : 0), 0);
-  if (knowledge) return knowledge;
-  for (const key of ['changes', 'terms', 'ids', 'items']) {
-    const value = input[key];
-    if (Array.isArray(value)) return value.length;
-  }
-  return 1;
-}
-
 /**
  * Auto review: what may apply without asking. Running a workflow (AI cost) and deleting always ask;
- * so do large batches and anything the check warned about or partly dropped.
+ * so do large batches and anything the check warned about or partly dropped. What kind of change it
+ * is and how many items it touches come from the tool's spec for this input.
  */
 export function autoReview(tool: string, input: Record<string, unknown>, report: s.ProposalReport | null): { pass: boolean; reason: string } {
-  const action = AGENT_TOOLS[tool]?.action;
-  if (action === 'run') return { pass: false, reason: '실행은 AI 비용이 들어 묻습니다.' };
-  if (action === 'delete') return { pass: false, reason: '삭제·병합은 묻습니다.' };
-  const count = itemCount(input);
+  const kind = toolClass(tool, input);
+  if (kind === 'run') return { pass: false, reason: '실행은 AI 비용이 들어 묻습니다.' };
+  if (kind === 'delete') return { pass: false, reason: '삭제·병합은 묻습니다.' };
+  const count = itemCount(tool, input);
   if (count > AUTO_MAX_ITEMS) return { pass: false, reason: `${count.toLocaleString()}개를 한꺼번에 바꾸는 큰 변경이라 묻습니다(자동은 ${AUTO_MAX_ITEMS}개까지).` };
   const warnings = report?.warnings.length ?? 0;
   const dropped = report?.dropped.length ?? 0;
@@ -58,13 +44,15 @@ export const permissionModeOf = (db: Db, sessionId: string | null): PermissionMo
   (sessionId && db.select({ mode: s.chatSessions.permissionMode }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.mode) || 'ask';
 
 export type GateResult =
-  | { ok: false; error: string; hint?: string }
-  | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null };
+  /** `empty`: nothing to change (not a mistake); `batch`: a line batch's full report, either way. */
+  | { ok: false; error: string; hint?: string; empty?: true; batch?: BatchCheck }
+  | { ok: true; proposalId: string; applied: boolean; status: s.ProposalStatus; result?: unknown; review?: string; text: string; report: s.ProposalReport | null; batch?: BatchCheck };
 
 /** The terminal has no conversation: its changes follow the project's terminal permission mode. */
 export const terminalPermissionMode = (db: Db, projectId: string): PermissionMode => projectAgentSettings(db, projectId).terminalPermissionMode;
 
 export async function proposeChange(db: Db, request: { projectId: string; sessionId: string | null; model?: string | null; source: 'cli' | 'api'; tool: string; input: Record<string, unknown>; terminal?: boolean }): Promise<GateResult> {
+  if (toolRoute(request.tool) !== 'gate') return { ok: false, error: `변경 도구가 아닙니다: ${request.tool}` };
   const denied = checkAgentPermission(db, request.projectId, request.tool, request.input);
   if (denied) return { ok: false, error: denied };
   const prepared = await prepareProposal(db, request.projectId, request.tool, request.input);
@@ -77,35 +65,129 @@ export async function proposeChange(db: Db, request: { projectId: string; sessio
     const row = await decideProposal(db, proposal.id, true, mode === 'bypass' ? 'bypass' : 'auto');
     // The agent gets the result in this tool call; it is not told again on the next turn.
     db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, proposal.id)).run();
-    events.changed(request.projectId, 'proposals');
     const how = PERMISSION_MODE_INFO[mode].label;
-    const done = CANDIDATE_ONLY_TOOLS.has(request.tool) ? 'AI 제안으로 올렸습니다(현재 번역은 그대로, 사람이 적용·거절)' : '바로 반영했습니다';
+    const done = toolSpec(request.tool)?.candidateOnly ? 'AI 제안으로 올렸습니다(현재 번역은 그대로, 사람이 적용·거절)' : '바로 반영했습니다';
     const text = row.status === 'accepted' ? `${how} 모드로 ${done} (proposal ${proposal.id}). 결과: ${fitText(row.result, 4_000)}` : `${how} 모드로 반영하려 했지만 실패했습니다 (proposal ${proposal.id}): ${fitText(row.result, 2_000)}`;
-    return { ok: true, proposalId: proposal.id, applied: row.status === 'accepted', status: row.status, result: row.result, review: review?.reason, text: text + reportText(prepared.report), report: prepared.report };
+    return { ok: true, proposalId: proposal.id, applied: row.status === 'accepted', status: row.status, result: row.result, review: review?.reason, text: text + reportText(prepared.report), report: prepared.report, batch: prepared.batch };
   }
   const held = review ? `\n자동 검토가 사용자에게 넘겼습니다: ${review.reason}` : '';
-  return { ok: true, proposalId: proposal.id, applied: false, status: 'pending', review: review?.reason, text: proposedText(proposal.id) + reportText(prepared.report) + held, report: prepared.report };
+  return { ok: true, proposalId: proposal.id, applied: false, status: 'pending', review: review?.reason, text: proposedText(proposal.id) + reportText(prepared.report) + held, report: prepared.report, batch: prepared.batch };
 }
 
 /**
- * The agent's tools for the API chat (AI SDK): change tools go through proposeChange like the CLI's, instead of the SDK's own approval step, so the three backends decide changes the same
- * way. edit_workflow_node has no execute (the open editor applies it) and stays as it is.
+ * Who decides an undo, for the whole inverse at once (half an undo is worse than none). A person who
+ * presses 되돌리기 in the app asked for exactly this, so it is theirs and no mode asks again. The
+ * terminal's follows the project's terminal mode like any other change: the agent's permissions hold,
+ * 매번 묻기 leaves it to the person, 자동 검토 reviews every restoring call (a delete or a large batch
+ * goes to the person), 바로 반영 applies it. Where the gate would ask, the person undoes it on the
+ * proposal's card in the app, which is the app's way of asking about an undo.
  */
-export function gatedTools(db: Db, projectId: string, sessionId: string, author: { model: string | null }): ToolSet {
-  const raw = agentTools(db, projectId, author) as unknown as Record<string, { description?: string; inputSchema: z.ZodType; needsApproval?: unknown; execute?: unknown }>;
-  return Object.fromEntries(
-    Object.entries(raw).map(([name, original]) => {
-      if (!original.execute || !original.needsApproval) return [name, original];
-      const gated = tool({
-        description: `${original.description ?? ''} (${CHANGE_NOTE})`,
-        inputSchema: original.inputSchema as z.ZodType<Record<string, unknown>>,
-        execute: async (input: Record<string, unknown>) => {
-          const gate = await proposeChange(db, { projectId, sessionId, model: author.model, source: 'api', tool: name, input });
-          if (!gate.ok) return { ok: false, error: `제안하지 못했습니다: ${gate.error}`, ...(gate.hint && { hint: gate.hint }) };
-          return { proposalId: gate.proposalId, applied: gate.applied, status: gate.status, note: gate.text };
-        },
-      });
-      return [name, gated];
-    }),
-  ) as ToolSet;
+function undoVerdict(db: Db, projectId: string, terminal: boolean, calls: s.UndoCall[]): { by: 'person' | 'auto' | 'bypass' } | { held: string } {
+  if (!terminal) return { by: 'person' };
+  for (const call of calls) {
+    const denied = checkAgentPermission(db, projectId, call.tool, call.input);
+    if (denied) return { held: denied };
+  }
+  const mode = terminalPermissionMode(db, projectId);
+  if (mode === 'ask') return { held: '터미널 권한 모드가 매번 묻기라 앱에서 되돌립니다' };
+  if (mode === 'bypass') return { by: 'bypass' };
+  const stopped = calls.map((call) => autoReview(call.tool, call.input, null)).find((review) => !review.pass);
+  return stopped ? { held: `자동 검토가 넘겼습니다(${stopped.reason}) 앱에서 되돌리세요` } : { by: 'auto' };
+}
+
+/**
+ * Undoes accepted changes of a conversation (owner: its id) or of the terminal (`{ terminal: projectId }`),
+ * newest first. Each restoring call (the tool's `undo`) is stored and applied as a proposal like any
+ * change, recorded as decided by who decided it (undoVerdict); a line or item changed since is skipped.
+ * Asked from the terminal, only what its permission mode applied is undone: a change a person accepted
+ * is undone by a person, in the app (`by: 'person'`, the app's 되돌리기 on a terminal proposal).
+ */
+export async function undoChanges(db: Db, owner: string | { terminal: string; by?: 'person' }, ids: string[]) {
+  const sessionId = typeof owner === 'string' ? owner : null;
+  const terminal = typeof owner !== 'string' && owner.by !== 'person';
+  const ownedBy = typeof owner === 'string' ? eq(s.proposals.sessionId, owner) : and(isNull(s.proposals.sessionId), eq(s.proposals.projectId, owner.terminal), eq(s.proposals.source, 'cli'));
+  const rows = db.select().from(s.proposals)
+    .where(and(ownedBy, inArray(s.proposals.id, ids))).all()
+    .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
+  const results: { id: string; ok: boolean; error?: string; skipped?: string[] }[] = [];
+  // How each tool behaves as a restoring call (its `undo`): looked up by the call's tool, never written here by name.
+  const inverses = new Map<string, Map<string, Inverse | undefined>>();
+  const inverseOf = (projectId: string) => {
+    if (!inverses.has(projectId)) inverses.set(projectId, new Map(agentCatalog(db, projectId, undefined, { unrestricted: true }).map((tool) => [tool.name as string, tool.undo])));
+    const known = inverses.get(projectId)!;
+    return (tool: string) => known.get(tool);
+  };
+  // What the restoring calls of one tool left for the later ones of this request (a tool's `chain`).
+  const seen = new Map<string, Map<string, unknown>>();
+  const seenBy = (tool: string) => seen.get(tool) ?? seen.set(tool, new Map()).get(tool)!;
+  for (const original of rows) {
+    if (terminal && original.decidedBy === 'person') {
+      results.push({ id: original.id, ok: false, error: '사람이 수락한 제안이라 앱에서 되돌립니다' });
+      continue;
+    }
+    if (original.status !== 'accepted' || original.undoneAt) {
+      const error = original.undoneAt ? '이미 되돌렸습니다' : '수락된 제안이 아닙니다';
+      results.push({ id: original.id, ok: false, error });
+      continue;
+    }
+    if (!original.undo || 'none' in original.undo) {
+      results.push({ id: original.id, ok: false,
+        error: original.undo && 'none' in original.undo ? original.undo.none : '되돌리기 정보를 찾을 수 없습니다' });
+      continue;
+    }
+    const hooksOf = inverseOf(original.projectId);
+    const calls = orderedCalls(original.undo.calls, hooksOf);
+    const verdict = undoVerdict(db, original.projectId, terminal, calls);
+    if ('held' in verdict) {
+      results.push({ id: original.id, ok: false, error: verdict.held });
+      continue;
+    }
+    const skipped: string[] = [];
+    let failedTool: string | null = null;
+    let completedCalls = 0;
+    try {
+      for (const inverseCall of calls) {
+        const how = hooksOf(inverseCall.tool);
+        const rebased = how?.chain ? { ...inverseCall, input: how.chain.rebase(inverseCall.input, seenBy(inverseCall.tool)) } : inverseCall;
+        // Each tool's own way to leave out what a person changed since (its `undo.trim`).
+        const filtered = dropConflicts(db, original.projectId, rebased, how?.trim);
+        skipped.push(...filtered.dropped);
+        if (!filtered.call) continue;
+        failedTool = filtered.call.tool;
+        const inverse = propose(db, {
+          projectId: original.projectId, sessionId, source: original.source,
+          tool: filtered.call.tool, input: filtered.call.input,
+          review: `되돌리기 (proposal ${original.id})`,
+        });
+        // A person's own undo is not bound by what the agent may do (the inverse of a creation is a delete).
+        const applied = await decideProposal(db, inverse.id, true, verdict.by, null, { unrestricted: !terminal });
+        db.update(s.proposals).set({ reportedAt: new Date() }).where(eq(s.proposals.id, inverse.id)).run();
+        if (applied.status !== 'accepted') {
+          const value = isRecord(applied.result) && typeof applied.result.error === 'string'
+            ? applied.result.error : '도구 실행에 실패했습니다';
+          throw new Error(value);
+        }
+        if (isRecord(applied.result) && Array.isArray(applied.result.skipped)) {
+          for (const item of applied.result.skipped) {
+            if (isRecord(item) && typeof item.key === 'string') skipped.push(item.key);
+            else if (isRecord(item) && typeof item.id === 'string') skipped.push(item.id);
+          }
+        }
+        how?.chain?.remember(db, original, filtered.call.input, applied.result, seenBy(filtered.call.tool));
+        completedCalls++;
+      }
+      db.update(s.proposals).set({ undoneAt: new Date(), reportedAt: null })
+        .where(eq(s.proposals.id, original.id)).run();
+      results.push({ id: original.id, ok: true, ...(skipped.length && { skipped }) });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      const partial = completedCalls ? '일부만 되돌렸습니다: ' : '';
+      results.push({ id: original.id, ok: false,
+        error: `${partial}${failedTool ?? '되돌리기'} 실패 — ${detail}` });
+    }
+  }
+  for (const id of ids) {
+    if (!rows.some((row) => row.id === id)) results.push({ id, ok: false, error: '제안을 찾을 수 없습니다' });
+  }
+  return results;
 }

@@ -1,11 +1,12 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, messageChips } from '@tw/shared';
+import { importFileSchema, messageChips } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
+import { selectRunUnits } from '../engine/subjects.ts';
 import { chatRunScope } from './chat-run-scope.ts';
-import { mergeIncoming } from './chat-context.ts';
+import { mergeIncoming } from './chat-record.ts';
 
 const setup = () => {
   const db = openDatabase(':memory:');
@@ -30,11 +31,17 @@ const setup = () => {
 };
 
 describe('what the picks of a /workflow run mean as a run scope', () => {
-  it('scenes become groupIds, lines unitIds, tags tagIds, statuses statusIds', () => {
+  it('scenes, lines, tags and statuses become the resolved line filter a run stores', () => {
     const { db, projectId, lines, groups, units, status } = setup();
-    expect(chatRunScope(db, projectId, lines.id, [{ kind: '장면', id: groups[0].id }, { kind: '상태', id: status.id }])).toMatchObject({ ok: true, input: 'lines', scope: { groupIds: [groups[0].id], statusIds: [status.id] } });
-    expect(chatRunScope(db, projectId, lines.id, [{ kind: '대사', id: units[0].id }, { kind: '대사', id: units[1].id }])).toMatchObject({ ok: true, scope: { unitIds: [units[0].id, units[1].id] } });
-    expect(chatRunScope(db, projectId, lines.id, [{ kind: '태그', id: 't' }])).toMatchObject({ ok: true, scope: { tagIds: ['t'] } });
+    const tag = db.insert(s.tags).values({ projectId, name: '시험', color: '#888888' }).returning().get();
+    expect(chatRunScope(db, projectId, lines.id, [{ kind: '장면', id: groups[0].id }, { kind: '상태', id: status.id }])).toEqual({ ok: true, input: 'lines', workflowName: '번역', scope: { filter: { groupIds: [groups[0].id], statusIds: [status.id] } } });
+    expect(chatRunScope(db, projectId, lines.id, [{ kind: '대사', id: units[0].id }, { kind: '대사', id: units[1].id }])).toMatchObject({ ok: true, scope: { filter: { lineIds: [units[0].id, units[1].id] } } });
+    expect(chatRunScope(db, projectId, lines.id, [{ kind: '태그', id: tag.id }])).toMatchObject({ ok: true, scope: { filter: { tagIds: [tag.id] } } });
+  });
+
+  it('a pick that is gone is refused by name, not dropped from the scope', () => {
+    const { db, projectId, lines, groups } = setup();
+    expect(chatRunScope(db, projectId, lines.id, [{ kind: '장면', id: groups[0].id }, { kind: '태그', id: 'gone-tag' }, { kind: '상태', id: 'gone-status' }])).toEqual({ ok: false, error: '찾지 못함: 상태 gone-status, 태그 gone-tag' });
   });
 
   it('a person becomes the lines they speak, by name or alias', () => {
@@ -42,10 +49,12 @@ describe('what the picks of a /workflow run mean as a run scope', () => {
     const lookout = characters.find((character) => character.name === 'Lookout')!;
     const result = chatRunScope(db, projectId, lines.id, [{ kind: '인물', id: lookout.id }]);
     expect(result).toMatchObject({ ok: true });
-    expect(new Set((result as { scope: { unitIds: string[] } }).scope.unitIds)).toEqual(new Set([units[1].id, units[2].id]));
+    expect(new Set((result as { scope: s.RunScope }).scope.filter?.lineIds)).toEqual(new Set([units[1].id, units[2].id]));
     // a person with no lines is a scope with nothing in it, not every line
     const silent = characters.find((character) => character.name === 'Silent')!;
-    expect((chatRunScope(db, projectId, lines.id, [{ kind: '인물', id: silent.id }]) as { scope: { unitIds: string[] } }).scope.unitIds).toEqual(['__none__']);
+    const nobody = chatRunScope(db, projectId, lines.id, [{ kind: '인물', id: silent.id }]) as { scope: s.RunScope };
+    expect(nobody.scope).toEqual({ filter: { nothing: true } });
+    expect(selectRunUnits(db, projectId, nobody.scope)).toEqual([]);
   });
 
   it('scenes and lines (or a person) together are refused: the scope would silently narrow itself', () => {
@@ -60,7 +69,7 @@ describe('what the picks of a /workflow run mean as a run scope', () => {
     expect(chatRunScope(db, projectId, lines.id, [{ kind: '노트', id: 'x' }])).toMatchObject({ ok: false });
     expect(chatRunScope(db, projectId, lines.id, [])).toMatchObject({ ok: false });
     expect(chatRunScope(db, projectId, 'missing', [{ kind: '장면', id: groups[0].id }])).toMatchObject({ ok: false });
-    expect(chatRunScope(db, projectId, termWorkflow.id, [{ kind: '용어', id: terms[0].id }])).toMatchObject({ ok: true, input: 'terms', scope: { termIds: [terms[0].id] } });
+    expect(chatRunScope(db, projectId, termWorkflow.id, [{ kind: '용어', id: terms[0].id }])).toMatchObject({ ok: true, input: 'terms', scope: { terms: { ids: [terms[0].id] } } });
     expect(chatRunScope(db, projectId, termWorkflow.id, [{ kind: '장면', id: groups[0].id }])).toMatchObject({ ok: false });
   });
 });
@@ -71,7 +80,7 @@ describe('chips on a sent message', () => {
     const incoming = { id: 'm1', role: 'user' as const, metadata: { chips }, parts: [{ type: 'text' as const, text: '이 장면 봐 줘' }] };
     const stored = mergeIncoming([], incoming as never);
     expect(messageChips(stored[0])).toEqual(chips);
-    // a later turn that resends the newest message (an answered approval) keeps them too
+    // a later turn that resends the newest message (a tool result the browser added) keeps them too
     expect(messageChips(mergeIncoming(stored, { ...incoming } as never)[0])).toEqual(chips);
   });
   it('older messages and malformed metadata have none', () => {

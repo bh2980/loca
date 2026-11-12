@@ -1,13 +1,11 @@
-import { and, eq, inArray, sql } from 'drizzle-orm';
-import { FUNCTIONS, nodeName, type FunctionName, type WorkflowNode } from '@tw/shared';
+import { and, eq, inArray } from 'drizzle-orm';
+import { nodeName, nodeCallsOut } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { subjectOf } from '../engine/subjects.ts';
 
 type Run = Pick<typeof s.runs.$inferSelect, 'id' | 'subject' | 'definition'>;
 export type RunError = { unitId: string; key: string | null; nodeId: string; node: string; kind: string; message: string };
-
-/** Nodes that call out (AI, HTTP, script) and so can fail. */
-const callsOut = (node: WorkflowNode | undefined) => node?.type === 'ai' || (node?.type === 'function' && Boolean((FUNCTIONS[node.config.fn as FunctionName] as { async?: boolean } | undefined)?.async));
 
 /**
  * Items of a run that failed, or that finished after their last call went out through its error exit
@@ -19,17 +17,15 @@ export function runErrors(db: Db, run: Run): RunError[] {
   const rows = db
     .select({
       unitId: s.runItems.subjectId,
-      key: run.subject === 'terms' ? s.terms.source : s.units.key,
+      key: subjectOf(run.subject).itemKey,
       state: s.runItems.state,
       itemError: s.runItems.error,
-      path: sql<string>`json_extract(${s.runItems.data}, '$.path')`,
-      last: sql<string | null>`json_extract(${s.runItems.data}, '$.retry.last')`,
-      error: sql<string | null>`json_extract(${s.runItems.data}, '$.error')`,
-      lastError: sql<string | null>`json_extract(${s.runItems.data}, '$.lastError')`,
+      path: s.itemData.path,
+      last: s.itemData.retryLast,
+      error: s.itemData.error,
+      lastError: s.itemData.lastError,
     })
     .from(s.runItems)
-    .leftJoin(s.units, eq(s.units.id, s.runItems.subjectId))
-    .leftJoin(s.terms, eq(s.terms.id, s.runItems.subjectId))
     .where(and(eq(s.runItems.runId, run.id), inArray(s.runItems.state, ['done', 'failed'])))
     .all();
   const found = new Map<string, RunError>();
@@ -37,7 +33,8 @@ export function runErrors(db: Db, run: Run): RunError[] {
     // A line copied onto parallel ways counts once.
     if (found.has(row.unitId)) continue;
     const path = JSON.parse(row.path ?? '[]') as { nodeId: string; port: string }[];
-    const attempt = path.findLast((visit) => callsOut(byId.get(visit.nodeId)));
+    // Nodes that call out (AI, HTTP, script) are the ones that can fail.
+    const attempt = path.findLast((visit) => nodeCallsOut(byId.get(visit.nodeId)));
     if (row.state !== 'failed' && attempt?.port !== 'error') continue;
     // The error itself while the line carries it; once a node took it, the one it last went out with.
     const why = (JSON.parse(row.error ?? row.lastError ?? row.last ?? 'null') as { kind?: string; message?: string; nodeId?: string } | null) ?? {};

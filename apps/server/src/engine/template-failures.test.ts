@@ -1,15 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, WORKFLOW_TEMPLATES, workflowDefinitionSchema } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, WORKFLOW_TEMPLATES, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 /** Every request times out. */
 const alwaysTimesOut = () => {
@@ -18,7 +18,7 @@ const alwaysTimesOut = () => {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       calls.push(request.system.slice(0, 20));
       throw new ai.ModelError('timeout', '제한 시간을 초과했습니다.', false);
     },

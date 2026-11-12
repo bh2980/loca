@@ -3,120 +3,74 @@ import type { LineTab } from '@/components/line-detail';
 import { Fragment, useState } from 'react';
 import { Link } from '@tanstack/react-router';
 import { ChevronDown } from 'lucide-react';
-import { DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, type LineFilterInput, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@tw/shared';
+import { DECIDED_BY, DECIDED_BY_LABELS, type LineFilterInput, markName, type AutoMark, type MarkStyles, LINE_MARK_IDS, type LineMark, parseMarks } from '@loca/shared';
 import { FilterModeSwitch, markTagGroups, pickOf, PickIcon, togglePick, type FilterPick } from '@/components/header-filter';
 
 import { Box, Button, DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuGroup, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuSub, DropdownMenuSubTrigger, DropdownMenuTrigger, Inline, Input, StatusIcon, Text, DropdownMenuContent, DropdownMenuSubContent, MenuLabel } from '@loca/ui';
 import { PersonName } from '@/lib/person-colors';
+import { param, searchParams, type SearchOf } from '@/lib/search';
 
-export interface LinesSearch {
-  q?: string;
+/** The lines' URL search params: what each one is and what it may hold. */
+export const linesSearchParams = {
+  q: param.text,
   /** Status ids: lines in any of them. */
-  statuses?: string[];
+  statuses: param.ids,
   /** Tag ids: lines carrying all of them (with the automatic marks below, all combine). */
-  tags?: string[];
+  tags: param.ids,
   /** Speaker names: lines by any of them. */
-  speakers?: string[];
+  speakers: param.ids,
   /** 숨기기: lines in any of these statuses, by any of these speakers, or with any of these tags are left out. */
-  hideStatuses?: string[];
-  hideSpeakers?: string[];
-  hideTags?: string[];
+  hideStatuses: param.ids,
+  hideSpeakers: param.ids,
+  hideTags: param.ids,
   /** Hidden marks: lines carrying any of them are left out. */
-  hideMarks?: LineMark[];
+  hideMarks: param.read((raw) => parseMarks(raw, LINE_MARK_IDS)),
   /** A character name (a known listener), or "-" for 청자 모름 (said to someone whose listener is unknown or an unsure guess). */
-  listener?: string;
+  listener: param.text,
   /** 최종 아님 (true: the work left) or 최종 (false). */
-  unfinished?: boolean;
+  unfinished: param.bool,
   /** 정한 쪽: who set the status (AI ✦ or a person). */
-  decidedBy?: DecidedBy;
+  decidedBy: param.oneOf(DECIDED_BY),
   /** 메모 있음 (true) or 없음 (false). */
-  noted?: boolean;
+  noted: param.bool,
   /** 번역 제외 lines: absent = hidden (the default), show = with the rest, only = only them. */
-  excluded?: 'show' | 'only';
+  excluded: param.oneOf(['show', 'only']),
   /** Automatic marks (LINE_MARK_IDS): lines carrying every one of them. */
-  marks?: LineMark[];
+  marks: param.read((raw) => parseMarks(raw, LINE_MARK_IDS)),
   /**
    * How a filter shows: listed apart (the default: only the matching lines) or, with mode=find, walked one by one
    * inside their scenes (find, '장면에서 찾아가기', when the conversation around them matters).
    */
-  mode?: 'find';
-  page?: number;
-  line?: string;
+  mode: param.oneOf(['find']),
+  page: param.positive,
+  line: param.text,
   /** The line's details pane is open (closed by default: the row itself is the editor). */
-  detail?: true;
+  detail: param.flag,
   /** The AI node whose prompt context the line pane previews ("workflowId:nodeId"). */
-  aiNode?: string;
+  aiNode: param.read((raw) => (typeof raw === 'string' && raw.includes(':') ? raw : undefined)),
   /** The line pane's tab, when a link names one (else the pane opens as the last line was left). */
-  tab?: LineTab;
-}
+  tab: param.oneOf<LineTab>(['line', 'history', 'prompt']),
+};
+export type LinesSearch = SearchOf<typeof linesSearchParams>;
+export const linesSearchSchema = searchParams(linesSearchParams);
 
-const strings = (value: unknown) => (Array.isArray(value) && value.length && value.every((item) => typeof item === 'string') ? (value as string[]) : undefined);
-
-const bool = (value: unknown) => (value === true || value === 'true' ? true : value === false || value === 'false' ? false : undefined);
 /** 청자 모름 in the listener filter. */
 export const UNKNOWN_LISTENER = '-';
 
-export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => ({
-  q: typeof raw.q === 'string' && raw.q ? raw.q : undefined,
-  statuses: strings(raw.statuses),
-  tags: strings(raw.tags),
-  speakers: strings(raw.speakers),
-  hideStatuses: strings(raw.hideStatuses),
-  hideSpeakers: strings(raw.hideSpeakers),
-  hideTags: strings(raw.hideTags),
-  hideMarks: parseMarks(raw.hideMarks, LINE_MARK_IDS),
-  listener: typeof raw.listener === 'string' && raw.listener ? raw.listener : undefined,
-  unfinished: bool(raw.unfinished),
-  decidedBy: DECIDED_BY.find((by) => by === raw.decidedBy),
-  noted: bool(raw.noted),
-  excluded: raw.excluded === 'show' || raw.excluded === 'only' ? raw.excluded : undefined,
-  marks: parseMarks(raw.marks, LINE_MARK_IDS),
-  mode: raw.mode === 'find' ? 'find' : undefined,
-  page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
-  line: typeof raw.line === 'string' ? raw.line : undefined,
-  detail: raw.detail === true || raw.detail === 'true' ? true : undefined,
-  aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
-  tab: raw.tab === 'line' || raw.tab === 'history' || raw.tab === 'prompt' ? raw.tab : undefined,
-});
-
-/** The list query's filter params (the server's listQuery): lists of ids comma-joined, names as JSON (a name may hold a comma). */
-export function lineQueryParams(search: LinesSearch) {
-  const names = (list: string[] | undefined) => (list?.length ? JSON.stringify(list) : undefined);
-  return {
-    q: search.q,
-    marks: search.marks?.join(','),
-    hideMarks: search.hideMarks?.join(','),
-    statusIds: search.statuses?.join(','),
-    hideStatusIds: search.hideStatuses?.join(','),
-    tagIds: search.tags?.join(','),
-    hideTagIds: search.hideTags?.join(','),
-    speakers: names(search.speakers),
-    hideSpeakers: names(search.hideSpeakers),
-    listener: search.listener,
-    unfinished: search.unfinished === undefined ? undefined : search.unfinished ? ('1' as const) : ('0' as const),
-    decidedBy: search.decidedBy,
-    noted: search.noted === undefined ? undefined : search.noted ? ('1' as const) : ('0' as const),
-    // 번역 제외 lines are hidden unless the URL asks for them.
-    excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? ('only' as const) : ('hide' as const),
-  };
-}
 
 /**
- * The list's lines as the filter the server shares with the CLI (LineFilter): its scope (a group, a section, a view or the
- * review inbox, whose statuses narrow what is asked) and what the URL filters. What an export of this list starts from:
- * 번역 제외 lines the list hides stay in, because the file decides what becomes of them (the rest of the lines), and a file
- * filled with the source should hold every key.
+ * The list's lines as the one line filter (LineFilter in shared, resolved on the server): where the list is (a group, a
+ * section, a kind of group, the review inbox) and what the URL filters. The list endpoints take it as JSON, and the export
+ * dialog starts from it. 번역 제외 lines are hidden unless the URL asks for them.
  */
-export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; reviewStatuses?: string[] } = {}): LineFilterInput {
-  const inReview = scope.reviewStatuses && (search.statuses?.length ? search.statuses.filter((id) => scope.reviewStatuses!.includes(id)) : scope.reviewStatuses);
-  // An empty list asks for nothing, not for every status.
-  const statuses = inReview ? (inReview.length ? inReview : ['__none__']) : search.statuses;
+export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; review?: boolean } = {}): LineFilterInput {
   return {
     ...(scope.groupId && { groups: [scope.groupId] }),
     ...(scope.section && { sections: [scope.section] }),
     ...(scope.kind && { groupKind: scope.kind }),
+    ...(scope.review && { review: true as const }),
     q: search.q,
-    statuses,
+    statuses: search.statuses,
     tags: search.tags,
     speakers: search.speakers,
     listeners: search.listener ? [search.listener] : undefined,
@@ -128,8 +82,25 @@ export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; sec
     unfinished: search.unfinished,
     decidedBy: search.decidedBy,
     noted: search.noted,
-    excluded: search.excluded === 'only' ? 'only' : undefined,
+    excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? 'only' : 'hide',
   };
+}
+
+/**
+ * What an export of a list starts from: the list's filter with the 번역 제외 lines it hides kept in. The file decides what
+ * becomes of them (the rest of the lines), and a file filled with the source should hold every key.
+ */
+export const exportFilterOf = (filter: LineFilterInput): LineFilterInput => ({ ...filter, excluded: filter.excluded === 'hide' ? undefined : filter.excluded });
+
+/**
+ * The speaker filter's choices. A picked speaker stands for the person (the server finds their lines under every
+ * spelling), so the spellings of one character are one choice, under the character's name, with their lines added up;
+ * a speaker no character goes by stays as the script writes it.
+ */
+export function speakerChoices(rows: readonly { speaker: string | null; lines: number; character: string | null }[]): { name: string; lines: number }[] {
+  const lines = new Map<string, number>();
+  for (const row of rows) if (row.speaker) lines.set(row.character ?? row.speaker, (lines.get(row.character ?? row.speaker) ?? 0) + row.lines);
+  return [...lines].map(([name, count]) => ({ name, lines: count })).sort((a, b) => b.lines - a.lines);
 }
 
 /** How many filters narrow the list (what a person set, not the default hiding of 번역 제외). */
@@ -215,7 +186,7 @@ export function LineFilters({ projectId, statuses, tags, speakers, listeners, un
   };
   // 최종 아님 in the menu's mode: shown = the work left, hidden = only final lines.
   const unfinishedState: FilterPick | undefined = search.unfinished === true ? 'show' : search.unfinished === false ? 'hide' : undefined;
-  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag, projectId });
+  const groups = markTagGroups({ marks: LINE_MARK_IDS, picked: search.marks, hidden: search.hideMarks, onMark: (mark, mode) => pickMark(mark as LineMark, mode), tags, pickedTags: search.tags, hiddenTags: search.hideTags, onTag: pickTag });
   return (
     <Inline minWidth={0} gap="hair">
       <DropdownMenu onOpenChange={(open) => open && setStatusMode('show')}>

@@ -1,21 +1,24 @@
 import { mkdirSync } from 'node:fs';
+import { badRequest } from '../refusal.ts';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import type { UIMessage, UIMessageStreamWriter } from 'ai';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
+import * as ai from '@loca/ai';
 import type { Db } from '../db/index.ts';
+import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
-import { learnImages, logged } from './ai-calls.ts';
+import { learnImages, logged } from '../domain/ai-calls.ts';
 import { acpImages } from './chat-images.ts';
-import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@tw/shared';
+import { imageDecision, IMAGE_UNSUPPORTED_NOTE } from '@loca/shared';
 import { agentCatalog, jsonSchemaOf, type CatalogTool } from './agent-catalog.ts';
-import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } from './chat-context.ts';
+import { catchUp, handover, lastExchange, textOf, transcript, type AnsweredBy } from './chat-record.ts';
 import { fitRecord } from './chat-compaction.ts';
-import { estimateTokens } from '@tw/shared';
+import { estimateTokens } from '@loca/shared';
 import { takeInterjections, writeInterjections } from './chat-interject.ts';
-import { chatStream, runCatalogTool, turnPrompt } from './chat-stream.ts';
-import type { ChatTurn } from './chat-turns.ts';
+import { chatStream, turnPrompt } from './chat-stream.ts';
+import { agentText, callTool, describeTool, panelOutput } from './tool-run.ts';
+import type { ChatTurn } from './chat-turn-registry.ts';
 
 /**
  * Project chat through an agent CLI over ACP (packages/ai acp.ts). The CLI keeps the conversation
@@ -25,7 +28,6 @@ import type { ChatTurn } from './chat-turns.ts';
  * changes become proposals for this chat. The browser receives the AI SDK UI message stream like
  * any other chat, text as it streams.
  */
-const RESULT_LIMIT = 20_000;
 /** What a CLI adds to every request on its own (its system prompt and tools; Grok's is about 21k tokens). */
 const CLI_OVERHEAD = 25_000;
 
@@ -42,35 +44,35 @@ interface LiveTurn {
    */
   toolRan: boolean;
 }
-const live = new Map<string, LiveTurn>();
+const live = perDatabase(() => new Map<string, LiveTurn>());
 
 /** Each chat's MCP server, for this server run (its token lives in the CLI's session; a reopened session gets the current one). */
-const servers = new Map<string, ReturnType<typeof ai.hostTools>>();
+const servers = perDatabase(() => new Map<string, ReturnType<typeof ai.hostTools>>());
 
-export async function disposeChatServer(sessionId: string) {
-  const pending = servers.get(sessionId);
-  servers.delete(sessionId);
+export async function disposeChatServer(db: Db, sessionId: string) {
+  const pending = servers(db).get(sessionId);
+  servers(db).delete(sessionId);
   const hosted = await pending?.catch(() => undefined);
   hosted?.dispose();
-  live.delete(sessionId);
+  live(db).delete(sessionId);
 }
 
 function chatServer(db: Db, chat: { id: string; projectId: string }): Promise<ai.HostedServer> {
-  let server = servers.get(chat.id);
+  let server = servers(db).get(chat.id);
   if (!server) {
     server = ai
       .hostTools('loca', () => {
-        const turn = live.get(chat.id);
+        const turn = live(db).get(chat.id);
         const tools = turn ? [...turn.tools.values()] : agentCatalog(db, chat.projectId);
-        return tools.map((tool) => ({ name: tool.name, description: tool.changes ? `${tool.description}\n(변경: 이 대화의 제안으로 올라감)` : tool.description, inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
+        return tools.map((tool) => ({ name: tool.name, description: describeTool(tool, 'acp'), inputSchema: jsonSchemaOf(tool.schema), run: (input) => runTool(db, chat, tool.name, input) }));
       });
-    servers.set(chat.id, server);
+    servers(db).set(chat.id, server);
   }
   return server.then((hosted) => hosted.server);
 }
 
 async function runTool(db: Db, chat: { id: string; projectId: string }, name: string, input: Record<string, unknown>) {
-  const turn = live.get(chat.id);
+  const turn = live(db).get(chat.id);
   if (!turn) return { isError: true, text: '이 대화의 차례가 끝나 도구를 부를 수 없습니다.' };
   const tool = turn.tools.get(name);
   const toolCallId = crypto.randomUUID();
@@ -81,17 +83,10 @@ async function runTool(db: Db, chat: { id: string; projectId: string }, name: st
   let isError = false;
   try {
     if (!tool) throw new Error(`알 수 없는 도구입니다: ${name}`);
-    // A change's input is checked here, so a malformed one fails like a read would.
-    const result = await runCatalogTool(db, { ...chat, model: turn.model }, 'cli', tool, tool.changes ? (tool.schema.parse(input) as Record<string, unknown>) : input, RESULT_LIMIT);
-    if (result.ok) {
-      turn.writer.write({ type: 'tool-output-available', toolCallId, output: result.output });
-      text = result.text;
-    } else {
-      // The panel shows the plain reason; the agent also gets the ids to fix it with.
-      turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: result.error });
-      text = `제안을 만들지 않았습니다 — ${result.reason}`;
-      isError = true;
-    }
+    const outcome = await callTool(db, { projectId: chat.projectId, surface: 'acp', sessionId: chat.id, model: turn.model }, tool, input);
+    ({ text, isError } = agentText(outcome));
+    if (isError) turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: (panelOutput(outcome) as { error: string }).error });
+    else turn.writer.write({ type: 'tool-output-available', toolCallId, output: panelOutput(outcome) });
   } catch (cause) {
     const message = cause instanceof Error ? cause.message : String(cause);
     turn.writer.write({ type: 'tool-output-error', toolCallId, errorText: message });
@@ -104,9 +99,12 @@ async function runTool(db: Db, chat: { id: string; projectId: string }, name: st
   return { text, isError };
 }
 
-/** Where chat sessions run: an empty folder, the same for every chat (CLIs file sessions by folder). */
+/**
+ * Where chat sessions run: an empty folder, the same for every chat (CLIs file sessions by folder). Its name
+ * says nothing of the MCP server the sessions are given ("loca"), so no path under it reads like one of its tools.
+ */
 function chatFolder() {
-  const dir = path.join(tmpdir(), 'loca-chat');
+  const dir = path.join(tmpdir(), 'workbench-chat-sessions');
   mkdirSync(dir, { recursive: true });
   return dir;
 }
@@ -114,7 +112,7 @@ function chatFolder() {
 export async function cliChatResponse(input: {
   db: Db;
   chat: typeof s.chatSessions.$inferSelect;
-  route: ai.ResolvedRoute;
+  target: ai.ModelTarget;
   system: string;
   view: string | null;
   /** The conversation record with the new user message last (the server's, not the browser's). */
@@ -122,13 +120,14 @@ export async function cliChatResponse(input: {
   answeredBy: AnsweredBy;
   /** A turn has no overall limit (tool calls can run long): it is stopped when the CLI reports nothing for this long. */
   idleMs: number;
-  /** The conversation's running turn (chat-turns startTurn): its signal, end and closing mark. */
+  /** The conversation's running turn (chat-turn-registry.ts startTurn): its signal, end and closing mark. */
   turn: Pick<ChatTurn, 'signal' | 'end' | 'record' | 'markClosing'>;
 }): Promise<Response> {
-  const { db, chat, route, messages } = input;
-  const kind = route.kind as ai.AcpKind;
-  const tools = new Map(agentCatalog(db, chat.projectId, { model: route.model }).map((tool) => [tool.name, tool]));
-  const saved = chat.agentSession && chat.agentSession.kind === route.kind && chat.agentSession.model === route.model ? chat.agentSession : null;
+  const { db, chat, target, messages } = input;
+  const transport = ai.providerOf(target.kind).chat;
+  if (transport?.via !== 'agent') badRequest('이 연결은 CLI 에이전트로 채팅하지 않습니다.');
+  const tools = new Map(agentCatalog(db, chat.projectId, { model: target.model }).map((tool) => [tool.name, tool]));
+  const saved = chat.agentSession && chat.agentSession.kind === target.kind && chat.agentSession.model === target.model ? chat.agentSession : null;
   // The new message is the newest that is not a run card (a regenerate can leave cards after it; they go with the message).
   const last = lastExchange(messages);
   const lastAt = last ? messages.lastIndexOf(last) : messages.length;
@@ -149,11 +148,11 @@ export async function cliChatResponse(input: {
       const cwd = chatFolder();
       const server = await chatServer(db, chat);
       // The session: still open in a running process, reopened from the CLI's store, or new.
-      let agent = saved ? await ai.agentWith(kind, route.executable, saved.id) : null;
+      let agent = saved ? await transport.resume(target.executable, saved.id) : null;
       let lead: string | null = null;
       if (agent) sessionId = saved!.id;
       else {
-        agent = await ai.agentFor(kind, route.executable);
+        agent = await transport.start(target.executable);
         const reopened = saved ? await agent.reopen({ sessionId: saved.id, cwd, mcpServers: [server], system: input.system }) : null;
         if (reopened && saved) sessionId = saved.id;
         else {
@@ -166,37 +165,37 @@ export async function cliChatResponse(input: {
         await ai.closeSession(sessionId);
         input.turn.signal.throwIfAborted();
       }
-      await agent.use(sessionId, route.model, route.effort);
+      await agent.use(sessionId, target.model, target.effort);
       // The CLI's session is told what it missed (another model answered in between); a new one gets the record.
       const known = sessionId === saved?.id;
       // A new session gets the whole record, its start summarized only when it would not fit the model.
       const context = known
         ? catchUp(earlier, saved?.seen ?? earlier.length)
-        : handover((await fitRecord({ db, chat, route, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
+        : handover((await fitRecord({ db, chat, target, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
       // Images go as prompt blocks when the agent says it takes them; the capability is kept so the composer can warn before sending.
-      learnImages(db, route.connectionId, route.model, agent.takesImages());
+      learnImages(db, target.connectionId, target.model, agent.takesImages());
       const wanted = acpImages(last);
       const decision = imageDecision(agent.takesImages(), wanted.length);
       const images = decision.send ? wanted : [];
       let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', cardsAfter, decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
-      db.update(s.chatSessions).set({ agentSession: { kind: route.kind, model: route.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
+      db.update(s.chatSessions).set({ agentSession: { kind: target.kind, model: target.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
 
       let textId: string | null = null;
       const breakText = () => {
         if (textId) writer.write({ type: 'text-end', id: textId });
         textId = null;
       };
-      const current: LiveTurn = { writer, tools, model: route.model, breakText, toolRan: false };
+      const current: LiveTurn = { writer, tools, model: target.model, breakText, toolRan: false };
       const newStep = () => {
         writer.write({ type: 'finish-step' });
         writer.write({ type: 'start-step' });
         current.toolRan = false;
       };
-      live.set(chat.id, current);
+      live(db).set(chat.id, current);
       try {
         for (let pass = 0; ; pass++) {
           writer.write({ type: 'start-step' });
-          await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${pass ? ' · 끼어든 메시지 후' : ''})` }, route, () =>
+          await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: `채팅 (CLI${pass ? ' · 끼어든 메시지 후' : ''})` }, target, () =>
             agent.prompt(
               sessionId!,
               prompt,
@@ -228,7 +227,7 @@ export async function cliChatResponse(input: {
         }
       } finally {
         breakText();
-        live.delete(chat.id);
+        live(db).delete(chat.id);
       }
     },
     alsoSave: (final) => {

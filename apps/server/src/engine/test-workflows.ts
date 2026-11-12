@@ -22,16 +22,12 @@ const DROPPED = new Set(['terms', 'save-terms', 'speech', 'speech-sure', 'speech
 export function withoutTerms<T extends { nodes: { id: string }[]; edges: { id?: string; source: string; sourceHandle?: string; target: string }[] }>(definition: T): T {
   const edges = definition.edges.filter((edge) => !DROPPED.has(edge.source) && !DROPPED.has(edge.target));
   const judged = definition.nodes.some((node) => node.id === 'speech');
-  const closed = definition.nodes.some((node) => node.id === 'terms');
-  // A passing review had 용어 추출 after it; an exit that leads nowhere is unconnected, so it ends at an end node.
-  const end = { id: 'done', type: 'end', position: { x: 0, y: 0 }, config: {} } as unknown as T['nodes'][number];
   return {
     ...definition,
-    nodes: [...definition.nodes.filter((node) => !DROPPED.has(node.id)), ...(closed ? [end] : [])],
+    nodes: definition.nodes.filter((node) => !DROPPED.has(node.id)),
     edges: [
       ...edges,
       ...(judged ? [{ id: 'glossary-pass-review', source: 'glossary', sourceHandle: 'pass', target: 'review' } as T['edges'][number]] : []),
-      ...(closed ? [{ id: 'review-pass-done', source: 'review', sourceHandle: 'pass', target: 'done' } as T['edges'][number]] : []),
     ],
   };
 }

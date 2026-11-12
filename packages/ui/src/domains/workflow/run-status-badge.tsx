@@ -2,6 +2,7 @@ import { cn } from "../../lib/utils"
 import { Inline } from "../../primitives/stack"
 
 const LABEL = {
+  preparing: "준비 중",
   running: "실행 중",
   paused: "일시정지",
   completed: "완료",
@@ -9,8 +10,9 @@ const LABEL = {
   cancelled: "취소됨",
 } as const
 
-/** Shape + colour per run state, like StatusIcon: running = accent ring, paused = review, failed = destructive, ended = quiet. */
+/** Shape + colour per run state, like StatusIcon: preparing and running = accent ring, paused = review, failed = destructive, ended = quiet. */
 const DOT = {
+  preparing: "bg-accent",
   running: "bg-accent",
   paused: "bg-review",
   completed: "bg-success",
@@ -18,11 +20,11 @@ const DOT = {
   cancelled: "bg-neutral-subtle",
 } as const
 
-export interface RunStatusBadgeProps {
+interface RunStatusBadgeProps {
   status: keyof typeof LABEL
 }
 
-/** A run's state as a dot and its name. */
+/** A run's state as a dot and its name. `preparing`: the run exists but its lines are still being stored. */
 export function RunStatusBadge({ status }: RunStatusBadgeProps) {
   return (
     <Inline as="span" inline gap="tight" variant="caption" weight="medium" nowrap>
@@ -31,7 +33,7 @@ export function RunStatusBadge({ status }: RunStatusBadgeProps) {
         className={cn(
           "inline-block size-2 shrink-0",
           status === "failed" ? "rotate-45 rounded-[1px]" : "rounded-full",
-          status === "running" && "animate-pulse",
+          (status === "running" || status === "preparing") && "animate-pulse",
           DOT[status]
         )}
       />

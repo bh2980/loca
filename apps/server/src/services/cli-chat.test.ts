@@ -1,18 +1,24 @@
-import * as ai from '@tw/ai';
+import * as ai from '@loca/ai';
 import { deleteChat } from './chat-delete.ts';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
-import { agentWith, setAgentStarter, stopIdleAgents } from '@tw/ai';
-import { inProcessStarter } from '@tw/ai/fake-acp';
+import { importFileSchema } from '@loca/shared';
+import { setAgentStarter, stopIdleAgents } from '@loca/ai';
+import { inProcessStarter } from '@loca/ai/fake-acp';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { cliChatResponse } from './cli-chat.ts';
-import { runChatTurn } from './chat-run.ts';
-import { memoryStore } from './secrets.ts';
+import { runChatTurn } from './chat-turn.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { enqueueSteer } from './chat-interject.ts';
 import { importProject } from './importer.ts';
 import { decideProposal, hasUnreportedDecisions, propose } from './proposals.ts';
+
+/** The running agent process that has this session open, if any. */
+const agentWith = async (kind: 'grok', executable: string | undefined, sessionId: string) => {
+  const chat = ai.providerOf(kind).chat;
+  return chat?.via === 'agent' ? chat.resume(executable, sessionId) : null;
+};
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -35,7 +41,7 @@ function respond(db: ReturnType<typeof setup>['db'], chat: typeof s.chatSessions
   return cliChatResponse({
     db,
     chat,
-    route: { kind: 'grok', model: 'fake' },
+    target: { kind: 'grok', model: 'fake' },
     answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'fake' },
     system: 'test',
     view: null,
@@ -74,7 +80,7 @@ describe('CLI chat over ACP', () => {
       cliChatResponse({
         db,
         chat,
-        route: { kind: 'grok', model: 'fake' },
+        target: { kind: 'grok', model: 'fake' },
         answeredBy: { kind: 'grok', connectionId: 'conn-grok', model: 'fake' },
         system: 'test',
         view: null,

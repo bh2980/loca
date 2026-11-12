@@ -1,14 +1,14 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { batchChangeSchema, importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { batchChangeSchema, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { applyBatch, validateBatch } from '../services/script-query.ts';
-import { attachUnitTags } from '../services/tag-scope.ts';
-import { saveTerm } from '../services/terms.ts';
+import { attachUnitTags } from '../domain/tag-scope.ts';
+import { saveTerm } from '../domain/terms.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { sourceRoutes } from './source.ts';
 import { scriptRoutes } from './script.ts';
@@ -29,12 +29,12 @@ function setup() {
     const { projectId } = importProject(db, file, null as never);
     const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
     const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
-    const tag = (name: string, scope: ('lines' | 'knowledge' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
+    const tag = (name: string, scope: ('lines' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
     return { projectId, unit, status, tag };
   };
   const mine = project('Mine');
   const other = project('Other');
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -205,7 +205,7 @@ describe('one save for a line (text, candidate and status together)', () => {
   it('the typed text is the line, its selected candidate and its status in one write', async () => {
     const { db, mine, send } = setup();
     const unitId = mine.unit('a').id;
-    const response = await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' });
+    const response = await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev: mine.unit('a').updatedAt.getTime() });
     expect(response.status).toBe(200);
     expect(await response.json()).toMatchObject({ translation: '적어 둬.' });
     const after = read(db, unitId);
@@ -217,14 +217,15 @@ describe('one save for a line (text, candidate and status together)', () => {
   it('a rapid double save of the same text is one candidate; a late save from the old text cannot empty the line', async () => {
     const { db, mine, send } = setup();
     const unitId = mine.unit('a').id;
-    // Two clicks before the first answer: both start from the empty line.
-    const [first, second] = await Promise.all([send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' }), send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })]);
+    // Two clicks before the first answer: both were made from the empty line (its rev then).
+    const rev = mine.unit('a').updatedAt.getTime();
+    const [first, second] = await Promise.all([send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev }), send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev })]);
     expect([first.status, second.status]).toEqual([200, 200]);
     expect(read(db, unitId).candidates.map((candidate) => candidate.text)).toEqual(['적어 둬.']);
     // An echo of the old (empty) text from a stale editor is refused, not saved over what was typed.
-    expect((await send('POST', `/units/${unitId}/save`, { text: '', base: '' })).status).toBe(409);
-    // Saving the current text again changes nothing.
-    expect((await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', base: '' })).status).toBe(200);
+    expect((await send('POST', `/units/${unitId}/save`, { text: '', rev })).status).toBe(409);
+    // Saving the current text again changes nothing, so there is nothing to refuse.
+    expect((await send('POST', `/units/${unitId}/save`, { text: '적어 둬.', rev })).status).toBe(200);
     const after = read(db, unitId);
     expect(after.line.translation).toBe('적어 둬.');
     expect(after.candidates).toHaveLength(1);

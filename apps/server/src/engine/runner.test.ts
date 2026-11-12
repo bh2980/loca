@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@tw/shared';
+import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
@@ -30,7 +30,8 @@ function setup(lines = 30) {
     sort: 10,
   }).returning().get();
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
-  const confirmed = statuses.find((s) => s.kind === 'final')!;
+  // The status the test flows end in. Not a final one: these flows have no 번역 저장 node, and a final status needs a translation.
+  const confirmed = statuses.find((s) => s.kind === 'normal' && !s.inReview)!;
   return { db, projectId, choice, needsReview, confirmed };
 }
 
@@ -38,11 +39,11 @@ const at = { x: 0, y: 0 };
 /** An AI node's config with the model chosen. */
 const ai = (choice: unknown, config: Record<string, unknown>) => ({ type: 'ai', position: at, config: { model: choice, ...config } });
 const fn = (name: string, params: Record<string, unknown> = {}) => ({ type: 'function', position: at, config: { fn: name, params } });
-/** Nodes by id with edges "from.port -> to". */
+/** Nodes by id with edges "from.port -> to"; "-> end" is an exit with nothing after it. */
 const flow = (nodes: Record<string, object>, edges: string[]) =>
   workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node })), { id: 'end', type: 'end', position: at }],
-    edges: edges.map((edge, index) => {
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node }))],
+    edges: edges.filter((edge) => !edge.endsWith(' -> end')).map((edge, index) => {
       const [from, to] = edge.split(' -> ');
       const [source, sourceHandle = 'out'] = from.split('.');
       return { id: String(index), source, sourceHandle, target: to };
@@ -61,7 +62,7 @@ function fakeModel(): ModelPort & { calls: string[] } {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const input = { lines: promptEntries(request.prompt) as { id: string; source: string; candidate?: string }[] };
       const kind = request.system.includes('Review each') ? 'review' : request.system.includes('Revise each') ? 'revise' : 'translate';
       calls.push(kind);
@@ -154,7 +155,7 @@ describe('workflow runner', () => {
     expect(first.data.outputs!.translate).toEqual({ text: expect.stringMatching(/^\[translate\]/) });
   });
 
-  it('marks the batch failed with the model error when no route works', async () => {
+  it('marks the batch failed with the model error when the model call fails', async () => {
     const { db, projectId, choice, needsReview, confirmed } = setup(2);
     const runner = new Runner(db, memoryStore(), {
       ask: async () => {
@@ -190,7 +191,7 @@ describe('choice output', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push({ system: request.system, prompt: request.prompt, schema: request.schema });
         const entries = promptEntries(request.prompt) as { id: string }[];
         return { object: { results: entries.map((entry, index) => ({ id: entry.id, value: index === 0 ? 'Pat' : index === 1 ? 'Nobody' : null, confidence: 0.95 })) }, usage: {} } as never;
@@ -221,7 +222,7 @@ describe('json output', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         calls += 1;
         const entries = promptEntries(request.prompt) as { id: string }[];
         // The first call leaves the last line out.
@@ -260,7 +261,7 @@ describe('json output', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: (async (_route: unknown, request: { system: string }) => {
+      generate: (async (_target: unknown, request: { system: string }) => {
         seen.push(request);
         return { object: { terms: [{ source: 'artifact', evidence: ['L2'] }] }, usage: {} };
       }) as never,
@@ -371,17 +372,13 @@ describe('function nodes', () => {
   });
 
   it('stops a runaway script and reports it as an error', async () => {
-    const { db, projectId, choice } = setup(1);
+    const { db, projectId } = setup(1);
     const definition = workflowDefinitionSchema.parse({
       nodes: [
         { id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} },
         { id: 'loop', type: 'function', position: { x: 0, y: 0 }, config: { fn: 'script', params: { code: 'function run() { while (true) {} }' } } },
-        { id: 'end', type: 'end', position: { x: 0, y: 0 } },
       ],
-      edges: [
-        { id: '1', source: 'entry', sourceHandle: 'out', target: 'loop' },
-        { id: '2', source: 'loop', sourceHandle: 'out', target: 'end' },
-      ],
+      edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'loop' }],
     });
     const workflow = db.insert(s.workflows).values({ projectId, name: 'loop', definition }).returning().get();
     const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
@@ -395,6 +392,7 @@ describe('function nodes', () => {
 describe('who set the status', () => {
   it('keeps a person\'s translation and status in a status-filtered run, and only reports it', async () => {
     const { applyExitActions } = await import('./exit-actions.ts');
+    const { subjectOf } = await import('./subjects.ts');
     const { db, projectId } = setup(1);
     const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
@@ -402,7 +400,7 @@ describe('who set the status', () => {
     const final = statuses.find((status) => status.kind === 'final')!;
     const definition = flow({}, ['entry -> end']);
     const call = (candidateText: string) =>
-      db.transaction((tx) => applyExitActions(tx, { id: 'r', projectId, subject: 'lines', scope: { statusIds: [initial.id] }, tags: [], definition }, { subjectId: unit.id, data: { path: [], outputs: {}, candidateText } }, 'entry', 'out', [status(final.id)]));
+      db.transaction((tx) => applyExitActions(tx, { id: 'r', projectId, scope: { filter: { statusIds: [initial.id] } }, tags: [], definition }, { subjectId: unit.id, data: { path: [], outputs: {}, candidateText } }, 'entry', 'out', [status(final.id)], subjectOf('lines').exitActions));
 
     // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
@@ -419,10 +417,14 @@ describe('who set the status', () => {
   });
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
-    const { filtersByStatus } = await import('@tw/shared');
-    expect(filtersByStatus({ statusIds: ['untranslated'] })).toBe(true);
+    const { filtersByStatus } = await import('@loca/shared');
+    expect(filtersByStatus({ filter: { statusIds: ['untranslated'] } })).toBe(true);
+    // Every way of picking by status counts: statuses hidden, 최종 아님, the review inbox's statuses.
+    expect(filtersByStatus({ filter: { hideStatusIds: ['done'] } })).toBe(true);
+    expect(filtersByStatus({ filter: { unfinished: true } })).toBe(true);
+    expect(filtersByStatus({ filter: { review: true } })).toBe(true);
     // A run without a status filter (말투만 고치기 on picked lines) is asked to rewrite the lines it names.
-    expect(filtersByStatus({ statusIds: [] })).toBe(false);
+    expect(filtersByStatus({ filter: { lineIds: ['a'] } as never })).toBe(false);
     expect(filtersByStatus({})).toBe(false);
   });
 });
@@ -443,7 +445,7 @@ describe('an AI node reading the previous step’s result', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         const lines = promptEntries(request.prompt) as { id: string }[];
         if (request.system.includes('Who is addressed?')) return { object: { results: lines.map((line) => ({ id: line.id, listener: `P${line.id}`, reason: 'why' })) }, usage: {} } as never;
@@ -472,7 +474,7 @@ describe('an AI node reading the previous step’s result', () => {
       ask: async () => {
         throw new Error('unused');
       },
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         seen.push(request);
         return { object: { people: ['Alice'] }, usage: {} } as never;
       },

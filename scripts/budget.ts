@@ -17,8 +17,8 @@ import { ANALYSIS_WORKFLOW, WORKFLOW_TEMPLATES, analysisTemplate, importFileSche
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
 import { importProject } from '../apps/server/src/services/importer.ts';
-import { snapshotWorkflowModels } from '../apps/server/src/services/routes.ts';
-import { memoryStore } from '../apps/server/src/services/secrets.ts';
+import { snapshotWorkflowModels } from '../apps/server/src/domain/model-target.ts';
+import { memoryStore } from '../apps/server/src/domain/secrets.ts';
 import { Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
 import { createRun } from '../apps/server/src/engine/run-create.ts';
 import { DEFAULT_OPTIONS, PROFILES, makeRand, respond, type MockOptions } from './mock-llm-core.ts';
@@ -77,7 +77,7 @@ function mockPort(options: MockOptions): ModelPort {
     ask: async () => {
       throw new Error('the budget harness has no judgment model');
     },
-    generate: (async (_route: unknown, request: ai.GenerateRequest<unknown>) => {
+    generate: (async (_target: unknown, request: ai.GenerateRequest<unknown>) => {
       const out = respond({ system: request.system, user: request.prompt, schema: z.toJSONSchema(request.schema as z.ZodType) }, options, rand);
       if (out.status === 429) throw new ai.ModelError('rate-limit', 'mock rate limit', true);
       const usage: ai.Usage = {
@@ -85,7 +85,7 @@ function mockPort(options: MockOptions): ModelPort {
         cachedInputTokens: out.usage.prompt_tokens_details?.cached_tokens ?? 0,
         outputTokens: out.usage.completion_tokens,
       };
-      if (out.finishReason === 'length') throw new ai.ModelError('invalid-output', 'mock output cut off', false, usage);
+      if (out.finishReason === 'length') throw new ai.ModelError('cut-off', 'mock output cut off', false, usage);
       let parsed: unknown;
       try {
         parsed = JSON.parse(out.content);
@@ -118,7 +118,7 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
   // The run takes its definition from here (a snapshot), so the override needs no write.
   if (scenario.settings) workflow = { ...workflow, definition: { ...workflow.definition, settings: { ...workflow.definition.settings, ...scenario.settings } } };
-  const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
+  const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
 
   const started = performance.now();
   // A 재요청 node's wait (rate limits, dropped connections) is skipped, not slept: the clock jumps to when the first waiting line is due.

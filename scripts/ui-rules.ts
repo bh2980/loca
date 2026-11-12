@@ -5,6 +5,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { staticStyles } from './ui-style';
 import { checkTiers } from './ui-tiers';
 
 const repo = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -21,6 +22,8 @@ const LEGACY_RULES: { name: string; pattern: RegExp }[] = [
   { name: 'defaultOpen={false} (a folding part starts open: Section collapsible persistKey="…")', pattern: /defaultOpen=\{false\}/ },
   // Two folding patterns, one look: parts of a pane (Section / Group collapsible) and rows that open (ExpandableRow).
   { name: 'Collapsible in a screen (use Section / Group collapsible, or ExpandableRow)', pattern: /\bCollapsible(?:Trigger|Content)?\b/ },
+  // One confirmation part: the wording is the screen's, the structure is not.
+  { name: 'hand-written AlertDialog (use ConfirmDialog: title, description, confirmLabel, pending)', pattern: /\bAlertDialog\w*\b/ },
 
 ];
 /**
@@ -88,17 +91,71 @@ const sources = /\.(?:tsx?|css)$/;
 
 let failures = 0;
 const report = (where: string, line: number, what: string) => { failures++; console.log(`${where}:${line}  ${what}`); };
+
+/**
+ * The web app's data layer has one way to do each thing, and it lives in apps/web/src/lib (AGENTS.md "Data flow",
+ * "Page state"). These keep the screens from growing a second way.
+ */
+const DATA_RULES: { name: string; pattern: RegExp; applies: (file: string) => boolean }[] = [
+  {
+    // A write is a function of its entity in lib/ (through the collection and `sent`: done when its x-seq comes back).
+    name: 'API write in a screen (call the entity\'s function in lib/: every write goes through `sent`)',
+    pattern: /\.\$(?:post|put|patch|delete)\(|\b(?:apiFetch|fetch)\(/,
+    applies: (file) => /^(?:routes|components)\//.test(file) && !API_WRITE_ALLOWED.has(file),
+  },
+  {
+    // Every key comes from the factory, so it starts with the topic that refetches it (or declares what it follows).
+    name: 'query key literal (make it with key() / ownKey() from lib/query-keys.ts)',
+    pattern: /\bqueryKey:\s*\[/,
+    applies: (file) => file !== 'lib/query-keys.ts',
+  },
+  {
+    // Every shortcut is declared once (keys, label, where it acts) and the shortcut list prints the declarations.
+    name: 'window key listener (declare the shortcut in lib/shortcuts.ts and handle it with useShortcuts)',
+    pattern: /addEventListener\(\s*['"]key(?:down|up|press)['"]/,
+    applies: (file) => file !== 'lib/shortcuts.ts',
+  },
+  {
+    // One reading of "is the person typing?" and "is something open on top?" (lib/keys.ts).
+    name: 'own typing / overlay check (use isTyping, onControl, inOverlay, overlayOpen from lib/keys.ts)',
+    pattern: /\.isContentEditable\b|\.tagName\b|querySelector\(\s*['"`]\[role=/,
+    applies: (file) => file !== 'lib/keys.ts',
+  },
+  {
+    // A route's search params are declared once with the helpers of lib/search.ts.
+    name: 'hand-written validateSearch (declare the params with param.* and searchParams from lib/search.ts)',
+    pattern: /validateSearch:\s*\(/,
+    applies: (file) => /^routes\//.test(file),
+  },
+  {
+    // Every stored value is a key of the registry, read through its schema; storage that throws is handled once.
+    name: 'localStorage / sessionStorage (declare a key in lib/storage.ts and use stored() / useStored())',
+    pattern: /\b(?:localStorage|sessionStorage)\b/,
+    applies: (file) => file !== 'lib/storage.ts',
+  },
+];
+/**
+ * Screens that may call the API client's write methods themselves: only where a call is not a write of an entity's
+ * rows and cannot be a function in lib/. Each entry says why. (The streamed chat turn, the one request that is
+ * neither a question nor an entity write, is already in lib/: lib/chat-store.ts hands it to the AI SDK's transport.)
+ */
+const API_WRITE_ALLOWED = new Set<string>([]);
 const BASE_STEP = TOKEN_RULES[TOKEN_RULES.length - 1];
 for (const file of files(root, sources))
   readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
     const where = `apps/web/src/${path.relative(root, file)}`;
     for (const rule of [...(file.endsWith('.css') ? [] : LEGACY_RULES), ...TOKEN_RULES, ...(file.endsWith('.css') ? [] : [CLASS_RULE])]) if (rule.pattern.test(line)) report(where, i + 1, rule.name);
     for (const problem of colorClassProblems(line)) report(where, i + 1, problem);
+    const relative = path.relative(root, file).split(path.sep).join('/');
+    for (const rule of DATA_RULES) if (rule.applies(relative) && rule.pattern.test(line)) report(where, i + 1, rule.name);
   });
 for (const file of [...files(ui, sources), ...files(path.join(ui, '../.storybook'), sources)]) {
   const inTokens = file.startsWith(tokens + path.sep);
+  // What a part remembers goes through the package's one storage module (the prefix, storage that throws).
+  const ownStorage = !file.endsWith(path.join('lib', 'storage.ts')) && !file.endsWith('.stories.tsx');
   readFileSync(file, 'utf8').split('\n').forEach((line, i) => {
     const where = `packages/ui/${path.relative(path.join(ui, '..'), file)}`;
+    if (ownStorage && /\b(?:localStorage|sessionStorage)\b/.test(line)) report(where, i + 1, 'localStorage / sessionStorage in a part (use readStored / writeStored / storedItems from lib/storage.ts)');
     for (const rule of TOKEN_RULES) if (!(inTokens && rule === BASE_STEP) && rule.pattern.test(line)) report(where, i + 1, rule.name);
     if (!inTokens) for (const problem of colorClassProblems(line)) report(where, i + 1, problem);
   });
@@ -123,6 +180,11 @@ for (const file of [...files(ui, sources), ...files(path.join(ui, '../.storybook
     }
   });
 }
+for (const [base, prefix] of [[root, 'apps/web/src/'], [ui, 'packages/ui/src/']] as const)
+  for (const file of files(base, /\.tsx$/)) {
+    if (file.endsWith('.stories.tsx')) continue;
+    for (const problem of staticStyles(readFileSync(file, 'utf8'))) report(`${prefix}${path.relative(base, file)}`, problem.line, `static style value (${problem.properties.join(', ')}): say it with a prop or a class of a @loca/ui part; style is for values computed from data or geometry`);
+  }
 checkTiers(ui, report);
 // Tailwind only generates classes it finds under the CSS file's @source folders: a path that does
 // not exist silently drops every class used only in @loca/ui (dialogs off-screen, switches blank).

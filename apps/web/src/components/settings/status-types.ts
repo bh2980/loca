@@ -1,5 +1,5 @@
 /** Row and form shapes shared by the status, tag and mark panes. */
-import { TAG_SCOPES, TAG_SCOPE_LABELS, type TagScope } from '@tw/shared';
+import { TAG_SCOPES, TAG_SCOPE_LABELS, type TagScope } from '@loca/shared';
 import { STATUS_KIND } from '@/lib/labels';
 
 export type Kind = keyof typeof STATUS_KIND;

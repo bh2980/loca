@@ -1,5 +1,5 @@
 import { ShieldCheck, ShieldOff, ShieldQuestion } from 'lucide-react';
-import { PERMISSION_MODE_INFO, PERMISSION_MODES, type PermissionMode } from '@tw/shared';
+import { PERMISSION_MODE_INFO, PERMISSION_MODES, type PermissionMode } from '@loca/shared';
 import { ModeSelect } from '@loca/ui';
 
 const ICON = { ask: ShieldQuestion, auto: ShieldCheck, bypass: ShieldOff } as const;

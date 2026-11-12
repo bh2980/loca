@@ -1,13 +1,13 @@
 import { asc, eq } from 'drizzle-orm';
 import { z } from 'zod';
-import * as ai from '@tw/ai';
-import { editorAiSchema, formatPatternError } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { editorAiSchema, formatPatternError } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { badRequest } from '../http-errors.ts';
-import { logged } from './ai-calls.ts';
-import { liveChoice } from './routes.ts';
-import type { SecretStore } from './secrets.ts';
+import { badRequest } from '../refusal.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { liveChoice } from '../domain/model-target.ts';
+import type { SecretStore } from '../domain/secrets.ts';
 
 export const REGEX_TARGETS = ['token', 'check'] as const;
 export type RegexTarget = (typeof REGEX_TARGETS)[number];
@@ -29,7 +29,7 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const editorAi = editorAiSchema.parse(db.select({ editorAi: s.projects.editorAi }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.editorAi ?? {});
   const choice = editorAi.model;
   if (!choice.connectionId || !choice.model) badRequest('설정 › 에디터에서 AI 모델을 고르세요.');
-  const { snapshot, route } = liveChoice(db, choice, secrets, 'generate');
+  const { snapshot, target } = liveChoice(db, choice, secrets, 'generate');
   const samples = db.select({ source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).limit(10).all();
   const kinds = KINDS[request.target];
   const schema = z.object({
@@ -41,8 +41,8 @@ export async function generateRegex(db: Db, secrets: SecretStore, projectId: str
   const prompt = [TASK[request.target], `사용자 요청: ${request.prompt}`, samples.length ? `대본 샘플:\n${samples.map((row) => `- ${row.source}`).join('\n')}` : ''].filter(Boolean).join('\n\n');
   const system = '당신은 JavaScript 정규식 전문가입니다. 요청한 필드만 채워 돌려주세요.';
   const call = { projectId, kind: 'editor' as const, label: '자연어로 정규식 만들기', request: `${system}\n\n---\n\n${prompt}` };
-  const result = await ai.callOnce(route, (route) => logged(db, call, route, () => generate(route, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAi.timeoutSeconds * 1000, signal })), signal);
-  const rule = schema.parse(result.result.object);
+  const result = await ai.callOnce(() => logged(db, call, target, () => generate(target, { system, prompt, schema, maxOutputTokens: snapshot.maxOutputTokens, timeoutMs: editorAi.timeoutSeconds * 1000, signal })), signal);
+  const rule = schema.parse(result.object);
   const error = formatPatternError(rule.pattern);
   if (error) badRequest(`생성된 정규식을 쓸 수 없습니다. 설명을 바꿔 다시 해 보세요. (${error})`);
   return rule;

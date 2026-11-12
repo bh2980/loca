@@ -1,5 +1,5 @@
 import { beforeEach, expect, it, vi } from 'vitest';
-import { PALETTE } from '@tw/shared';
+import { PALETTE } from '@loca/shared';
 import { createAndAttachTag } from './create-tag';
 const post = vi.hoisted(() => vi.fn());
 vi.mock('./api', () => ({ client: { projects: { ':projectId': { tags: { $post: post } } } } }));

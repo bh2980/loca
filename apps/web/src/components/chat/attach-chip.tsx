@@ -1,5 +1,5 @@
 import { useRouter } from '@tanstack/react-router';
-import { shortLabel, type ChatChip } from '@tw/shared';
+import { shortLabel, type ChatChip } from '@loca/shared';
 import { AttachmentChip } from '@loca/ui';
 import { chipHref } from '@/lib/chat-links';
 

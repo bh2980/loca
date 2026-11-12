@@ -2,7 +2,7 @@ import { asc, eq, isNull } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import type { SecretStore } from './secrets.ts';
+import type { SecretStore } from '../domain/secrets.ts';
 
 /**
  * Connections as the settings and model pickers list them: a project's own (`projectId`) or the home's

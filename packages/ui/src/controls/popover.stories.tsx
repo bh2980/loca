@@ -1,8 +1,9 @@
+import { useState } from "react"
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { Stack } from "../primitives/stack"
 import { Text } from "../primitives/text"
 import { Button } from "./button"
-import { Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "./popover"
+import { PointPopover, Popover, PopoverContent, PopoverDescription, PopoverHeader, PopoverTitle, PopoverTrigger } from "./popover"
 
 const meta = { title: "Controls/Popover", component: Popover } satisfies Meta<typeof Popover>
 export default meta
@@ -64,3 +65,18 @@ export const LongText: Story = {
     </Popover>
   ),
 }
+
+function AtPoint() {
+  const [at, setAt] = useState<{ x: number; y: number } | null>(null)
+  return (
+    <>
+      <Button variant="outline" onClick={(event) => setAt({ x: event.clientX, y: event.clientY })}>누른 자리에 열기</Button>
+      <PointPopover at={at} onClose={() => setAt(null)}>
+        <PopoverContent align="start" width="popover"><Text variant="caption">트리거 없이, 화면이 든 자리에 섭니다.</Text></PopoverContent>
+      </PointPopover>
+    </>
+  )
+}
+
+/** `PointPopover`: it stands at a point the screen holds (where a menu was, over a canvas). */
+export const AtAPoint: Story = { render: () => <AtPoint /> }

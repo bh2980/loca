@@ -1,5 +1,5 @@
 {
-  "name": "@tw/web",
+  "name": "@loca/web",
   "private": true,
   "type": "module",
   "scripts": {
@@ -19,8 +19,8 @@
     "@tanstack/react-query": "^5.104.1",
     "@tanstack/react-router": "^1.170.41",
     "@tanstack/react-virtual": "^3.14.13",
-    "@tw/server": "workspace:*",
-    "@tw/shared": "workspace:*",
+    "@loca/server": "workspace:*",
+    "@loca/shared": "workspace:*",
     "@xyflow/react": "^12.12.0",
     "ai": "^7.0.134",
     "clsx": "^2.1.1",

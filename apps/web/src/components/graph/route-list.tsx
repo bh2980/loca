@@ -4,47 +4,30 @@ import { useMutation } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
 import { toast } from 'sonner';
-import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, TAG_SCOPES, type ReadingRouteFork } from '@tw/shared';
+import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, type ReadingRouteFork, TAG_SCOPES } from '@loca/shared';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
 import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike, VirtualItem } from '@loca/ui';
-import { client } from '@/lib/api';
-import { tokenPatternOf } from '@/lib/line-context';
-import { keyLabel } from '@/lib/keys';
+import { tokenPatternOf } from '@/lib/source-parts';
+import { isTyping, keyLabel } from '@/lib/keys';
+import { keyOf, useShortcuts } from '@/lib/shortcuts';
 import { lineTags } from '@/lib/queries';
-import { changeLines, patchedLine, useLines, type Line } from '@/lib/units';
+import { useLines, type Line } from '@/lib/units';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useProject } from '@/lib/project';
+import { patchLine } from '@/lib/line-writes';
+import { stored, STORED } from '@/lib/storage';
 
 type Row = Line;
 type Status = Parameters<typeof TranslationEditor>[0]['statuses'][number];
 
 /** Lines are loaded in bounded chunks around the virtualized reader viewport. */
 const CHUNK = 40;
-const scrollKey = (projectId: string, routeKey: string) => `tw.graph.route.reading.${projectId}.${encodeURIComponent(routeKey)}`;
-
-function readScroll(key: string) {
-  try {
-    const value = Number(sessionStorage.getItem(key));
-    return Number.isFinite(value) && value > 0 ? value : 0;
-  } catch {
-    return 0;
-  }
-}
-
-function writeScroll(key: string, value: number) {
-  try {
-    sessionStorage.setItem(key, String(value));
-  } catch {
-    // Scroll restoration is a convenience when session storage is unavailable.
-  }
-}
-
-function typing(target: EventTarget | null) {
-  return target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA'].includes(target.tagName));
-}
+const scrollKey = (projectId: string, routeKey: string) => `${projectId}.${encodeURIComponent(routeKey)}`;
+const readScroll = (key: string) => stored(STORED.routeScroll, key).read();
+const writeScroll = (key: string, value: number) => stored(STORED.routeScroll, key).write(value);
 
 function RouteLineRow({ projectId, row, selected, status, statusList, rules, tags, tokenPattern, focusTick, loadError, stageLabel, onRetry, onSelect, onEscape, onDone }: {
   projectId: string;
@@ -65,7 +48,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
 }) {
   const colorOf = usePersonColors(projectId);
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[] }) => changeLines(projectId, [row!.id], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId: row!.id }, json })),
+    mutationFn: (json: { tagIds?: string[] }) => patchLine(projectId, row!.id, json),
     onError: (error) => toast.error(error.message),
   });
 
@@ -242,32 +225,24 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     if (index >= 0 && index < sequence.length) select(sequence[index]!.unitId, editing);
     else toast(direction === 1 ? '이 길의 마지막 줄입니다.' : '이 길의 첫 줄입니다.');
   };
-  const keys = useRef({ moveLine, goUntranslated, edit, select });
-  keys.current = { moveLine, goUntranslated, edit, select };
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
-      const target = event.target instanceof Element ? event.target : null;
-      if (target && target !== document.body && !target.closest('[data-testid="route-list"]')) return;
-      if (target?.closest('button, a, select, [role="menu"], [role="listbox"], [role="dialog"], [data-route-inspector]')) return;
-      const inField = typing(event.target);
-      if (event.altKey && event.code === 'KeyN') {
-        event.preventDefault();
-        keys.current.goUntranslated(event.shiftKey ? -1 : 1);
-        return;
-      }
-      if (event.key === 'Enter') {
-        if (!inField && keys.current.edit) (event.preventDefault(), keys.current.select(keys.current.edit, true));
-        return;
-      }
-      if (event.key !== 'ArrowDown' && event.key !== 'ArrowUp') return;
-      if (inField ? !event.altKey : event.altKey) return;
-      event.preventDefault();
-      keys.current.moveLine(event.key === 'ArrowDown' ? 1 : -1, inField);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useShortcuts(
+    {
+      routeNextUntranslated: () => goUntranslated(1),
+      routePreviousUntranslated: () => goUntranslated(-1),
+      routeEdit: () => (edit ? select(edit, true) : false),
+      routeMove: (_event, combo) => moveLine(combo === 'Down' ? 1 : -1, false),
+      // From the editor the next line opens for editing; outside a field ⌥↑↓ is not this list's.
+      routeMoveTyping: (event, combo) => (isTyping(event.target) ? moveLine(combo === 'Alt+Down' ? 1 : -1, true) : false),
+    },
+    {
+      // The list takes keys from itself (or from the page when nothing has the focus), never from its controls or the pane beside it.
+      when: (event) => {
+        const target = event.target instanceof Element ? event.target : null;
+        if (target && target !== document.body && !target.closest('[data-testid="route-list"]')) return false;
+        return !target?.closest('button, a, select, [data-route-inspector]');
+      },
+    },
+  );
 
   const renderLine = (index: number) => {
     const entry = sequence[index]!;
@@ -300,10 +275,10 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
         <Text variant="caption" tone="muted" tabular truncate minWidth={0} grow data-testid="route-list-count">
           {sequence.length.toLocaleString()}줄 · 미번역 {remaining.toLocaleString()}
         </Text>
-        <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 미번역 줄 (${keyLabel('Alt+Shift+N')})`} onClick={() => goUntranslated(-1)}>
+        <Button variant="ghost" disabled={previousUntranslated === undefined} title={`앞의 미번역 줄 (${keyLabel(keyOf('routePreviousUntranslated'))})`} onClick={() => goUntranslated(-1)}>
           <ChevronUp /> 이전 미번역
         </Button>
-        <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 미번역 줄 (${keyLabel('Alt+N')})`} onClick={() => goUntranslated(1)}>
+        <Button variant="ghost" disabled={nextUntranslated === undefined} title={`뒤의 미번역 줄 (${keyLabel(keyOf('routeNextUntranslated'))})`} onClick={() => goUntranslated(1)}>
           <ChevronDown /> 다음 미번역
         </Button>
       </Inline>

@@ -1,22 +1,23 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate, type BatchConfig } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, translationTemplate, type BatchConfig } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { runItemRows } from '../services/run-detail.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
 import { Hono } from 'hono';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../http.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
-const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
+const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 
 /**
  * One scene of `lines` lines run through the translate/review template (whose AI nodes follow the workflow's
@@ -56,7 +57,7 @@ function model(fail: (n: number, size: number) => Error | null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (_route, request) => {
+    generate: async (_target, request) => {
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];
       if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
       requests.push(lines.map((line) => line.source));
@@ -202,21 +203,24 @@ describe('lines being resent, as the run page reads them', () => {
     db.update(s.runs).set({ definition: { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 0 ? { ...rule, wait: 60 } : rule)) } } }).where(eq(s.runs.id, runId)).run();
     const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
     await runner.drain();
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {
         context.set('deps', { db, runner } as never);
         await next();
       })
       .route('/', workflowRoutes);
 
-    const all = (await (await app.request(`/runs/${runId}/items`)).json()) as { total: number; rows: { state: string; retry: { times: number; max: number; kind: string; message: string; nodeId: string; waitsUntil: number | null } | null }[] };
+    // The run page asks which items are on its page (ids), then reads them by id.
+    const page = async (query = '') => (await (await app.request(`/runs/${runId}/items/ids${query}`)).json()) as { total: number; ids: string[] };
+    const all = await page();
     expect(all.total).toBe(8);
-    expect(all.rows.every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate' && row.retry.waitsUntil! > Date.now())).toBe(true);
-    const retrying = (await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number };
-    expect(retrying.total).toBe(8);
-    expect(((await (await app.request(`/runs/${runId}/items?state=failed`)).json()) as { total: number }).total).toBe(0);
+    expect(runItemRows(db, run.projectId, all.ids).every((row) => row.state === 'queued' && row.retry?.times === 1 && row.retry.max === 2 && row.retry.kind === 'cut-off' && row.retry.message.length > 0 && row.retry.nodeId === 'translate' && row.retry.waitsUntil! > Date.now())).toBe(true);
+    expect((await page('?state=retrying')).total).toBe(8);
+    expect((await page('?state=failed')).total).toBe(0);
 
-    const detail = (await (await app.request(`/runs/${runId}`)).json()) as { retrying: Record<string, { count: number; kinds: Record<string, number> }> };
+    // How the run is doing is its progress row (the run page holds it apart from what the run started with).
+    const progress = async () => ((await (await app.request(`/projects/${run.projectId}/run-progress`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [runId] }) })).json()) as { rows: { retrying: Record<string, { count: number; kinds: Record<string, number> }> }[] }).rows[0]!;
+    const detail = await progress();
     expect(detail.retrying).toEqual({ translate: { count: 8, kinds: { 'cut-off': 8 } } });
     // The run page lists its model calls by id and reads each one once.
     const { ids } = (await (await app.request(`/runs/${runId}/steps/ids`)).json()) as { ids: string[] };
@@ -231,15 +235,18 @@ describe('lines being resent, as the run page reads them', () => {
     const { db, runId } = setup(8, { mode: 'count', size: 8 });
     const runner = new Runner(db, memoryStore(), model((n) => (n === 1 ? CUT_OFF() : null)).port);
     await runner.drain();
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {
         context.set('deps', { db, runner } as never);
         await next();
       })
       .route('/', workflowRoutes);
-    const rows = ((await (await app.request(`/runs/${runId}/items`)).json()) as { rows: { retry: unknown }[] }).rows;
+    const page = async (query = '') => (await (await app.request(`/runs/${runId}/items/ids${query}`)).json()) as { total: number; ids: string[] };
+    const rows = runItemRows(db, runOf(db, runId).projectId, (await page()).ids);
+    expect(rows).toHaveLength(8);
     expect(rows.every((row) => row.retry === null)).toBe(true);
-    expect(((await (await app.request(`/runs/${runId}/items?state=retrying`)).json()) as { total: number }).total).toBe(0);
-    expect(((await (await app.request(`/runs/${runId}`)).json()) as { retrying: object }).retrying).toEqual({});
+    expect((await page('?state=retrying')).total).toBe(0);
+    const progress = (await (await app.request(`/projects/${runOf(db, runId).projectId}/run-progress`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ ids: [runId] }) })).json()) as { rows: { retrying: object }[] };
+    expect(progress.rows[0]!.retrying).toEqual({});
   });
 });

@@ -1,17 +1,18 @@
-import { useDeferredValue, useEffect, useState } from 'react';
+import { useDeferredValue, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useNavigate } from '@tanstack/react-router';
 import { BookA, Download, FileText, Keyboard, ListTree, MessageSquare, ScrollText, Search, UserRound } from 'lucide-react';
 import { Chip, Box, Button, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, Inline, Kbd, Text } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { keyLabel } from '@/lib/keys';
+import { keyOf, useShortcuts } from '@/lib/shortcuts';
 import { openShortcutHelp } from '@/components/shortcut-help';
 import { chatDock } from '@/lib/chat-dock';
 import { exportDialog } from '@/lib/export-dialog';
 import { PersonName } from '@/lib/person-colors';
 import { useCharacters, useDocuments } from '@/lib/knowledge';
 import { useTerms } from '@/lib/terms';
-import { useGroups } from '@/lib/groups';
+import { useGroups, useGroupsById } from '@/lib/groups';
 import { useLinePage } from '@/lib/units';
 
 export type SearchScope = 'all' | 'lines' | 'scenes' | 'terms' | 'people' | 'docs' | 'chat';
@@ -46,6 +47,7 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
   // Which lines match is asked of the server (ids); the lines come from the units collection.
   const lines = useLinePage(projectId, { q: query, limit: scope === 'lines' ? 50 : 30 }, { enabled: open && query.length > 0 && (scope === 'all' || scope === 'lines') });
   const scenes = useGroups(projectId, { q: query, enabled: open && query.length > 0 && (scope === 'all' || scope === 'scenes') });
+  const groupOf = useGroupsById(projectId);
   // The glossary and the knowledge lists are the browser's collections; matched here.
   const termList = useTerms(projectId, { enabled: open && (scope === 'all' || scope === 'terms') });
   const characterList = useCharacters(projectId, { enabled: open && (scope === 'all' || scope === 'people') });
@@ -72,23 +74,13 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
 
   const isFetching =
     ((scope === 'all' || scope === 'lines') && lines.isPlaceholderData) ||
-    ((scope === 'all' || scope === 'scenes') && scenes.isFetching) ||
-    ((scope === 'all' || scope === 'terms') && termList.isFetching) ||
-    ((scope === 'all' || scope === 'people') && characterList.isFetching) ||
-    ((scope === 'all' || scope === 'docs') && documentList.isFetching) ||
+    ((scope === 'all' || scope === 'scenes') && scenes.isLoading) ||
+    ((scope === 'all' || scope === 'terms') && termList.isLoading) ||
+    ((scope === 'all' || scope === 'people') && characterList.isLoading) ||
+    ((scope === 'all' || scope === 'docs') && documentList.isLoading) ||
     ((scope === 'all' || scope === 'chat') && chatSearch.isFetching);
 
-  useEffect(() => {
-    if (!listen) return;
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'k') {
-        event.preventDefault();
-        setOpen((value) => !value);
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [listen]);
+  useShortcuts({ search: () => setOpen((value) => !value) }, { enabled: listen });
 
   const go = (to: () => void) => {
     setOpen(false);
@@ -97,8 +89,8 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
 
   return (
     <>
-      <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel('Mod+K')})`} onClick={() => setOpen(true)}>
-        <Search /> {!compact && <>검색 <Kbd>{keyLabel('Mod+K')}</Kbd></>}
+      <Button variant="ghost" size={compact ? "icon-sm" : "default"} aria-label={`검색 (${keyLabel(keyOf('search'))})`} onClick={() => setOpen(true)}>
+        <Search /> {!compact && <>검색 <Kbd>{keyLabel(keyOf('search'))}</Kbd></>}
       </Button>
       <CommandDialog open={open} onOpenChange={setOpen} shouldFilter={false} title="검색" description="장면, 용어, 인물, 자료, 대사(원문·번역·화자·ID), 대화 기록에서 찾습니다.">
         <CommandInput value={text} onValueChange={setText} placeholder="찾을 내용을 입력하세요" />
@@ -185,7 +177,7 @@ export function CommandSearch({ projectId, compact = false, listen = true }: { p
                       {line.source}
                     </Text>
                     <Text as="p" truncate variant="caption" tone="muted">
-                      {line.groupTitle} · {line.key}
+                      {groupOf.get(line.groupId)?.title} · {line.key}
                     </Text>
                   </Box>
                 </CommandItem>

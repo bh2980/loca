@@ -1,29 +1,30 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode, useEffectEvent, memo, useLayoutEffect, type ComponentProps } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode, memo, useLayoutEffect, type ComponentProps } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Download, Play } from 'lucide-react';
 import { LineDetail } from '@/components/line-detail';
 import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Text, SearchField, Skeleton, EmptyState, SplitPane } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
-import { tokenPatternOf } from '@/lib/line-context';
+import { tokenPatternOf } from '@/lib/source-parts';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { lineTags, q, useMarkStyles } from '@/lib/queries';
-import { markColor, type LineMark } from '@tw/shared';
-import { hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
+import { markColor, type LineMark } from '@loca/shared';
+import { exportFilterOf, hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, speakerChoices, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
 import { useTaxonomy } from '@/lib/knowledge';
 import { preloadLineDetails, useLinePage } from '@/lib/units';
+import { useGroupsById } from '@/lib/groups';
 import { useListeners, useSpeakers } from '@/lib/project';
 import { useProject } from '@/lib/project';
+import { isTyping } from '@/lib/keys';
+import { useShortcuts } from '@/lib/shortcuts';
 
-export { filterChips, isFinding, linesSearchSchema, type LinesSearch } from '@/components/script/line-filters';
+export { filterChips, isFinding, linesSearchParams, type LinesSearch } from '@/components/script/line-filters';
 
 const PAGE_SIZE = 100;
-
-const typing = (target: EventTarget | null) => target instanceof HTMLElement && (target.isContentEditable || ['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName));
 
 /**
  * The translation screen's lines: source on the left, translation on the right, in script order.
@@ -156,15 +157,12 @@ export function LineList({
     if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
   }, [search.line]);
   // Which lines and in what order from the server; the lines themselves from the units collection.
-  const lines = useLinePage(
-    projectId,
-    find
-      ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-      : { groupId, section, kind, review: review ? '1' : undefined, ...lineQueryParams(search), focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
-  );
+  // Walking a filter inside a scene shows the whole scene; otherwise the list is its place and the URL's filters.
+  const listed = useMemo(() => (find ? { groups: groupId ? [groupId] : undefined } : lineFilterOf(search, { groupId, section, kind, review })), [find, search, groupId, section, kind, review]);
+  const lines = useLinePage(projectId, { ...listed, offset: page * PAGE_SIZE, limit: PAGE_SIZE }, { focus: focusing });
   // Scene checkboxes act on the scene's whole filtered result, not just this page: its lines are asked for when it is picked.
   const showScene = !groupId;
-  const sceneFilter = { section, kind, review: review ? ('1' as const) : undefined, ...lineQueryParams(search) };
+  const sceneFilter = (scene: string | undefined) => lineFilterOf(search, { groupId: scene, section, kind, review });
   const sceneCounts = useMemo(() => new Map((lines.data?.scenes ?? []).map((scene) => [scene.groupId, scene.count])), [lines.data?.scenes]);
   // Each scene picked whole: its matching lines then, for its checkbox's state.
   const [sceneIds, setSceneIds] = useState(() => new Map<string, string[]>());
@@ -178,9 +176,12 @@ export function LineList({
   const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   // What 내보내기 starts from: this list, as it is filtered. Walking a filter inside a scene shows the whole scene.
-  const exportView: ExportView | undefined = exportLabel ? { filter: lineFilterOf(find ? {} : search, { groupId, section, kind, reviewStatuses: review ? statusList.filter((status) => status.inReview).map((status) => status.id) : undefined }), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
+  const exportView: ExportView | undefined = exportLabel ? { filter: exportFilterOf(find ? lineFilterOf({ excluded: 'show' }, { groupId, section, kind, review }) : listed), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
   const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
+  // A line names its scene by id: the scene's title and kind come from the groups collection (a UI string's or a document's group is of its line's kind until that has loaded).
+  const groupOf = useGroupsById(projectId);
+  const sceneKind = (line: Pick<RowLine, 'groupId' | 'kind'>) => groupOf.get(line.groupId)?.kind ?? (line.kind === 'dialogue' ? 'scene' : line.kind);
   const total = lines.data?.total ?? 0;
   // The page's details are fetched with the page, so picking a line opens its whole detail at once.
   const pageKey = lines.isPlaceholderData ? '' : (rows ?? []).map((row) => row.id).join(',');
@@ -196,12 +197,11 @@ export function LineList({
   const setEditing = (edit: boolean) => setFocusTick((tick) => (edit ? tick + 1 : 0));
 
   // Lines picked by their checkboxes; the head row above the lines acts on them.
-  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), rows, tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
+  const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
   const { picked, pick } = bulk;
   const pickScene = async (scene: string, on: boolean) => {
     try {
-      const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, { ...sceneFilter, groupId: scene }), staleTime: 0 });
-      bulk.remember(matching);
+      const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(scene)), staleTime: 0 });
       setSceneIds((now) => new Map(now).set(scene, matching.map((row) => row.id)));
       pick(matching.map((row) => row.id), on);
     } catch (error) {
@@ -252,34 +252,22 @@ export function LineList({
     else move(1, true);
   };
 
-  // Reads the latest list and selection when a key comes (an effect event, so the listener is added once).
-  const onKey = useEffectEvent((event: KeyboardEvent) => {
-    if (event.defaultPrevented || event.metaKey || event.ctrlKey) return;
-    const inField = typing(event.target);
-    // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them).
-    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && event.altKey && find) return;
-    if ((event.key === 'ArrowDown' || event.key === 'ArrowUp') && (event.altKey || !inField)) {
-      if (!inField && document.querySelector('[role="dialog"], [role="menu"], [role="listbox"]')) return;
-      event.preventDefault();
-      move(event.key === 'ArrowDown' ? 1 : -1, inField);
-    } else if (event.key === 'Enter' && !inField && search.line && !document.querySelector('[role="dialog"]')) {
-      event.preventDefault();
-      setEditing(true);
-    }
+  useShortcuts({
+    lineMove: (_event, combo) => void move(combo === 'Down' ? 1 : -1),
+    // While a filter is walked, ⌥↑↓ go to the previous/next match (the script page handles them). From the editor the
+    // next line opens for editing too.
+    lineMoveTyping: (event, combo) => (find ? false : void move(combo === 'Alt+Down' ? 1 : -1, isTyping(event.target))),
+    lineEdit: () => (search.line ? setEditing(true) : false),
   });
-  useEffect(() => {
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
   const selectedRow = useRef<HTMLLIElement>(null);
   // A line opened from a link (glossary example, search, evidence) is brought to the middle and
   // flashes once, so it is found at a glance; lines moved to here only scroll as far as needed.
   const [arrived, setArrived] = useState<string>();
   // The rows' handlers never change (so a row whose line did not change skips rendering); each calls this
   // list's latest logic, kept after every render.
-  const latest = useRef({ select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing });
+  const latest = useRef({ select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing, sceneKind });
   useLayoutEffect(() => {
-    latest.current = { select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing };
+    latest.current = { select, advanceFrom, pick, pickScene, onSearch, revealDock, onOpenScene, lineActions, setEditing, sceneKind };
   });
   const rowActions = useMemo<RowActions>(() => ({
     pick: (ids, on) => latest.current.pick(ids, on),
@@ -290,8 +278,8 @@ export function LineList({
       latest.current.onSearch({ line: id, detail: true }, { replace: true });
     },
     openScene: (groupId, lineId) => latest.current.onOpenScene?.(groupId, lineId),
-    editSource: (line) => latest.current.lineActions?.editSource(line),
-    addLine: (line) => latest.current.lineActions?.addLine(line),
+    editSource: (line) => latest.current.lineActions?.editSource({ id: line.id, groupId: line.groupId, groupKind: latest.current.sceneKind(line) }),
+    addLine: (line) => latest.current.lineActions?.addLine({ id: line.id, groupId: line.groupId, groupKind: latest.current.sceneKind(line) }),
     showInGraph: (line) => latest.current.lineActions?.showInGraph(line),
     arrivedEnd: () => setArrived(undefined),
     noting: setNoting,
@@ -337,8 +325,7 @@ export function LineList({
   }, [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Everything on this page picked: the rest of the list (every line the filter keeps) is one click away.
   const pickAllMatching = async () => {
-    const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, { ...sceneFilter, groupId }), staleTime: 0 });
-    bulk.remember(all);
+    const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(groupId)), staleTime: 0 });
     pick(all.map((row) => row.id), true);
   };
   const clearFilters = () => onSearch(Object.assign({ page: undefined }, ...chips.map((chip) => chip.clear)));
@@ -380,10 +367,10 @@ export function LineList({
           projectId={projectId}
           statuses={statusList}
           tags={lineTags(taxonomy.tags)}
-          speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
+          speakers={speakerChoices(speakers.data ?? [])}
           listeners={listeners.data?.listeners ?? []}
           unknownListenerCount={listeners.data?.unknownCount ?? 0}
-          listenersPending={listeners.isPending}
+          listenersPending={listeners.isLoading}
             withSpeakers={withSpeakers}
           search={search}
           onSearch={(next) => onSearch({ ...next, page: undefined })}
@@ -402,7 +389,13 @@ export function LineList({
       {banner}
       {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
       <Box minHeight={0} grow overflow="y">
-        {!rows ? (
+        {lines.isError ? (
+          // A filter that names what the project no longer has (a deleted status, tag or scene in a kept link) is refused by name.
+          <Box spaceY="condensed" padding="comfortable">
+            <Text as="p" variant="body" tone="danger">{lines.error instanceof Error ? lines.error.message : '대사를 불러오지 못했습니다.'}</Text>
+            {chips.length > 0 && <Button variant="outline" onClick={clearFilters}>필터 끄기</Button>}
+          </Box>
+        ) : !rows ? (
           <Box spaceY="comfortable" padding="comfortable">
             <Skeleton shape="row" count={6} />
           </Box>
@@ -424,6 +417,8 @@ export function LineList({
                   actions={rowActions}
                   projectId={projectId}
                   line={line}
+                  sceneTitle={groupOf.get(line.groupId)?.title ?? ''}
+                  sceneKind={sceneKind(line)}
                   newScene={sceneLines !== undefined}
                   sceneLines={sceneLines}
                   sceneChecked={sceneLines !== undefined ? sceneState(line.groupId) : false}

@@ -1,7 +1,7 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { filtersByStatus } from '@tw/shared';
+import { filtersByStatus } from '@loca/shared';
 
 /** A person's saved translation a status-filtered run does not replace (#51); the same text the runner notes. */
 export const HUMAN_OWNED_NOTE = '사람이 저장한 번역이 있어 바꾸지 않았습니다. AI 번역은 후보로 남겨 두었습니다.';

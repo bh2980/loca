@@ -1,28 +1,39 @@
-import { sql } from 'drizzle-orm';
-import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan } from '@tw/shared';
-import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
-import type { Usage } from '@tw/ai';
+import { sql, type SQL } from 'drizzle-orm';
+import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
+import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
+import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@loca/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
 const updatedAt = () =>
   integer('updated_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date()).$onUpdateFn(() => new Date());
 const json = <T>(name: string) => text(name, { mode: 'json' }).$type<T>();
+const INVALID_DEFINITION = Symbol('invalid definition');
 /**
- * A workflow definition, read with the schema's defaults filled in (a setting added later, such as an
- * AI node's 동시 처리 수, reads as its default in a definition saved before it). One the schema no
- * longer accepts is read as stored.
+ * A workflow definition, read through its schema: defaults are filled in, so readers take every setting as
+ * the type says. One the schema refuses is not handed on as stored: an empty definition is read in its
+ * place, carrying why (definitionProblem). The row still lists; whatever would run or edit it asks first
+ * (workflowIssues, the runner) and says so by the workflow's name.
  */
 const definitionJson = customType<{ data: WorkflowDefinition; driverData: string }>({
   dataType: () => 'text',
   toDriver: (value) => JSON.stringify(value),
   fromDriver: (value) => {
-    const raw = JSON.parse(value);
-    const parsed = workflowDefinitionSchema.safeParse(raw);
-    return parsed.success ? parsed.data : raw;
+    let raw: unknown;
+    let problem: string;
+    try {
+      raw = JSON.parse(value);
+      const parsed = workflowDefinitionSchema.safeParse(raw);
+      if (parsed.success) return parsed.data;
+      problem = parsed.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.')} ${issue.message}`.trim()).join('; ');
+    } catch (error) {
+      problem = error instanceof Error ? error.message : String(error);
+    }
+    return Object.defineProperty(workflowDefinitionSchema.parse({ nodes: [], edges: [] }), INVALID_DEFINITION, { value: problem, enumerable: false });
   },
 });
+/** Why a stored definition could not be read (the schema refused it), or null for one that was. */
+export const definitionProblem = (definition: WorkflowDefinition): string | null => (definition as { [INVALID_DEFINITION]?: string })[INVALID_DEFINITION] ?? null;
 const projectId = () => text('project_id').notNull().references(() => projects.id, { onDelete: 'cascade' });
 /**
  * Shared by every knowledge table. AI drafts land as candidates and are not used as context until
@@ -48,7 +59,7 @@ export const projects = sqliteTable('projects', {
   nodeTypes: json<Record<string, NodeType>>('node_types').notNull().default(sql`'{}'`),
   /** Which placeholder / tag families the format check looks for (see FORMAT_PRESETS). */
   /** Which agent tools this project's chat (and the CLI) may use. */
-  agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{"disabledTools":[]}'`),
+  agentSettings: json<AgentSettings>('agent_settings').notNull().default(sql`'{}'`),
   formatRules: json<FormatRules>('format_rules').notNull().default(sql`'{"presets":["brace","printf","angleTag"],"custom":[]}'`),
   /** 설정 › 프로젝트 › AI 문맥: AI results that are knowledge or terms are confirmed right away (on) or candidates (off); see aiStatus. */
   aiAutoConfirm: integer('ai_auto_confirm', { mode: 'boolean' }).notNull().default(true),
@@ -58,13 +69,6 @@ export const projects = sqliteTable('projects', {
   editorAi: json<Partial<EditorAi>>('editor_ai').notNull().default(sql`'{}'`),
   /** The project's own name and colour for automatic tags (markStylesSchema). */
   markStyles: json<MarkStyles>('mark_styles').notNull().default(sql`'{}'`),
-  /** Colors the project picked for automatic marks (AUTO_MARKS); others keep their default. */
-  /** The arms a person picked for the main route (본 줄기): graph node id of a fork → the node it goes on to. */
-  routePicks: json<Record<string, string>>('route_picks').notNull().default(sql`'{}'`),
-  /** 합류 점검: join block id of the route slice → when a person checked it and the signature of the lines they read (services/join-check.ts). */
-  joinChecks: json<Record<string, { at: string; sig: string }>>('join_checks').notNull().default(sql`'{}'`),
-  /** 길 N (다음 길): the round of the route being translated and the picks of the earlier rounds, to step back (services/next-route.ts). */
-  routeState: json<{ round: number; history: Record<string, string>[] }>('route_state').notNull().default(sql`'{"round":1,"history":[]}'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });
@@ -305,7 +309,7 @@ export interface LayoutData {
   portals?: { id: string; section: string; direction: 'in' | 'out'; /** In a view of chosen scenes: the scene the lines continue in. */ groupId?: string }[];
   /** A view an agent made (section "view:<id>", see graph-views.ts): what it shows, for the header. */
   view?: { label: string; nodes: number };
-  /** Dialogue graph: straight runs folded into one block ("chain:<first node>"), with their nodes in order (see chains.ts). */
+  /** Dialogue graph: straight runs folded into one block ("chain:<first node>"), with their nodes in order (see graph-chains.ts). */
   chains?: { id: string; nodeIds: string[] }[];
   /** How the layout was made (LAYOUT_VERSION); older stored layouts are recomputed at startup. */
   version?: number;
@@ -354,8 +358,8 @@ export const graphViews = sqliteTable('graph_views', {
   updatedAt: updatedAt(),
 });
 
-/** Where a model request came from: a workflow run (whole: one reading the whole script), a glossary fill, a model test, a chat turn or the editor. */
-export const AI_CALL_KINDS = ['run', 'whole', 'terms', 'test', 'chat', 'editor'] as const;
+/** Where a model request came from: a workflow run (whole: one reading the whole script), a model test, a chat turn or the editor. */
+export const AI_CALL_KINDS = ['run', 'whole', 'test', 'chat', 'editor'] as const;
 
 /**
  * Every request sent to a model, one row per attempt, written when it
@@ -403,7 +407,7 @@ export const terms = sqliteTable(
     /** Candidates (extracted by a workflow or the work analysis) are not used as context until a person confirms them; rejected ones are not proposed again. */
     status: text('status', { enum: KNOWLEDGE_STATUSES }).notNull().default('confirmed'),
     origin: text('origin', { enum: KNOWLEDGE_ORIGINS }).notNull().default('human'),
-    /** Script lines whose source uses it (services/term-usage.ts); null until counted, again after its source changes. */
+    /** Script lines whose source uses it (domain/term-usage.ts); null until counted, again after its source changes. */
     lines: integer('lines'),
     /** Keys of the first lines that contain it, in script order. */
     examples: json<string[]>('examples').notNull().default(sql`'[]'`),
@@ -532,7 +536,7 @@ export const speechRules = sqliteTable(
 export const connections = sqliteTable('connections', {
   id: id(),
   projectId: text('project_id').references(() => projects.id, { onDelete: 'cascade' }),
-  kind: text('kind', { enum: ['openai', 'systemone', 'codex', 'claude', 'grok', 'antigravity', 'opencode', 'http'] }).notNull(),
+  kind: text('kind', { enum: CONNECTION_KINDS }).notNull(),
   name: text('name').notNull(),
   baseUrl: text('base_url'),
   executable: text('executable'),
@@ -560,38 +564,15 @@ export const workflows = sqliteTable('workflows', {
   updatedAt: updatedAt(),
 });
 
-export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
-export interface RunScope {
-  groupIds?: string[];
-  unitIds?: string[];
-  /** Lines carrying every one of these tags. */
-  tagIds?: string[];
-  /** Automatic marks the items must all have: line marks (services/line-marks.ts) or term marks. */
-  marks?: AutoMark[];
-  /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
-  statusIds?: string[];
-  /** Lines: 최종 아님 (true) / 최종 (false); with or without a memo (the line list's filters). */
-  unfinished?: boolean;
-  noted?: boolean;
-  /** Who decided it (정한 쪽): a line's status maker, or a term's decision (shared decidedBy). */
-  decidedBy?: DecidedBy;
-  /** Terms: whether the Korean form is empty. */
-  emptyTarget?: boolean;
-  /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
-  termIds?: string[];
-  /** Lines said by any of these speakers (as stored: names and aliases already expanded). */
-  speakers?: string[];
-  /** Lines said to any of these listeners (known listeners only, as the line list shows them; '-' = 청자 모름). */
-  listeners?: string[];
-  /** Line kinds (dialogue, ui, …). */
-  kinds?: string[];
-  /** Text in the source. */
-  q?: string;
-  /** Also change a status a person set and take off tags a person put on (off: they stay, and the run says so). */
-  changeHuman?: boolean;
-}
+/**
+ * `preparing`: the run exists but its lines are still being stored (createRunInSteps); nothing runs, resumes or
+ * continues it until they are all in. One left so by a server that stopped is closed at startup (closeUnpreparedRuns).
+ */
+export const RUN_STATUSES = ['preparing', 'running', 'paused', 'cancelled', 'completed'] as const;
+export type RunStatus = (typeof RUN_STATUSES)[number];
+export type { RunScope, RunLimits };
 /** The connection + model a call goes to, frozen with the connection's details. */
-export interface RouteSnapshot {
+export interface TargetSnapshot {
   connectionId: string;
   /** The connection's name when it was used, for display. */
   name: string;
@@ -601,13 +582,13 @@ export interface RouteSnapshot {
   model: string;
   effort: string | null;
 }
-/** A model choice as it was resolved when work started: the route a call goes to, with the connection's call settings. */
+/** A model choice as it was resolved when work started: where a call goes, with the connection's call settings. */
 export interface AiSnapshot {
   /** "connection · model · effort", as people read it. */
   label: string;
   /** The model's known output limit (its modelLimits), sent as each call's cap; unset = none sent. */
   maxOutputTokens?: number;
-  route: RouteSnapshot;
+  target: TargetSnapshot;
 }
 
 export const runs = sqliteTable(
@@ -621,10 +602,11 @@ export const runs = sqliteTable(
     definition: definitionJson('definition').notNull(),
     /** Every model the run's AI nodes picked, resolved, keyed by choiceKey. */
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
-    /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */
-    subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
+    /** What the run's items are (SUBJECTS): lines or terms. */
+    subject: text('subject', { enum: SUBJECTS }).notNull().default('lines'),
+    /** What it runs on, resolved when it started (runScopeSchema in shared). */
     scope: json<RunScope>('scope').notNull(),
-    status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
+    status: text('status', { enum: RUN_STATUSES }).notNull(),
     total: integer('total').notNull(),
     /** Caps the person set when starting; the run pauses when one is reached. */
     limits: json<RunLimits>('limits'),
@@ -634,7 +616,7 @@ export const runs = sqliteTable(
     tags: json<RunTag[]>('tags').notNull().default(sql`'[]'`),
     /** Each time a person continued the run with other models or re-queued its failed lines (#41), oldest first. */
     continuations: json<RunContinuation[]>('continuations').notNull().default(sql`'[]'`),
-    /** The conversation that started (or last continued) it: its end is recorded there (chat-run-end.ts). */
+    /** The conversation that started (or last continued) it: its end is recorded there (engine/run-end.ts). */
     sessionId: text('session_id'),
     createdAt: createdAt(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }),
@@ -648,14 +630,6 @@ export interface RunContinuation {
   changes: { nodeId: string; from: string; to: string }[];
   /** Failed lines sent back to the queue. */
   retried: number;
-}
-
-export interface RunLimits {
-  maxCalls?: number;
-  /** All input tokens, cached included, as the connections reported them. */
-  maxInputTokens?: number;
-  /** Set while the run is paused by a cap, naming it; cleared on resume. */
-  hit?: 'calls' | 'input';
 }
 
 export type ItemState = 'queued' | 'running' | 'done' | 'failed' | 'cancelled';
@@ -717,6 +691,37 @@ export const runItems = sqliteTable(
   (t) => [index('run_items_run').on(t.runId, t.state, t.nodeId), index('run_items_subject').on(t.subjectId)],
 );
 
+/**
+ * ItemData as SQL reads it: every path a query takes into run_items.data, by name, so the shape above and
+ * its paths change together. `…Each` are table-valued (json_each) and take the item's data column, which a
+ * raw query aliases.
+ */
+const dataAt = <T>(path: string) => sql<T>`json_extract(${runItems.data}, ${sql.raw(`'${path}'`)})`;
+export const itemData = {
+  /** `path`, as JSON text. */
+  path: dataAt<string>('$.path'),
+  /** The exit the item took last (`path`'s last port). */
+  lastPort: dataAt<string | null>('$.path[#-1].port'),
+  /** `retry.last`, as JSON text. */
+  retryLast: dataAt<string | null>('$.retry.last'),
+  retryLastKind: dataAt<ItemErrorKind | null>('$.retry.last.kind'),
+  retryLastNodeId: dataAt<string | null>('$.retry.last.nodeId'),
+  retryFactor: dataAt<number | null>('$.retry.factor'),
+  retryModelNodeId: dataAt<string | null>('$.retry.model.nodeId'),
+  retryModelKey: dataAt<string | null>('$.retry.model.key'),
+  /** `error` and `lastError`, as JSON text. */
+  error: dataAt<string | null>('$.error'),
+  lastError: dataAt<string | null>('$.lastError'),
+  /** One row per step of `path`: `nodeId` and `port` of the row named `step`. */
+  pathEach: (data: SQL | SQLiteColumn = runItems.data) => sql`json_each(${data}, '$.path') step`,
+  stepNodeId: sql<string>`json_extract(step.value, '$.nodeId')`,
+  stepPort: sql<string>`json_extract(step.value, '$.port')`,
+  /** One row per entry of `exitNotes`: `at` and `note` of the row named `entry`. */
+  exitNotesEach: (data: SQL | SQLiteColumn = runItems.data) => sql`json_each(${data}, '$.exitNotes') entry`,
+  noteAt: sql<string>`json_extract(entry.value, '$.at')`,
+  noteText: sql<string>`json_extract(entry.value, '$.note')`,
+};
+
 export const runSteps = sqliteTable(
   'run_steps',
   {
@@ -726,7 +731,7 @@ export const runSteps = sqliteTable(
     /** The items the call was for (lines or terms, as the run's subject says). */
     subjectIds: json<string[]>('subject_ids').notNull(),
     ok: integer('ok', { mode: 'boolean' }).notNull(),
-    /** The connection the call went out through: a node can share its work over several, and a retry rule can send lines on another model. */
+    /** The connection the call went out through: a retry rule can send lines on another model than the node's own. */
     connectionId: text('connection_id'),
     model: text('model'),
     prompt: text('prompt'),
@@ -734,10 +739,11 @@ export const runSteps = sqliteTable(
     context: json<ContextItem[]>('context'),
     output: json<unknown>('output'),
     error: text('error'),
-    /** The kind of a failed call (errorKindOf); null for calls that worked and for earlier runs. */
+    /** The kind of a failed call (errorKindOfCode); null for calls that worked. */
     errorKind: text('error_kind').$type<ItemErrorKind>(),
-    attempts: json<unknown[]>('attempts'),
-    /** Usage of every attempt of this call (failed ones included), as the connections reported it. */
+    /** A failed call whose lines the node's retry rules all sent back: neither a failure nor a success for the 연속 실패 guard. */
+    retried: integer('retried', { mode: 'boolean' }).notNull().default(false),
+    /** What the call used (a failed one too), as the connection reported it. */
     inputTokens: integer('input_tokens'),
     /** The part of `inputTokens` read from the provider's prompt cache. */
     cachedInputTokens: integer('cached_input_tokens'),
@@ -748,8 +754,6 @@ export const runSteps = sqliteTable(
     costUsd: real('cost_usd'),
     /** Items a per-item answer covered (non-empty); the request is `subjectIds`. */
     returnedItems: integer('returned_items'),
-    /** 0 for a batch's first request, n for the n-th request for the lines it left out. */
-    round: integer('round').notNull().default(0),
     startedAt: integer('started_at', { mode: 'timestamp_ms' }).notNull(),
     finishedAt: integer('finished_at', { mode: 'timestamp_ms' }).notNull(),
   },
@@ -757,8 +761,8 @@ export const runSteps = sqliteTable(
 );
 
 /**
- * A change an agent asked for outside the AI SDK approval flow (a CLI chat, the loca CLI). Nothing is
- * applied until a person accepts it in the chat panel; then the same tool runs with this input.
+ * A change an agent asked for (a chat, the loca CLI), as the change gate keeps it (change-gate.ts). Nothing is
+ * applied until it is accepted, by a person or by the permission mode; then the same tool runs with this input.
  */
 /** Lines a batch proposal left out (errors, conflicts) and warnings about the ones it kept. */
 export interface ProposalReport {
@@ -766,7 +770,7 @@ export interface ProposalReport {
   warnings: { key: string; issues: string[] }[];
   counts?: { dropped: number; warnings: number };
   /** A proposed run: what it would take in and cost, as it stood when it was proposed. */
-  run?: { input: WorkflowSubject; plan: RunCardPlan };
+  run?: { input: Subject; plan: RunCardPlan };
 }
 
 export type ProposalStatus = 'pending' | 'running' | 'accepted' | 'rejected' | 'failed';
@@ -813,6 +817,35 @@ export const proposals = sqliteTable(
   (t) => [index('proposals_project').on(t.projectId, t.status)],
 );
 
+/** A table whose rows an undo record can hold (services/undo-records.ts lists them in the order they go back). */
+export type UndoRow = Record<string, unknown>;
+/**
+ * What one change removed, rewrote and made, as the database stored it (column → raw value), so it can be put back:
+ * `removed` rows are inserted again, `rewritten` columns get their former values, `made` rows are deleted.
+ */
+export interface UndoData {
+  removed: { table: string; rows: UndoRow[] }[];
+  rewritten: { table: string; id: string; values: UndoRow }[];
+  made: { table: string; ids: string[] }[];
+}
+/**
+ * One undoable structural change (deleting lines, scenes or knowledge items with everything that hangs from them, an
+ * edit of the dialogue graph): kept here, not in memory, so ⌘/Ctrl+Z in the app and an accepted proposal's 되돌리기
+ * work after a restart. Used once, then deleted; old ones are pruned (services/undo-records.ts).
+ */
+export const undoRecords = sqliteTable(
+  'undo_records',
+  {
+    id: id(),
+    projectId: projectId(),
+    /** What it changed, as the agent permissions name it (script, scenes, characters…): who may put it back through the gate. */
+    kind: text('kind').notNull(),
+    data: json<UndoData>('data').notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index('undo_records_project').on(t.projectId, t.createdAt)],
+);
+
 export const chatSessions = sqliteTable('chat_sessions', {
   id: id(),
   projectId: projectId(),
@@ -839,7 +872,5 @@ export const chatSessions = sqliteTable('chat_sessions', {
 export const appSettings = sqliteTable('app_settings', {
   id: text('id').primaryKey().default('app'),
   defaults: json<Partial<AppDefaults>>('defaults').notNull().default(sql`'{}'`),
-  /** One-time steps done on this data (e.g. 'connections-per-project'). */
-  done: json<string[]>('done').notNull().default(sql`'[]'`),
   updatedAt: updatedAt(),
 });

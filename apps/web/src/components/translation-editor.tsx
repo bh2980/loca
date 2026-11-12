@@ -3,23 +3,24 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@tw/shared';
+import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
 import { Chip, Box, Button, Icon, Inline, Text, AiMark, EditorAction, EditorChangedWord, EditorDraftNote, EditorSuggestionList, EditorSuggestionRow, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuContent } from '@loca/ui';
-import { apiFetch } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { wordDiff } from '@/lib/diff';
 import { placeTags } from '@/lib/tag-placement';
-import { editorChecks, useLineContext } from '@/lib/line-context';
+import { editorChecks, useSourceParts } from '@/lib/source-parts';
 import type { TokenUnit } from '@/lib/tokens';
-import { useSaveLine } from '@/lib/line-save';
+import { useSaveLine } from '@/lib/line-writes';
 import { offerSameSource } from '@/lib/same-source';
-import { q } from '@/lib/queries';
-import { lineContext, useLineDetail } from '@/lib/units';
+import { lineSurroundings, useLineDetail } from '@/lib/units';
 import { keyLabel } from '@/lib/keys';
+import { keyOf, SHORTCUTS, tokenKey } from '@/lib/shortcuts';
 import { useProject } from '@/lib/project';
+import { q } from '@/lib/queries';
+import { completeLine, assistLine } from '@/lib/editor-ai';
 
 interface Status {
   id: string;
@@ -39,7 +40,7 @@ export function nextStatus(statuses: Status[], currentId: string) {
  * The translation editor of one line. ⌘S saves the text as a person's candidate and makes it the
  * translation; ⌘↵ saves (if changed) and moves the line to the next status, then `onDone` lets
  * the list go to the next line; Esc leaves the editor (the draft stays). The text is a draft in
- * sessionStorage until saved, shared with the line pane's checks. Format tokens are chips (⌃⌥1…9
+ * the tab's storage until saved, shared with the line pane's checks. Format tokens are chips (⌃⌥1…9
  * insert the source's), glossary translations are offered while typing, ⌘⇧S copies the source,
  * an AI 제안 waiting on the line shows under it with 적용 · 거절, and translations of the same or a similar source
  * elsewhere (TM) sit below (the first three always shown), ⌥⇧1…⌥⇧3 to take one into the box.
@@ -73,7 +74,7 @@ export function TranslationEditor({
   // Settling a collision gives the box its focus back, so ⌘S works without another click.
   const [refocus, setRefocus] = useState(0);
   const next = nextStatus(statuses, unit.statusId);
-  const line = useLineContext(projectId, unit.source, unit.kind);
+  const line = useSourceParts(projectId, unit.source, unit.kind);
   // The line's detail carries its AI 제안 (list rows do not).
   const detail = useLineDetail(projectId, unit.id);
   const suggestions = useSuggestions(unit.id, [saved, draft], !compact);
@@ -90,10 +91,9 @@ export function TranslationEditor({
     pending.current?.abort();
     const controller = (pending.current = new AbortController());
     setAi({ loading: true });
-    void apiFetch(`/api/units/${unit.id}/complete`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ prefix }), signal: controller.signal })
-      .then(async (response) => {
-        const body = (await response.json()) as { text?: string; error?: string; retryAfterSeconds?: number };
-        if (!response.ok || !body.text) {
+    void completeLine(projectId, unit.id, prefix, controller.signal)
+      .then(({ ok, body }) => {
+        if (!ok || !body.text) {
           const wait = body.retryAfterSeconds ? ` · ${body.retryAfterSeconds >= 3600 ? `${Math.ceil(body.retryAfterSeconds / 3600)}시간` : `${Math.max(1, Math.ceil(body.retryAfterSeconds / 60))}분`} 뒤` : '';
           setAi({ message: `${body.error ?? '자동완성을 받지 못했습니다.'}${wait}` });
           return;
@@ -126,11 +126,10 @@ export function TranslationEditor({
     const controller = (assistPending.current = new AbortController());
     const sent = draft;
     setAssist({ loading: mode });
-    void apiFetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? draft : '' }), signal: controller.signal })
-      .then(async (response) => {
-        const body = (await response.json()) as { text?: string; reasons?: string[]; unchanged?: boolean; error?: string; retryAfterSeconds?: number };
-        if (response.ok && body.unchanged) return setAssist({ done: 'unchanged' });
-        if (!response.ok || !body.text) {
+    void assistLine(projectId, unit.id, { mode, draft: mode === 'refine' ? draft : '' }, controller.signal)
+      .then(({ ok, body }) => {
+        if (ok && body.unchanged) return setAssist({ done: 'unchanged' });
+        if (!ok || !body.text) {
           const wait = body.retryAfterSeconds ? ` · ${body.retryAfterSeconds >= 3600 ? `${Math.ceil(body.retryAfterSeconds / 3600)}시간` : `${Math.max(1, Math.ceil(body.retryAfterSeconds / 60))}분`} 뒤` : '';
           setAssist({ message: `${body.error ?? 'AI 응답을 받지 못했습니다.'}${wait}` });
           return;
@@ -172,7 +171,7 @@ export function TranslationEditor({
     const statusId = advance && next ? next.id : undefined;
     if (!changed && !statusId) return onDone?.(advance);
     save.mutate(
-      { unitId: unit.id, ...(changed && { text: sent, base, ...(keptMine === unit.id && { keepMine: true }) }), statusId },
+      { unitId: unit.id, ...(changed && { text: sent, ...(keptMine === unit.id && { keepMine: true }) }), statusId },
       {
         onSuccess: () => {
           setKeptMine(null);
@@ -187,10 +186,10 @@ export function TranslationEditor({
     );
   };
 
-  const offerSame = (text: string) => offerSameSource(queryClient, unit.id, text);
+  const offerSame = (text: string) => offerSameSource(queryClient, projectId, unit.id, text);
 
   const requestAssist = (mode: 'translate' | 'refine') => {
-    if (project.isPending) {
+    if (project.isLoading) {
       toast.info('편집기 AI 설정을 확인하고 있습니다.');
       return;
     }
@@ -259,18 +258,18 @@ export function TranslationEditor({
           </Inline>
         )}
         <Inline gap="condensed" minWidth={0} shrink={false}>
-          {next ? <EditorAction icon={Check} disabled={save.isPending} disabledReason={!draft.trim() && '번역이 비어 있습니다. 번역을 쓴 뒤 넘길 수 있습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          {next ? <EditorAction icon={Check} disabled={save.isPending} disabledReason={!draft.trim() && '번역이 비어 있습니다. 번역을 쓴 뒤 넘길 수 있습니다.'} onClick={() => run(true)} title={keyLabel(keyOf('editorAdvance'))}>
             {next.name}{onDone ? '하고 다음' : '하기'}
-          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending} disabledReason={dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final' && '완료 상태인 줄의 번역은 비울 수 없습니다.'} onClick={() => run(true)} title={keyLabel('Mod+Enter')}>
+          </EditorAction> : onDone ? <EditorAction icon={ArrowDown} disabled={save.isPending} disabledReason={dirty && !draft.trim() && statuses.find((status) => status.id === unit.statusId)?.kind === 'final' && '완료 상태인 줄의 번역은 비울 수 없습니다.'} onClick={() => run(true)} title={keyLabel(keyOf('editorAdvance'))}>
             {dirty ? '저장하고 다음 줄' : '다음 줄'}
-          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel('Mod+S')}>
+          </EditorAction> : dirty ? <EditorAction icon={Save} disabled={save.isPending} onClick={() => run(false)} title={keyLabel(keyOf('editorSave'))}>
             저장
           </EditorAction> : null}
           {hasModel && <>
             <EditorAction icon={Languages} variant="ghost" disabled={!!assist.loading} onClick={() => requestAssist('translate')}>
               {draft.trim() ? 'AI 다시' : 'AI 번역'}
             </EditorAction>
-            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading} disabledReason={!draft.trim() && '다듬을 번역이 없습니다.'} onClick={() => requestAssist('refine')} title={keyLabel('Alt+.')}>
+            <EditorAction icon={WandSparkles} variant="ghost" disabled={!!assist.loading} disabledReason={!draft.trim() && '다듬을 번역이 없습니다.'} onClick={() => requestAssist('refine')} title={keyLabel(keyOf('editorAssist'))}>
               다듬기
             </EditorAction>
           </>}
@@ -278,12 +277,12 @@ export function TranslationEditor({
             <DropdownMenuTrigger asChild><Button variant="ghost" size="icon-sm" aria-label="번역 동작 더보기"><MoreHorizontal /></Button></DropdownMenuTrigger>
             <DropdownMenuContent align="end" width="fit">
               {dirty && <>
-                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+S')}</Text></DropdownMenuItem>
+                <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorSave'))}</Text></DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && <DropdownMenuSeparator />}
-              <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Mod+Shift+S')}</Text></DropdownMenuItem>
-              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel('Alt+/')}</Text></DropdownMenuItem>}
+              <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorCopySource'))}</Text></DropdownMenuItem>
+              {completes && <DropdownMenuItem disabled={!!ai.loading} onSelect={() => ask(draft)}><Sparkles /> AI 자동완성 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorContinue'))}</Text></DropdownMenuItem>}
             </DropdownMenuContent>
           </DropdownMenu>
         </Inline>
@@ -295,7 +294,7 @@ export function TranslationEditor({
         {ai.loading && <Waiting label="자동완성 받는 중…" onCancel={() => (pending.current?.abort(), setAi({ dismissed: true }))} />}
         {ai.message && <span role="alert">{ai.message}</span>}
       </Inline>}
-      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} base={base} onDraft={setDraft} />}
+      {detail.data && <AiSuggestion projectId={projectId} unit={detail.data} draft={draft} dirty={dirty} onDraft={setDraft} />}
       {suggestions.length > 0 && (
         <SuggestionList
           suggestions={suggestions}
@@ -322,7 +321,7 @@ function SuggestionList({ suggestions, source, tokenPattern, onPick }: { suggest
     <EditorSuggestionList label="비슷한 번역" onMore={more > 0 ? () => setAll((open) => !open) : undefined} moreLabel={all ? '접기' : `+${more}개 더보기`}>
         {shown.map((suggestion, index) => (
           <li key={suggestion.key}>
-            <EditorSuggestionRow hint={keyLabel(`Alt+Shift+${index + 1}`)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion)}>
+            <EditorSuggestionRow hint={keyLabel(SHORTCUTS.editorPick.keys[index]!)} hintHidden={index >= VISIBLE_SUGGESTIONS} onPick={() => onPick(suggestion)}>
               {/* The label stays on its own line: beside the text it would squeeze a narrow column down to a letter per line. */}
               <Box asChild maxWidth="full" truncate><Chip variant="outline">{suggestion.label}</Chip></Box>
               <TokenText text={suggestion.text} source={source} pattern={tokenPattern} look="suggestion" />
@@ -419,7 +418,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   targetLanguage?: string;
   onPlace: () => void;
 }) {
-  const unit = useQuery(lineContext(unitId));
+  const unit = useQuery(lineSurroundings(unitId));
   if (!draft.trim()) return null;
   // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
   const lower = draft.toLowerCase();
@@ -440,12 +439,12 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
           key={unit.number}
           part={{ text: unit.close ? `${unit.open}…${unit.close}` : unit.open, token: { number: unit.number, kind: 'single' } }}
           missing
-          hint={`번역에 없음 · ${keyLabel(`Alt+${unit.number}`)}`}
+          hint={['번역에 없음', tokenKey(unit.number) && keyLabel(tokenKey(unit.number)!)].filter(Boolean).join(' · ')}
           onPick={() => insertUnitIntoLine(unitId, unit)}
         />
       ))}
       {tags.placed.length > 0 && (
-        <Button variant="ghost" size="inline" tone="muted" title={keyLabel('Alt+T')} onClick={onPlace}>
+        <Button variant="ghost" size="inline" tone="muted" title={keyLabel(keyOf('editorPlaceTags'))} onClick={onPlace}>
           제자리에 넣기
         </Button>
       )}

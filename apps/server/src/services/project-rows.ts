@@ -1,9 +1,9 @@
 import { and, asc, count, desc, eq, isNull, ne, or, sql, type SQL } from 'drizzle-orm';
-import { editorAiSchema, exclusionRulesSchema } from '@tw/shared';
+import { editorAiSchema, exclusionRulesSchema } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { knownListenerSql } from './line-marks.ts';
+import { knownListenerSql } from '../domain/line-marks.ts';
 
 /**
  * The project's own row (its settings) as the browser's project collection holds it: one row, read

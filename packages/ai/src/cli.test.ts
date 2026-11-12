@@ -31,8 +31,18 @@ describe('readCliOutput', () => {
     const envelope = { type: 'result', subtype: 'success', is_error: false, result: '', structured_output: { ok: true }, total_cost_usd: 0.021, usage: { input_tokens: 4, cache_read_input_tokens: 1000, cache_creation_input_tokens: 200, output_tokens: 30 } };
     expect(readCliOutput('claude', JSON.stringify(envelope), schema)).toEqual({ object: { ok: true }, usage: { inputTokens: 1204, cachedInputTokens: 1000, outputTokens: 30, costUsd: 0.021 } });
     const cut = failure(() => readCliOutput('claude', JSON.stringify({ ...envelope, stop_reason: 'max_tokens' }), schema));
-    expect(cut.code).toBe('invalid-output');
+    expect(cut.code).toBe('cut-off');
     expect(cut.usage).toMatchObject({ outputTokens: 30, costUsd: 0.021 });
+    // A refusal is the model's stop reason too, not a broken answer.
+    expect(failure(() => readCliOutput('claude', JSON.stringify({ ...envelope, stop_reason: 'refusal' }), schema)).code).toBe('refused');
+  });
+
+  it('reads what a failure text names: a refused connection is the network, a cut-off answer is cut-off, never a refusal', () => {
+    const failed = (result: string) => failure(() => readCliOutput('claude', JSON.stringify({ type: 'result', is_error: true, result, usage: { input_tokens: 1, output_tokens: 0 } }), schema));
+    expect(failed('connect ECONNREFUSED 127.0.0.1:443').code).toBe('network');
+    expect(failed('API Error: Connection refused').code).toBe('network');
+    expect(failed('Your previous response was cut off because it exceeded the output token limit').code).toBe('cut-off');
+    expect(failed('something else broke').code).toBe('cli');
   });
 
   it('keeps the usage of an is_error envelope', () => {

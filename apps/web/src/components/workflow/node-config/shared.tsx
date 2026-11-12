@@ -1,6 +1,6 @@
 /** Pieces shared by the node-kind configs: shared field primitives and the node/ref types. */
 import { Box, Button, Checkbox, HelpTip, Inline, NodeKindIcon, NumberInput, InspectorToggle, Switch, Text } from '@loca/ui';
-import { CONNECTION_KIND_INFO, functionGroup, leavesResult, nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type WorkflowSubject } from '@tw/shared';
+import { CONNECTION_KIND_INFO, nodeGroup,  nodeName, nodeOutputFields, workflowInput, type ModelLimits, type RetryRule, type WorkflowEdge, type WorkflowNode, type Subject } from '@loca/shared';
 import { nodeIcon } from '@/components/workflow/node-view';
 
 export type AiNode = Extract<WorkflowNode, { type: 'ai' }>;
@@ -17,7 +17,7 @@ export interface NodeRefs {
   nodes: WorkflowNode[];
   edges?: WorkflowEdge[];
   /** The project's workflows (a call node picks one of them). */
-  workflows?: { id: string; name: string; input: WorkflowSubject }[];
+  workflows?: { id: string; name: string; input: Subject }[];
   /** Opens another node's settings (a step chip's click). */
   onOpenNode?: (id: string) => void;
   /** Opens an exit's pane (its 출구 동작 and lines). */
@@ -34,7 +34,7 @@ export function StepChips({ steps, refs, suffix }: { steps: WorkflowNode[]; refs
     <Inline wrap gap="condensed" variant="body">
       {steps.map((step) => {
         const Glyph = nodeIcon(step);
-        const kind = step.type === 'function' ? functionGroup(step.config.fn) : step.type;
+        const kind = nodeGroup(step);
         return (
           <Button key={step.id} variant="outline" paddingX="condensed" disabled={!refs.onOpenNode} onClick={() => refs.onOpenNode?.(step.id)} title="이 노드 열기">
             <NodeKindIcon icon={Glyph} kind={kind} />
@@ -83,21 +83,8 @@ export function ToggleRow({ label, help, checked, onChange }: { label: string; h
 
 
 /** The workflow's input (its entry node), which decides each node's extension. */
-export const refsInput = (refs: Pick<NodeRefs, 'nodes'>): WorkflowSubject => workflowInput({ nodes: refs.nodes });
+export const refsInput = (refs: Pick<NodeRefs, 'nodes'>): Subject => workflowInput({ nodes: refs.nodes });
 
 /** Fields of a node's output an input can keep (top level; a list keeps its items whole): what it declares (nodeOutputFields). */
 export const outputFieldNames = (node: WorkflowNode): string[] => (nodeOutputFields(node) ?? []).map((field) => field.name);
 
-/** Nodes before this one that leave an output (leavesResult: AI, checks, script, HTTP, gather). */
-export function upstreamSources(node: WorkflowNode, refs: Pick<NodeRefs, 'nodes' | 'edges'>): WorkflowNode[] {
-  const into = Map.groupBy(refs.edges ?? [], (edge) => edge.target);
-  const before = new Set<string>();
-  const stack = [node.id];
-  while (stack.length)
-    for (const edge of into.get(stack.pop()!) ?? [])
-      if (!before.has(edge.source)) {
-        before.add(edge.source);
-        stack.push(edge.source);
-      }
-  return refs.nodes.filter((other) => other.id !== node.id && before.has(other.id) && leavesResult(other));
-}

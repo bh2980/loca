@@ -1,5 +1,5 @@
 import { Box, Button, Notice, Stack } from '@loca/ui';
-import { nodeName, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { nodeName, type WorkflowIssue, type WorkflowNode } from '@loca/shared';
 
 /** The same error on several nodes is one row: the first node's name, how many more, and the message. */
 export function issueRows(issues: WorkflowIssue[], nodes: WorkflowNode[]) {

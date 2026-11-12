@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import ELK from 'elkjs/lib/elk.bundled.js';
 import { byRank, scriptRanks } from './script-rank.ts';
-import { foldChains } from './chains.ts';
+import { foldChains } from './graph-chains.ts';
 
 const pair = (a: string, b: string) => [{ from: a, to: b }, { from: b, to: a }];
 

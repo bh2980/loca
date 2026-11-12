@@ -9,6 +9,9 @@
  * FAKE_ACP_IMAGES=off makes the agent say it takes no images (promptCapabilities.image false).
  * FAKE_ACP_AUTH (JSON list of {id, name}) offers login methods and makes sessions fail with "Authentication
  * required" until `authenticate` is called (the reply names the method used); FAKE_ACP_AUTH_FAIL makes it fail.
+ * FAKE_ACP_ASK (JSON list of { announce?, ask }) asks the client's permission for tool calls before answering:
+ * `ask` is the request's tool call as a CLI would shape it, `announce` a tool_call update sent first under the
+ * same id (a CLI that then asks by id only). The reply lists the answers ("권한: allow,reject").
  */
 import { randomUUID } from 'node:crypto';
 import { Readable, Writable } from 'node:stream';
@@ -108,7 +111,18 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
             found += (result.content as { type: string; text?: string }[]).map((part) => part.text ?? '').join('').slice(0, 600);
             await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'tool_call_update', toolCallId, status: 'completed' } });
           }
-          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${images ? ` (이미지 ${images}장)` : ''}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
+          const answers: string[] = [];
+          for (const { announce, ask } of JSON.parse(env.FAKE_ACP_ASK ?? '[]') as { announce?: Record<string, unknown>; ask: Record<string, unknown> }[]) {
+            const toolCallId = randomUUID();
+            if (announce) await client.sessionUpdate({ sessionId: params.sessionId, update: { sessionUpdate: 'tool_call', toolCallId, title: '', status: 'pending', ...announce } });
+            const response = await client.requestPermission({
+              sessionId: params.sessionId,
+              toolCall: { toolCallId, ...ask },
+              options: [{ optionId: 'allow', name: 'Allow', kind: 'allow_once' }, { optionId: 'reject', name: 'Reject', kind: 'reject_once' }],
+            });
+            answers.push(response.outcome.outcome === 'selected' ? response.outcome.optionId : 'cancelled');
+          }
+          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${images ? ` (이미지 ${images}장)` : ''}${answers.length ? `\n\n권한: ${answers.join(',')}` : ''}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
           for (const piece of reply.match(/.{1,40}/gs) ?? []) {
             if (abort.signal.aborted) return { stopReason: 'cancelled' };
             await say(piece);

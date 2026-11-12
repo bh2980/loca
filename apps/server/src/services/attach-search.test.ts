@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, importFileSchema, type AttachSearchResult } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, importFileSchema, type AttachSearchResult } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRoutes } from '../routes/chat.ts';
@@ -170,7 +170,7 @@ describe('@ search: lines use the full-text index and are never all loaded', () 
 });
 
 describe('GET /projects/:id/chat/attach', () => {
-  const app = (db: ReturnType<typeof setup>['db']) => new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', chatRoutes);
+  const app = (db: ReturnType<typeof setup>['db']) => new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', chatRoutes);
   it('answers with groups, paged by kind/offset/limit, and refuses an unknown kind', async () => {
     const { db, projectId } = setup();
     const server = app(db);

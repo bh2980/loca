@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { AI_PROMPTS, workflowNodeSchema, type AiNode } from '@tw/shared';
+import { AI_PROMPTS, workflowNodeSchema, type AiNode } from '@loca/shared';
 import { readAiOutput } from './ai-output.ts';
 
 const node = (config: Record<string, unknown>) => workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config }) as AiNode;

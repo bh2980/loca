@@ -37,6 +37,7 @@ import { EmptyState } from "./empty-state"
 import { ColumnMenu } from "./column-menu"
 import { Checkbox } from "../controls/checkbox"
 import { Skeleton } from "./skeleton"
+import { readStoredJson, writeStoredJson } from "../lib/storage"
 import { cn } from "../lib/utils"
 import { Button } from "../controls/button"
 
@@ -104,8 +105,9 @@ const SortableRow = forwardRef<
   return (
     <tr
       ref={mergeRefs(ref, setNodeRef)}
-      style={{ ...style, transform: CSS.Transform.toString(transform), transition, position: "relative", zIndex: isDragging ? 1 : undefined }}
+      style={{ ...style, transform: CSS.Transform.toString(transform), transition }}
       {...rest}
+      className={cn(rest.className, "relative", isDragging && "z-1")}
     >
       {children(grip)}
     </tr>
@@ -114,51 +116,33 @@ const SortableRow = forwardRef<
 
 const MIN_WIDTH = 48
 const FLEX_MIN = 140
-const widthsKey = (id: string) => `loca-table-widths:${id}`
+const widthsKey = (id: string) => `table-widths.${id}`
 
 function loadWidths(id?: string): ColumnSizingState {
-  if (!id || typeof window === "undefined") return {}
-  try {
-    const raw = JSON.parse(localStorage.getItem(widthsKey(id)) ?? "{}") as unknown
-    if (!raw || typeof raw !== "object") return {}
-    return Object.fromEntries(
-      Object.entries(raw).filter(
-        (entry): entry is [string, number] =>
-          typeof entry[1] === "number" && entry[1] >= MIN_WIDTH
-      )
-    )
-  } catch {
-    return {}
-  }
+  if (!id) return {}
+  return readStoredJson("local", widthsKey(id), (raw) =>
+    raw && typeof raw === "object"
+      ? Object.fromEntries(Object.entries(raw).filter((entry): entry is [string, number] => typeof entry[1] === "number" && entry[1] >= MIN_WIDTH))
+      : {}
+  )
 }
 
-const columnsKey = (id: string) => `loca-table-columns:${id}`
+const columnsKey = (id: string) => `table-columns.${id}`
 /** `shown`: columns hidden by default that the person turned on. */
 type SavedColumns = { order: string[]; hidden: string[]; shown: string[] }
 
 function loadColumns(id?: string): SavedColumns {
   const none = { order: [], hidden: [], shown: [] }
-  if (!id || typeof window === "undefined") return none
-  try {
-    const raw = JSON.parse(localStorage.getItem(columnsKey(id)) ?? "null") as Partial<SavedColumns> | null
-    const strings = (value: unknown) =>
-      Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : []
-    return raw && typeof raw === "object"
-      ? { order: strings(raw.order), hidden: strings(raw.hidden), shown: strings(raw.shown) }
-      : none
-  } catch {
-    return none
-  }
+  if (!id) return none
+  const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [])
+  return readStoredJson("local", columnsKey(id), (raw) => {
+    const saved = raw as Partial<SavedColumns> | null | undefined
+    return saved && typeof saved === "object" ? { order: strings(saved.order), hidden: strings(saved.hidden), shown: strings(saved.shown) } : none
+  })
 }
 
 function saveColumns(id: string | undefined, saved: SavedColumns | undefined) {
-  if (!id || typeof window === "undefined") return
-  try {
-    if (saved) localStorage.setItem(columnsKey(id), JSON.stringify(saved))
-    else localStorage.removeItem(columnsKey(id))
-  } catch {
-    // Storage unavailable
-  }
+  if (id) writeStoredJson("local", columnsKey(id), saved)
 }
 
 function applyOrder(defaults: string[], saved: string[]): string[] {
@@ -172,13 +156,7 @@ function applyOrder(defaults: string[], saved: string[]): string[] {
 }
 
 function saveWidths(id: string | undefined, widths: ColumnSizingState) {
-  if (!id || typeof window === "undefined") return
-  try {
-    if (Object.keys(widths).length) localStorage.setItem(widthsKey(id), JSON.stringify(widths))
-    else localStorage.removeItem(widthsKey(id))
-  } catch {
-    // Storage unavailable
-  }
+  if (id) writeStoredJson("local", widthsKey(id), Object.keys(widths).length ? widths : undefined)
 }
 
 export interface DataTableProps<T> {
@@ -749,11 +727,11 @@ function Table<T>({
               return (
                 <>
                   <tr aria-hidden="true">
-                    <td colSpan={span} style={{ height: paddingTop, padding: 0, border: 0 }} />
+                    <td colSpan={span} className="border-0 p-0" style={{ height: paddingTop }} />
                   </tr>
                   {virtualItems.map((v) => renderRow(tableRows[v.index]!))}
                   <tr aria-hidden="true">
-                    <td colSpan={span} style={{ height: paddingBottom, padding: 0, border: 0 }} />
+                    <td colSpan={span} className="border-0 p-0" style={{ height: paddingBottom }} />
                   </tr>
                 </>
               )

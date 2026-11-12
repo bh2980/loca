@@ -1,13 +1,15 @@
 import { Hono } from 'hono';
 import { bodyLimit } from 'hono/body-limit';
 import { compress } from 'hono/compress';
-import { HTTPException } from 'hono/http-exception';
 import { streamSSE } from 'hono/streaming';
-import { FEED_EVENT } from '@tw/shared';
-import type { Deps, Env } from './context.ts';
+import type { JSONParsed } from 'hono/utils/types';
+import type { z } from 'zod';
+import { FEED_EVENT, type ChangeEvent } from '@loca/shared';
+import { onError, type Deps, type Env } from './http.ts';
 import { rowChangesOf } from './db/row-changes.ts';
-import { events, trackChanges, type ChangeEvent } from './events.ts';
+import { eventsOf, trackChanges } from './events.ts';
 import { feedRows } from './feed.ts';
+import { refuse } from './refusal.ts';
 import { connectionRoutes, modelTestRoutes } from './routes/ai-settings.ts';
 import { appSettingsRoutes } from './routes/app-settings.ts';
 import { chatRoutes } from './routes/chat.ts';
@@ -17,13 +19,15 @@ import { sourceRoutes } from './routes/source.ts';
 import { workflowRoutes } from './routes/workflows.ts';
 import { proposalRoutes } from './routes/proposals.ts';
 import { scriptRoutes } from './routes/script.ts';
+import type { AgentTools } from './services/agent-tools.ts';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
 export function createApp(deps: Deps) {
   // The row feed: the database notes each changed row of the browser's collections, and the change
   // event that follows carries them (feed.ts).
-  rowChangesOf(deps.db.$client).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
+  const events = eventsOf(deps.db);
+  rowChangesOf(deps.db).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
   events.rowSource = (projectId) => feedRows(deps.db, deps, projectId);
   const api = new Hono<Env>()
     .use(async (c, next) => {
@@ -68,7 +72,7 @@ export function createApp(deps: Deps) {
     // A local app: refuse other hosts so a web page cannot reach the API via DNS rebinding.
     .use(async (c, next) => {
       const host = (c.req.header('host') ?? '').replace(/:\d+$/, '');
-      if (!LOCAL_HOSTS.has(host)) throw new HTTPException(403, { message: 'localhost에서만 접근할 수 있습니다.' });
+      if (!LOCAL_HOSTS.has(host)) refuse('forbidden', 'localhost에서만 접근할 수 있습니다.');
       await next();
     })
     .use('/api/*', bodyLimit({ maxSize: 256 * 1024 * 1024 }))
@@ -76,11 +80,12 @@ export function createApp(deps: Deps) {
     // events, chat) must not be buffered by a compressor.
     .use('/api/*', compress({ contentTypeFilter: /^application\/json/ }))
     .route('/api', api)
-    .onError((error, c) => {
-      if (error instanceof HTTPException) return c.json({ error: error.message }, error.status);
-      console.error(error);
-      return c.json({ error: error instanceof Error ? error.message : '알 수 없는 오류' }, 500);
-    });
+    .onError(onError);
 }
 
 export type AppType = ReturnType<typeof createApp>;
+/** The browser's collections' row types, each from its reader. */
+export type { FeedRow } from './feed.ts';
+/** What each agent tool takes and answers over this API (`POST /projects/:projectId/tools/:name`, after JSON), by tool name, for the `loca` CLI's typed reads. */
+export type ToolInputs = { [K in keyof AgentTools]: z.input<AgentTools[K]['inputSchema']> };
+export type ToolResults = { [K in keyof AgentTools]: AgentTools[K] extends { execute?: (...args: never[]) => infer R } ? JSONParsed<Awaited<R>> : never };

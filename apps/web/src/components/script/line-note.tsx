@@ -1,14 +1,13 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Box, Button, Inline, Input, ScriptNoteCard, ScriptNoteMark } from '@loca/ui';
-import { client } from '@/lib/api';
-import { changeLines, patchedLine } from '@/lib/units';
+import { Button, Inline, Input, ScriptNoteCard } from '@loca/ui';
+import { patchLine } from '@/lib/line-writes';
 
 /** Saves a line's note (empty removes it), shown at once. */
 function useSaveNote(projectId: string, unitId: string) {
   return useMutation({
-    mutationFn: (note: string) => changeLines(projectId, [unitId], patchedLine({ note }), () => client.units[':unitId'].$patch({ param: { unitId }, json: { note } })),
+    mutationFn: (note: string) => patchLine(projectId, unitId, { note }),
     onError: (error) => toast.error(error.message),
   });
 }
@@ -62,8 +61,3 @@ export function LineNote({ projectId, unitId, note, editing, onEditing }: { proj
   );
 }
 
-/** A line's note as a small mark beside the speaker in the list; the note itself on hover. */
-export function NoteMark({ note }: { note: string }) {
-  if (!note) return null;
-  return <ScriptNoteMark note={note} />;
-}

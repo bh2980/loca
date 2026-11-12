@@ -5,8 +5,8 @@ import { Stack } from "../../primitives/stack"
 import { Text } from "../../primitives/text"
 import { Button } from "../../controls/button"
 import { Notice } from "../../patterns/notice"
-import { GraphEndpointBar } from "./graph-endpoint-bar"
-import { GraphScriptSplit } from "./graph-script-split"
+import { GraphEndpointBar } from "../graph/graph-endpoint-bar"
+import { GraphScriptSplit } from "../graph/graph-script-split"
 import { ScriptWorkspace } from "./script-layout"
 
 const meta = { title: "Domains/Script/Layout", decorators: [(Story) => <Box style={{ width: 760 }}><Story /></Box>] } satisfies Meta

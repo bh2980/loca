@@ -11,7 +11,7 @@ import { StatusIcon, type StatusLike } from "../../patterns/status"
 import { CandidateCard } from "./candidate-card"
 import { SceneSectionHeader } from "./scene-section-header"
 import { ScriptInlineListenerTrigger } from "./script-controls"
-import { ScriptMenuAnchor, ScriptNoteMark, ScriptSourceStyle } from "./script-line-parts"
+import { ScriptNoteMark, ScriptSourceStyle } from "./script-line-parts"
 import { ScriptReadingRow } from "./script-reading-row"
 import { SpeakerIdentity } from "./speaker-identity"
 import { TranslationColumnHeader } from "./translation-column-header"
@@ -119,7 +119,6 @@ export const NoteMarkAndAnchor: Story = {
     <Inline gap="normal">
       <ScriptNoteMark note="'그녀'가 누구인지 확인 필요" />
       <ScriptNoteMark note={"여러 줄 메모\n둘째 줄\n셋째 줄"} />
-      <ScriptMenuAnchor x={0} y={0} />
     </Inline>
   ),
 }

@@ -1,19 +1,19 @@
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { runCardMessage, runCardOf, type ChatChip, type RunCard, type RunCardPlan } from '@tw/shared';
-import { badRequest, found, notFound } from '../context.ts';
+import { runCardMessage, runCardOf, type ChatChip, type RunCard, type RunCardPlan } from '@loca/shared';
+import { badRequest, found, notFound } from '../refusal.ts';
 import type { Db } from '../db/index.ts';
+import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
 import { chatRunScope } from './chat-run-scope.ts';
-import { preflight } from './preflight.ts';
+import { preflight } from '../engine/preflight.ts';
 import { planOf } from './run-plan.ts';
-import { fitScope, startWorkflowRun } from './start-run.ts';
+import { fitScope, startRun } from './start-run.ts';
 
 /**
  * The 실행 확인 cards of the project chat (docs/CHAT-INPUT-DESIGN.md 3-2), kept in the conversation
  * record (`chat_sessions.messages`) as user messages with a `data-run` part: every window shows them
- * where they were made, and the agent reads them as something the user did (chat-context.ts).
+ * where they were made, and the agent reads them as something the user did (chat-record.ts).
  * The card is made with the numbers the person sees; 실행 starts the run with the card's own scope
  * and caps and records its runId in the same call, so the card and the run cannot drift.
  */
@@ -47,7 +47,6 @@ export async function createRunCard(db: Db, sessionId: string, input: { workflow
   // Read and written with no await in between: a reply that is saving its own messages cannot lose it (chat-stream keeps cards a reply did not know).
   const latest = record(db, sessionId);
   db.update(s.chatSessions).set({ messages: [...(latest.messages as UIMessage[]), runCardMessage(card) as unknown as UIMessage] }).where(eq(s.chatSessions.id, sessionId)).run();
-  events.changed(session.projectId, 'chat');
   return card;
 }
 
@@ -55,13 +54,12 @@ export async function createRunCard(db: Db, sessionId: string, input: { workflow
 const startLimits = (suggested: RunCardPlan['suggestedLimits']) => ({ maxCalls: suggested?.maxCalls ?? null, maxInputTokens: suggested?.maxInputTokens ?? null });
 
 /** Cards being started right now (the run is made in steps): a second 실행 on the same card is refused instead of starting a second run. */
-const starting = new Set<string>();
+const starting = perDatabase(() => new Set<string>());
 
 const replaceCard = (db: Db, sessionId: string, card: RunCard) => {
   const latest = record(db, sessionId);
   const messages = (latest.messages as UIMessage[]).map((message) => (message.id === card.id && runCardOf(message) ? (runCardMessage(card) as unknown as UIMessage) : message));
   db.update(s.chatSessions).set({ messages }).where(eq(s.chatSessions.id, sessionId)).run();
-  events.changed(latest.projectId, 'chat');
 };
 
 /**
@@ -73,19 +71,20 @@ export async function answerRunCard(db: Db, sessionId: string, cardId: string, a
   const session = record(db, sessionId);
   const card = (session.messages as UIMessage[]).flatMap((message) => (message.id === cardId ? [runCardOf(message)] : [])).find(Boolean);
   if (!card) return notFound('실행 확인 카드');
-  if (card.state !== 'pending' || starting.has(card.id)) badRequest(card.state === 'started' ? '이미 실행했습니다.' : card.state === 'cancelled' ? '이미 취소했습니다.' : '이 카드는 지금 실행을 시작하는 중입니다.');
+  if (card.state !== 'pending' || starting(db).has(card.id)) badRequest(card.state === 'started' ? '이미 실행했습니다.' : card.state === 'cancelled' ? '이미 취소했습니다.' : '이 카드는 지금 실행을 시작하는 중입니다.');
   if (answer === 'cancel') {
     const next: RunCard = { ...card, state: 'cancelled' };
     replaceCard(db, sessionId, next);
     return next;
   }
-  starting.add(card.id);
+  starting(db).add(card.id);
   try {
-    const { runId } = await startWorkflowRun(db, card.workflowId, { scope: card.scope, limits: startLimits(card.plan.suggestedLimits), sessionId });
-    const next: RunCard = { ...card, state: 'started', runId };
+    const started = await startRun(db, { workflowId: card.workflowId, scope: { resolved: card.scope }, limits: startLimits(card.plan.suggestedLimits), sessionId });
+    if (!started.ok) badRequest(started.error);
+    const next: RunCard = { ...card, state: 'started', runId: started.runId };
     replaceCard(db, sessionId, next);
     return next;
   } finally {
-    starting.delete(card.id);
+    starting(db).delete(card.id);
   }
 }

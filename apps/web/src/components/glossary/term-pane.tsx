@@ -7,36 +7,19 @@ import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Play, Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch, ConfirmDialog } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { AiNamed, confirmLabel, SourceBadge, StateCell, type ItemTag } from '@/components/knowledge/table';
-import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type KnowledgeOrigin, type KnowledgeStatus, type StatusBy, type TermScope } from '@tw/shared';
-import { client } from '@/lib/api';
+import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
+import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@loca/shared';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
-import { sent } from '@/lib/collections';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useLines } from '@/lib/units';
+import { useGroupsById } from '@/lib/groups';
+import type { Term } from '@/lib/terms';
+import { createTerm, saveTerm, deleteTerm, tagTerms } from '@/lib/terms';
 
-export interface Term {
-  id: string;
-  source: string;
-  target: string;
-  note: string;
-  status: KnowledgeStatus;
-  origin: KnowledgeOrigin;
-  statusBy: StatusBy;
-  evidence?: string[];
-  lines: number | null;
-  examples: string[];
-  scope: TermScope;
-  matchCase: boolean;
-  /** Other Korean forms (a former main one, an AI's), newest first. */
-  targetCandidates: string[];
-  duplicateTarget?: boolean;
-  tags?: ItemTag[];
-}
 /** `?term=new` opens the pane for a term that does not exist yet. */
 export const NEW_TERM = 'new';
 
@@ -82,7 +65,7 @@ function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermF
 export function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
   const [form, setForm] = useState<TermForm>({ source: '', target: '', note: '', scope: ALL_TERM_KINDS, matchCase: false });
   const create = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms.$post({ param: { projectId }, json: form })),
+    mutationFn: () => createTerm(projectId, form),
     onSuccess: (created) => {
       toast.success('용어를 추가했습니다.');
       if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'string') onCreated(created.id);
@@ -116,18 +99,18 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: changedFields(form, saved) })),
+    mutationFn: () => saveTerm(projectId, term.id, changedFields(form, saved)),
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
   // 메인으로: the candidate becomes the form used; the former main one stays a candidate (server side).
   const makeMain = useMutation({
-    mutationFn: (target: string) => sent(projectId, client.projects[':projectId'].terms[':id'].$patch({ param: { projectId, id: term.id }, json: { target } })),
+    mutationFn: (target: string) => saveTerm(projectId, term.id, { target }),
     onSuccess: (_, target) => toast.success(`'${target}'을(를) 메인 번역어로 바꿨습니다.`),
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
-    mutationFn: () => sent(projectId, client.projects[':projectId'].terms[':id'].$delete({ param: { projectId, id: term.id } })),
+    mutationFn: () => deleteTerm(projectId, term.id),
     onSuccess: () => {
       toast.success('용어를 삭제했습니다.');
       onClose();
@@ -136,11 +119,12 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   });
 
   const usage = useQuery(q.termUsage(projectId, term.id));
-  const [tab, setTab] = useInspectorTab<TermTab>('term', TERM_TABS);
+  const [tab, setTab] = useInspectorTab<TermTab>(TERM_TABS);
   const [allUses, setAllUses] = useState(false);
   // Which lines use the term is the question; the first of them come from the units collection.
   const useIds = useMemo(() => usage.data?.unitIds.slice(0, 100), [usage.data]);
   const uses = useLines(projectId, useIds).rows ?? [];
+  const groupOf = useGroupsById(projectId);
   const taxonomy = useTaxonomy(projectId);
   const termTags = tagsIn(taxonomy.tags, 'terms');
   const attachedTags = (term.tags ?? [])
@@ -149,10 +133,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
 
   const tagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
-      await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
-        param: { projectId },
-        json: { kind: 'terms', ids: [term.id], tagId, add },
-      }));
+      await tagTerms(projectId, [term.id], tagId, add);
     },
     onError: (error) => toast.error(error.message),
   });
@@ -167,23 +148,12 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   };
 
   return (
-    <Inspector footerStart={<><AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" tone="danger">
-                <Trash2 /> 용어 삭제
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>용어를 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>“{term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
+    <Inspector footerStart={<><ConfirmDialog
+            trigger={<Button variant="ghost" tone="danger"><Trash2 /> 용어 삭제</Button>}
+            title="용어를 삭제할까요?"
+            description={`“${term.source}” 용어가 용어집에서 사라집니다. 이미 번역된 대사는 바뀌지 않습니다.`}
+            onConfirm={() => remove.mutate()}
+          />
           {candidate && (
             <Button variant="ghost" tone="danger" disabled={deciding} onClick={() => onDecide(false)}>버리기</Button>
           )}</>}
@@ -258,7 +228,7 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
             <Text as="p" variant="body" tone="muted">이 용어가 나오는 대사가 없습니다.</Text>
           ) : (
             <InspectorList>
-              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{row.groupTitle} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
+              {(allUses ? uses : uses.slice(0, USES_SHOWN)).map((row) => <li key={row.id}><ListRow as="link" variant="line" inset><Link to="/p/$projectId/script" params={{ projectId }} search={{ group: row.groupId, line: row.id }}><Text variant="caption" tone="muted">{groupOf.get(row.groupId)?.title} · </Text>{row.speaker && <Text weight="medium">{row.speaker}: </Text>}{row.source}{row.translation && <Text display="block" tone="muted">{row.translation}</Text>}</Link></ListRow></li>)}
             </InspectorList>
           )}
           {uses.length > USES_SHOWN && (

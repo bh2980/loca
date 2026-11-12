@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema, type LineFilterInput } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -13,7 +13,7 @@ function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [0, 1, 2].map((n) => ({ key: `u${n}`, group: 'g', source: `Line ${n}` })) });
   const { projectId } = importProject(db, file, null as never);
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -39,7 +39,7 @@ describe('who set it', () => {
     await send('PATCH', `/projects/${projectId}/units`, { unitIds: [units[1].id], checked: true });
     expect(by().map((row) => row.statusBy)).toEqual(['human', 'human', 'ai']);
     // 'AI가 정한 것만' lists what is left.
-    const listed = (await (await send('GET', `/projects/${projectId}/units/ids?decidedBy=ai`, undefined)).json()) as { ids: string[] };
+    const listed = (await (await send('POST', `/projects/${projectId}/units/ids`, { filter: { decidedBy: 'ai' } })).json()) as { ids: string[] };
     expect(listed.ids.map((id) => db.select({ key: s.units.key, statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, id)).get()).map((row) => [row?.key, row?.statusBy])).toEqual([['u2', 'ai']]);
   });
 
@@ -67,11 +67,13 @@ describe('units list filters on what a row shows', () => {
     db.update(s.units).set({ kind: 'dialogue', listener: null }).where(eq(s.units.id, units[2].id)).run();
     db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[0].id)).run();
     db.update(s.units).set({ note: '메모' }).where(eq(s.units.id, units[1].id)).run();
-    const keys = async (query: string) => ((await (await send('GET', `/projects/${projectId}/units/ids?${query}`, undefined)).json()) as { ids: string[] }).ids.map((id) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()?.key);
-    expect(await keys('listener=-')).toEqual(['u1', 'u2']);
-    expect(await keys('noted=1')).toEqual(['u0', 'u1']);
-    expect(await keys('listener=-&noted=1')).toEqual(['u1']);
-    expect(await keys('listener=-&noted=0')).toEqual(['u2']);
-    expect(await keys('listener=Bob&noted=1')).toEqual(['u0']);
+    const keys = async (filter: LineFilterInput) => ((await (await send('POST', `/projects/${projectId}/units/ids`, { filter })).json()) as { ids: string[] }).ids.map((id) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()?.key);
+    expect(await keys({ listeners: ['-'] })).toEqual(['u1', 'u2']);
+    expect(await keys({ noted: true })).toEqual(['u0', 'u1']);
+    expect(await keys({ listeners: ['-'], noted: true })).toEqual(['u1']);
+    expect(await keys({ listeners: ['-'], noted: false })).toEqual(['u2']);
+    expect(await keys({ listeners: ['Bob'], noted: true })).toEqual(['u0']);
+    // A known listener or 청자 모름: either holds.
+    expect(await keys({ listeners: ['Bob', '-'] })).toEqual(['u0', 'u1', 'u2']);
   });
 });

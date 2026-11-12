@@ -2,7 +2,7 @@ import { and, asc, count, eq, type SQL } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { excludedSql, lineFactConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
+import { excludedSql, lineFactConditions, translatableSql, unknownListenerSql } from '../domain/line-marks.ts';
 
 /**
  * Scenes, documents and UI groups with their progress, in script order: lines for translation by
@@ -31,4 +31,3 @@ export function groupRows(db: Db, projectId: string, ids?: readonly string[]) {
   });
 }
 
-export type GroupRow = ReturnType<typeof groupRows>[number];

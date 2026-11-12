@@ -1,6 +1,7 @@
 import { useState, type ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
 import { Check, Play, X } from 'lucide-react';
+import { connectionCan } from '@loca/shared';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, Icon, Inline, SectionHeading, Stack, StepMarker, Text } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
@@ -9,6 +10,7 @@ import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useProject } from '@/lib/project';
 import { useConnections } from '@/lib/app-data';
+import { stored, STORED } from '@/lib/storage';
 
 interface Step {
   key: string;
@@ -42,7 +44,7 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   };
   if (!connections.data || !characters.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
 
-  const aiConnections = connections.data.filter((connection) => connection.kind !== 'http');
+  const aiConnections = connections.data.filter((connection) => !connectionCan(connection.kind, 'tool'));
   // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
   const known = characters.data.length > 0 || rules.data.length > 0;
   const ran = runs.data.length > 0;
@@ -171,21 +173,5 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   );
 }
 
-const hiddenKey = (projectId: string) => `getting-started-hidden:${projectId}`;
-
-function readHidden(projectId: string) {
-  try {
-    return localStorage.getItem(hiddenKey(projectId)) === '1';
-  } catch {
-    return false;
-  }
-}
-
-function writeHidden(projectId: string, hidden: boolean) {
-  try {
-    if (hidden) localStorage.setItem(hiddenKey(projectId), '1');
-    else localStorage.removeItem(hiddenKey(projectId));
-  } catch {
-    // Storage unavailable: closed until the page reloads.
-  }
-}
+const readHidden = (projectId: string) => stored(STORED.gettingStartedHidden, projectId).read();
+const writeHidden = (projectId: string, hidden: boolean) => stored(STORED.gettingStartedHidden, projectId).write(hidden);

@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { learnImages } from './ai-calls.ts';
+import { learnImages } from '../domain/ai-calls.ts';
 import { acpImages, incomingImageProblem, withoutImages } from './chat-images.ts';
 import { chatUsage } from './chat-usage.ts';
 import { importProject } from './importer.ts';

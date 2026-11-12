@@ -16,6 +16,9 @@ export const modelLimitsSchema = z.object({
 });
 export type ModelLimits = z.infer<typeof modelLimitsSchema>;
 
+/** Rough token count: about 4 bytes of UTF-8 per token. Only for budgets and display; label it as an estimate. */
+export const estimateTokens = (value: unknown) => Math.ceil(new TextEncoder().encode(typeof value === 'string' ? value : JSON.stringify(value)).length / 4);
+
 /** Budgets when the model's limits are unknown (and an AI node's own numbers before "auto"). */
 export const DEFAULT_BUDGETS = { lines: 6_000, whole: 300_000, context: 12_000 } as const;
 

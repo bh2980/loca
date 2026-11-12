@@ -3,24 +3,21 @@ import { useMemo, useRef } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import type { InferRequestType } from 'hono/client';
 import { toast } from 'sonner';
-import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@tw/shared';
+import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@loca/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorResult, InspectorTabs, TagListEditor, Chip, Box, Button, Inline, Text, Section, Field } from '@loca/ui';
 import { DraftEditor, draftKeyOf, savedOf } from '@/components/knowledge/editor';
 import { PairLines, usePairLines } from '@/components/knowledge/evidence';
 import { SpeechTimeline } from '@/components/knowledge/speech-timeline';
 import { AiNamed, candidateRow, confirmLabel, fail, metaColumns, type Draft, type KnowledgeFilterState, type KindSpec, type RelationshipRow, type SpeechRuleRow } from '@/components/knowledge/table';
 import { personStyle } from '@/lib/person-colors';
-import { client } from '@/lib/api';
 import { tagsIn } from '@/lib/queries';
-import { useTaxonomy } from '@/lib/knowledge';
-import { sent } from '@/lib/collections';
+import { useTaxonomy, knowledgeWrites } from '@/lib/knowledge';
 import { useLinesByKeys } from '@/lib/units';
 import { useDirtyDrafts } from '@/lib/drafts';
 import { useInspectorTab } from '@/lib/inspector-tab';
 
-/** One speaker → listener direction (buildPairs, @tw/shared) with the rows these screens read. */
+/** One speaker → listener direction (buildPairs, @loca/shared) with the rows these screens read. */
 export type Pair = PairOf<RelationshipRow, SpeechRuleRow>;
 
 /**
@@ -44,7 +41,8 @@ export function useStablePairs(pairs: Pair[]) {
 }
 
 /** What creating a speech rule takes. */
-export type SpeechRuleCreate = InferRequestType<(typeof client.projects)[':projectId']['speech-rules']['$post']>['json'];
+import type { SpeechRuleCreate } from '@/lib/knowledge';
+export type { SpeechRuleCreate };
 
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the analysis marked an item for a look (확인 권장), or null. */
@@ -115,7 +113,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
   onClose: () => void;
   onDecide: (kind: 'relationships' | 'speechRules', ids: string[], action: 'confirm' | 'discard') => void;
 }) {
-  const [tab, setTab] = useInspectorTab<PairTab>('pair', PAIR_TABS);
+  const [tab, setTab] = useInspectorTab<PairTab>(PAIR_TABS);
   const startKeys = useMemo(() => pair.rules.flatMap((rule) => (rule.startKey ? [rule.startKey] : [])), [pair.rules]);
   const starts = useLinesByKeys(projectId, startKeys);
   const startOf = new Map(starts.data?.map((line, index) => [line.key, { ...line, order: index }]));
@@ -137,10 +135,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
   const pairTagMutation = useMutation({
     mutationFn: async ({ tagId, add }: { tagId: string; add: boolean }) => {
       for (const [kind, list] of Map.groupBy(pairItemsList, (item) => item.kind)) {
-        await sent(projectId, client.projects[':projectId']['knowledge-tags'].$post({
-          param: { projectId },
-          json: { kind, ids: list.map((item) => item.row.id), tagId, add },
-        }));
+        await knowledgeWrites(projectId).tag(kind, list.map((item) => item.row.id), tagId, add);
       }
     },
     onError: fail,

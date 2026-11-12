@@ -2,14 +2,14 @@ import { useNavigate, useParams } from '@tanstack/react-router';
 import { useState } from 'react';
 import { Check, CircleAlert, Network, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { acceptedLabel, AGENT_TOOLS, agentPermissionError, findReadingRouteOutputSchema } from '@tw/shared';
-import { client, unwrap } from '@/lib/api';
+import { acceptedLabel, findReadingRouteOutputSchema, toolRoute, toolSpec } from '@loca/shared';
 import { workflowEdits, type WorkflowNodeEdit } from '@/lib/workflow-edits';
-import { ChangePreview, LABEL } from './change-preview';
+import { LABEL } from './change-preview';
 import { ProposalCard, type Proposal } from './proposal-card';
-import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Spinner, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
+import { Box, Button, Grid, Icon, Inline, SourceExcerpt, Stack, Text, ToolCallRow, ToolCard, ToolCardHeader, ToolErrorCard } from '@loca/ui';
+import { toolPermission } from '@/lib/proposals';
 
-type State = 'input-streaming' | 'input-available' | 'approval-requested' | 'approval-responded' | 'output-available' | 'output-error' | 'output-denied';
+type State = 'input-streaming' | 'input-available' | 'output-available' | 'output-error';
 
 interface Part {
   type: string;
@@ -18,16 +18,14 @@ interface Part {
   input?: Record<string, unknown>;
   output?: unknown;
   errorText?: string;
-  approval?: { id: string; approved?: boolean };
 }
 
-export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
+export function ToolPart({ part, stale, onOutput, proposal }: {
   part: Part;
   /** For CLI chats: the stored proposal a change tool produced (decided with its own buttons). */
   proposal?: Proposal;
   /** Not in the latest reply: an unanswered proposal can no longer be applied. */
   stale?: boolean;
-  onDecide: (approvalId: string, approved: boolean) => void;
   /** Result for a tool the browser carries out (edit_workflow_node). */
   onOutput: (toolCallId: string, output: unknown) => void;
 }) {
@@ -35,7 +33,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
   const [checkingWorkflowPermission, setCheckingWorkflowPermission] = useState(false);
   const label = LABEL[name] ?? name;
-  const isChange = Boolean(AGENT_TOOLS[name] && AGENT_TOOLS[name].action !== 'read');
+  const isChange = Boolean(toolSpec(name)) && toolRoute(name) === 'gate';
   if (proposal) return <ProposalCard proposal={proposal} />;
 
   if (name === 'edit_workflow_node' && part.input && (part.state === 'input-available' || part.state === 'output-available')) {
@@ -48,7 +46,7 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
           {!output && stale && <Text tone="muted">응답하지 않음</Text>}
         </ToolCardHeader>
         <Box paddingX="normal" paddingY="condensed" variant="body">
-          <ChangePreview name={name} input={part.input} />
+          <NodeEditPreview input={part.input} />
         </Box>
         {part.state === 'input-available' && !stale && (
           <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
@@ -62,10 +60,9 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
                 setCheckingWorkflowPermission(true);
                 try {
                   if (!projectId) throw new Error('프로젝트 권한을 확인할 수 없습니다. 프로젝트 화면에서 다시 시도하세요.');
-                  // This browser-carried tool does not execute on the server, so recheck the
-                  // project's current policy immediately before applying its edit to the draft.
-                  const project = await unwrap(client.projects[':projectId'].$get({ param: { projectId } }));
-                  const permissionError = agentPermissionError(project.agentSettings ?? {}, name, part.input!);
+                  // This tool is carried out here, not on the server, so the server is asked right before
+                  // the edit goes into the draft whether the project's agent permissions (as they are now) allow it.
+                  const { denied: permissionError } = await toolPermission(projectId, name, part.input!);
                   if (permissionError) {
                     toast.error(permissionError);
                     onOutput(part.toolCallId, { applied: false, reason: permissionError });
@@ -95,46 +92,28 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
     );
   }
 
-  if (isChange && (part.state === 'approval-requested' || part.state === 'approval-responded' || part.state === 'output-available' || part.state === 'output-denied')) {
-    const decided = part.state !== 'approval-requested';
+  if (isChange && part.state === 'output-available') {
     // A gated change answers with its proposal's status (#45): a change that was tried and failed is not 적용됨.
     const output = part.output as { ok?: boolean; status?: string; error?: string; note?: string } | undefined;
-    const failed = part.state === 'output-available' && (output?.ok === false || output?.status === 'failed' || output?.status === 'rejected');
-    const waiting = part.state === 'output-available' && (output?.status === 'pending' || output?.status === 'running');
+    const failed = output?.ok === false || output?.status === 'failed' || output?.status === 'rejected';
+    const waiting = output?.status === 'pending' || output?.status === 'running';
     // Refused before it became a proposal ('제안하지 못했습니다: …'): there is nothing to accept.
-    const refused = part.state === 'output-available' && output?.ok === false && !output?.status;
+    const refused = output?.ok === false && !output?.status;
     return (
       <ToolCard>
         <ToolCardHeader title={label}>
-          {part.state === 'output-denied' && <Text tone="muted">거절함</Text>}
-          {part.state === 'output-available' && !failed && !waiting && <Text tone="success">{acceptedLabel(name).short}</Text>}
+          {!failed && !waiting && <Text tone="success">{acceptedLabel(name).short}</Text>}
           {waiting && <Text tone="muted">결정 기다리는 중</Text>}
           {failed && <Text tone="danger">{output?.status === 'rejected' ? '거절함' : String(output?.error ?? '실패')}</Text>}
-          {part.state === 'approval-responded' && <Spinner size="xs" />}
         </ToolCardHeader>
-        <Box paddingX="normal" paddingY="condensed" variant="body">
-          {part.input &&
-            (refused ? (
-              // Nothing was proposed (the check refused it): what the agent asked for, folded, not as items to add.
-              <details>
-                <Text as="summary" cursor="pointer" tone="muted">요청한 내용 보기</Text>
-                <Box marginTop="condensed">
-                  <ChangePreview name={name} input={part.input} pending={false} />
-                </Box>
-              </details>
-            ) : (
-              <ChangePreview name={name} input={part.input} pending={!decided} />
-            ))}
-        </Box>
-        {!decided && part.approval && (
-          <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
-            <Button variant="outline" onClick={() => onDecide(part.approval!.id, false)}>
-              <X /> 거절
-            </Button>
-            <Button onClick={() => onDecide(part.approval!.id, true)}>
-              <Check /> 수락
-            </Button>
-          </Stack>
+        {/* The proposal's card says what it changes (its details, from the server); without one (the check refused it, or its row is not here yet) only what the agent asked for is left. */}
+        {part.input && (
+          <Box paddingX="normal" paddingY="condensed" variant="body">
+            <details>
+              <Text as="summary" cursor="pointer" tone="muted">{refused ? '요청한 내용 보기' : '보낸 내용 보기'}</Text>
+              <Text as="pre" marginTop="condensed" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{JSON.stringify(part.input, null, 2).slice(0, 4000)}</Text>
+            </details>
+          </Box>
         )}
       </ToolCard>
     );
@@ -148,11 +127,29 @@ export function ToolPart({ part, stale, onDecide, onOutput, proposal }: {
 
   return (
     <ToolCallRow
-      status={part.state === 'output-error' ? 'error' : part.state === 'output-available' ? 'done' : 'running'}
+      // Only a call still taking its input is running: any other state (one a stored conversation has that this page does not know) is a finished call.
+      status={part.state === 'output-error' ? 'error' : part.state === 'input-streaming' || part.state === 'input-available' ? 'running' : 'done'}
       label={label}
       detail={part.input && 'sceneId' in part.input && part.input.offset ? <span>· {String(part.input.offset)}번째부터</span> : null}
       output={part.state === 'output-error' ? part.errorText : JSON.stringify(part.output ?? part.input, null, 1)?.slice(0, 4000)}
     />
+  );
+}
+
+/** edit_workflow_node as the editor shows it before applying: this tool is the browser's own (the open editor carries it out), so its card is drawn here. */
+function NodeEditPreview({ input }: { input: Record<string, unknown> }) {
+  const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
+  const rows = [['노드', input.nodeId], ['항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[String(input.field)]], ['설명', input.description]].filter(([, shown]) => shown !== undefined && shown !== '');
+  return (
+    <Box as="dl" spaceY="tight">
+      {rows.map(([label, shown]) => (
+        <Grid key={String(label)} columns="field" gap="condensed">
+          <Text as="dt" variant="caption" tone="muted">{String(label)}</Text>
+          <Text as="dd" minWidth={0} breakWords>{String(shown)}</Text>
+        </Grid>
+      ))}
+      <Text as="pre" maxHeight="scroll" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
+    </Box>
   );
 }
 

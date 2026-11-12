@@ -1,16 +1,15 @@
 import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
 import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings, Sun, Workflow } from 'lucide-react';
-import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
+import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, useSidebar, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
 import { useProjectProgress } from '@/lib/project';
 import { useProfile, useProjects } from '@/lib/app-data';
+import { stored, STORED } from '@/lib/storage';
+import { useShortcuts } from '@/lib/shortcuts';
 
-const lastKey = (projectId: string, itemId: string) => `tw.nav.${projectId}.${itemId}`;
-const readLast = (projectId: string, itemId: string): { pathname: string; search: Record<string, unknown> } | null => {
-  try { return JSON.parse(sessionStorage.getItem(lastKey(projectId, itemId)) ?? 'null'); } catch { return null; }
-};
+const readLast = (projectId: string, itemId: string) => stored(STORED.sidebarLast, projectId, itemId).read();
 
 /** 검토 대기 on 대사: its own reader of the project's counts, so a count that moves redraws only this number. */
 function ReviewBadge({ projectId }: { projectId: string }) {
@@ -25,7 +24,7 @@ function ReviewBadge({ projectId }: { projectId: string }) {
 function RememberScreen({ projectId, itemId }: { projectId: string; itemId: string }) {
   const remembered = useRouterState({ select: (state) => JSON.stringify({ pathname: state.location.pathname, search: state.location.search }) });
   useEffect(() => {
-    try { sessionStorage.setItem(lastKey(projectId, itemId), remembered); } catch { /* private mode */ }
+    stored(STORED.sidebarLast, projectId, itemId).write(JSON.parse(remembered) as { pathname: string; search: Record<string, unknown> });
   }, [projectId, itemId, remembered]);
   return null;
 }
@@ -90,6 +89,8 @@ function ProjectSwitcher({ projectId }: { projectId: string }) {
 }
 
 export function AppSidebar({ projectId }: { projectId: string }) {
+  const { toggleSidebar } = useSidebar();
+  useShortcuts({ sidebar: toggleSidebar });
   const theme = useTheme();
   const profile = useProfile();
   const current = useCurrentNav(projectId);

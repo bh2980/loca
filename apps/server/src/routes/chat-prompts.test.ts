@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, savedPromptsSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema, savedPromptsSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from '../services/importer.ts';
 import { chatRoutes, describeView } from './chat.ts';
@@ -19,7 +19,7 @@ const setup = () => {
     ],
   });
   const { projectId } = importProject(db, file, null as never);
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();

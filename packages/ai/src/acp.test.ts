@@ -6,7 +6,8 @@ import type * as acp from '@agentclientprotocol/sdk';
 import { afterEach, describe, expect, it } from 'vitest';
 import { EventEmitter } from 'node:events';
 import { PassThrough } from 'node:stream';
-import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import { acpError, agentCommand, AcpAgent as Agent, agentFor, agentWith, checkCliLogin, closeSession, ourTool, readUsage, setAgentStarter, stopIdleAgents, type AcpAgent } from './acp.ts';
+import type { CliKind } from '@loca/shared';
 import { ModelError } from './errors.ts';
 import { inProcessStarter } from './fake-acp-starter.ts';
 import { hostTools } from './mcp-host.ts';
@@ -68,6 +69,56 @@ describe('chat sessions over ACP', () => {
     expect(reply).toContain('fake-2');
     expect(reply).toContain('L1: Halt!');
     expect(usage.outputTokens).toBe(reply.length);
+    tools.dispose();
+  });
+
+  it('tells our MCP tools from anything that only mentions them', () => {
+    const servers = [{ name: 'loca', tools: ['find_lines', 'save_character'] }];
+    const ours = (kind: CliKind, call: Parameters<typeof ourTool>[1]) => ourTool(kind, call, servers);
+    // Each CLI's own way of naming the tool that runs.
+    expect(ours('claude', { title: 'find_lines (MCP)', rawInput: { limit: 3 }, _meta: { claudeCode: { toolName: 'mcp__loca__find_lines', mcpServer: { name: 'loca', source: 'config' } } } })).toEqual({ server: 'loca', tool: 'find_lines' });
+    expect(ours('claude', { title: 'mcp__loca__find_lines' })).toEqual({ server: 'loca', tool: 'find_lines' });
+    expect(ours('codex', { title: 'mcp.loca.find_lines', rawInput: { server: 'loca', tool: 'find_lines', arguments: {} } })).toEqual({ server: 'loca', tool: 'find_lines' });
+    expect(ours('grok', { title: 'loca__save_character', rawInput: { name: 'Bob' } })).toEqual({ server: 'loca', tool: 'save_character' });
+    expect(ours('grok', { name: 'loca__find_lines' })).toEqual({ server: 'loca', tool: 'find_lines' });
+    expect(ours('opencode', { title: 'loca_find_lines' })).toEqual({ server: 'loca', tool: 'find_lines' });
+
+    // A shell command or a file request that mentions the working folder, the CLI or the server's name is not a tool of ours.
+    for (const kind of ['claude', 'codex', 'grok', 'antigravity', 'opencode'] as const) {
+      expect(ours(kind, { title: 'ls /tmp/loca-chat', rawInput: { command: 'ls /tmp/loca-chat', cwd: '/tmp/loca-chat' } }), kind).toBeNull();
+      expect(ours(kind, { title: 'Write /tmp/loca-chat/notes.md', rawInput: { file_path: '/tmp/loca-chat/notes.md', content: 'x' }, _meta: { cwd: '/tmp/loca-chat' } }), kind).toBeNull();
+      expect(ours(kind, { title: 'Run command?', rawInput: { command: 'loca import out.jsonl' } }), kind).toBeNull();
+      expect(ours(kind, { title: 'loca import out.jsonl', name: 'bash', rawInput: { command: ['loca', 'call', 'find_lines'] } }), kind).toBeNull();
+      // The server's name with a tool it does not serve, another server's tool, and a description that quotes a tool id.
+      expect(ours(kind, { title: 'mcp__loca__rm_rf', name: 'loca__shell', rawInput: { server: 'loca', tool: 'shell' }, _meta: { claudeCode: { toolName: 'mcp__loca__shell' } } }), kind).toBeNull();
+      expect(ours(kind, { title: 'mcp__other__find_lines', rawInput: { server: 'other', tool: 'find_lines' }, _meta: { claudeCode: { toolName: 'mcp__other__find_lines' } } }), kind).toBeNull();
+      expect(ours(kind, { title: 'run mcp__loca__find_lines then rm -rf ~', rawInput: { command: 'rm -rf ~', description: 'mcp__loca__find_lines' } }), kind).toBeNull();
+    }
+    // Fields a model can fill in a tool of the CLI's own are not read for that CLI: extra keys in a shell call's input, a made-up _meta.
+    expect(ours('grok', { title: 'bash', rawInput: { command: 'rm -rf ~', server: 'loca', tool: 'find_lines' }, _meta: { claudeCode: { toolName: 'mcp__loca__find_lines' } } })).toBeNull();
+    expect(ours('codex', { title: 'loca__find_lines', rawInput: { command: ['rm', '-rf', '~'] } })).toBeNull();
+  });
+
+  it('allows a permission request only for a tool of the MCP server the session was given', async () => {
+    const asks = [
+      // Claude's shape; Codex's (announced with its identity, then asked by id only).
+      { ask: { title: 'find_lines (MCP)', rawInput: { limit: 1 }, _meta: { claudeCode: { toolName: 'mcp__loca__find_lines' } } } },
+      { ask: { title: 'loca__find_lines', rawInput: { limit: 1 } } },
+      { announce: { title: 'loca__find_lines', rawInput: { limit: 1 } }, ask: { kind: 'execute', status: 'pending' } },
+      // The three that the name alone used to let through.
+      { ask: { title: 'ls', rawInput: { command: 'ls', cwd: '/tmp/loca-chat' } } },
+      { ask: { title: 'Write notes.md', rawInput: { file_path: '/tmp/loca-chat/notes.md' } } },
+      { ask: { title: 'Run command?', rawInput: { command: 'loca import out.jsonl' } } },
+      { announce: { title: 'bash', rawInput: { command: 'loca call find_lines' } }, ask: { kind: 'execute', status: 'pending' } },
+    ];
+    const tools = await hostTools('loca', () => [{ name: 'find_lines', description: 'Find lines.', inputSchema: { type: 'object' }, run: async () => ({ text: 'ok' }) }]);
+    setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]', FAKE_ACP_ASK: JSON.stringify(asks) }));
+    const claude = await agentFor('claude');
+    const session = await claude.newSession({ cwd: cwd(), mcpServers: [tools.server], system: '' });
+    expect((await turn(claude, session.sessionId, 'hi')).reply).toContain('권한: allow,allow,allow,reject,reject,reject,reject');
+    // A session that was given no server of ours is allowed nothing, whatever a request calls itself.
+    const bare = await claude.newSession({ cwd: cwd(), mcpServers: [], system: '' });
+    expect((await turn(claude, bare.sessionId, 'hi')).reply).toContain('권한: reject,reject,reject,reject,reject,reject,reject');
     tools.dispose();
   });
 
@@ -266,6 +317,7 @@ describe('what a failed agent says', () => {
     expect(failed.message).toContain('500 Internal Server Error');
     expect(acpError(new Error('upstream returned HTTP 503')).code).toBe('network');
     expect(acpError(new Error('line 500 of the prompt is invalid')).code).toBe('cli');
+    expect(acpError(new Error('connect ECONNREFUSED 127.0.0.1:8080')).code).toBe('network');
   });
 
   it('reports the exit code, the last stderr lines and the command when the stream closes at once', async () => {

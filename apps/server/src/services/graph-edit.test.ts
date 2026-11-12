@@ -1,10 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { deleteNodes, duplicateNodes, insertLineAfter, linkInOrder, linkNodes, sceneByRef, undoGraphEdit, unlinkEdges } from './graph-edit.ts';
+import { createLine, deleteNodes, duplicateNodes, linkInOrder, linkNodes, sceneByRef, unlinkEdges } from './graph-edit.ts';
+import { undoRecorded } from './undo-records.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -40,15 +41,16 @@ function setup() {
 describe('editing the dialogue graph', () => {
   it('puts a line between a node and its one way on, in script order, and undo takes it out', () => {
     const { db, projectId, node, ways, order } = setup();
-    const { token, nodeId } = insertLineAfter(db, projectId, node('na').id, { source: 'Between.', speaker: 'Kai', origin: 'human' });
+    const { token, nodeId } = createLine(db, projectId, { afterNodeId: node('na').id }, { source: 'Between.', speaker: 'Kai' });
     const added = db.select().from(s.graphNodes).where(eq(s.graphNodes.id, nodeId)).get()!;
     expect(added.origin).toBe('human');
     expect(ways()).toEqual([`${added.key}>nb`, `na>${added.key}:Ask`, 'nb>nc'].sort());
     expect(order()).toEqual(['One.', 'Between.', 'Two.', 'Three.']);
-    expect(undoGraphEdit(db, projectId, token)).toBe(true);
+    expect(undoRecorded(db, projectId, token!)).toMatchObject({ ok: true });
     expect(ways()).toEqual(['na>nb:Ask', 'nb>nc']);
     expect(order()).toEqual(['One.', 'Two.', 'Three.']);
-    expect(undoGraphEdit(db, projectId, token)).toBe(false);
+    // A record is used once.
+    expect(() => undoRecorded(db, projectId, token!)).toThrow('되돌릴 수 없습니다');
   });
 
   it('deletes a node keeping the way through it, and undo brings the node and its line back', () => {
@@ -56,7 +58,7 @@ describe('editing the dialogue graph', () => {
     const { token } = deleteNodes(db, projectId, [node('nb').id]);
     expect(ways()).toEqual(['na>nc:Ask']);
     expect(order()).toEqual(['One.', 'Three.']);
-    undoGraphEdit(db, projectId, token);
+    undoRecorded(db, projectId, token!);
     expect(ways()).toEqual(['na>nb:Ask', 'nb>nc']);
     expect(order()).toEqual(['One.', 'Two.', 'Three.']);
   });
@@ -66,12 +68,12 @@ describe('editing the dialogue graph', () => {
     const { edge, token } = linkNodes(db, projectId, { fromId: node('nc').id, toId: node('na').id, origin: 'human' });
     expect(edge.origin).toBe('human');
     expect(ways()).toContain('nc>na');
-    undoGraphEdit(db, projectId, token);
+    undoRecorded(db, projectId, token!);
     expect(ways()).not.toContain('nc>na');
     const imported = db.select().from(s.graphEdges).where(eq(s.graphEdges.fromId, node('nb').id)).get()!;
     const removed = unlinkEdges(db, projectId, [imported.id]);
     expect(ways()).toEqual(['na>nb:Ask']);
-    undoGraphEdit(db, projectId, removed.token);
+    undoRecorded(db, projectId, removed.token!);
     expect(ways()).toEqual(['na>nb:Ask', 'nb>nc']);
   });
 
@@ -118,7 +120,7 @@ describe('linking in script order', () => {
     // a1>a2 is made; a2>a3 is skipped (a2 has a way out); b1>b2 is skipped (b2 has a way in).
     expect(result).toMatchObject({ linked: 1, skipped: 2 });
     expect(ways()).toEqual(['a1>a2', 'a2>b2']);
-    expect(undoGraphEdit(db, projectId, result.token!)).toBe(true);
+    expect(undoRecorded(db, projectId, result.token!)).toMatchObject({ ok: true });
     expect(ways()).toEqual(['a2>b2']);
     const picked = linkInOrder(db, projectId, { nodeIds: [node('b1'), node('a3'), node('a1')], origin: 'ai' });
     expect(picked.linked).toBe(1);

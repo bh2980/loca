@@ -1,7 +1,7 @@
 import { Chat } from '@ai-sdk/react';
-import { apiFetch, notifyChanged } from './api';
-import { isRunRecord } from '@tw/shared';
-import { DefaultChatTransport, lastAssistantMessageIsCompleteWithApprovalResponses, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
+import { apiFetch } from './api';
+import { isRunRecord } from '@loca/shared';
+import { DefaultChatTransport, lastAssistantMessageIsCompleteWithToolCalls, type UIMessage } from 'ai';
 
 /** What is on screen when a message is sent; the panel keeps it current while it is open. */
 export interface ChatView {
@@ -15,9 +15,6 @@ export interface ChatView {
  * cut off a reply that is still coming in. A conversation is created once per session from what
  * the server saved, and keeps its messages, status and stream until the session is deleted.
  */
-/** Every topic: an approved chat tool can write almost anywhere (statuses, runs, graph views…), so a finished turn refetches them all rather than keep a list in step with the tools. */
-const CHAT_TOPICS = ['projects', 'units', 'graph', 'statuses', 'terms', 'knowledge', 'workflows', 'runs', 'chat', 'proposals', 'calls'];
-
 /** A session's chat, and what the next message says is on screen (read when it is sent; set with setView). */
 const chats = new Map<string, { chat: Chat<UIMessage>; setView: (view: ChatView | null) => void }>();
 
@@ -28,19 +25,19 @@ export function chatFor(sessionId: string, saved: UIMessage[]) {
   const chat = new Chat<UIMessage>({
     id: sessionId,
     messages: saved,
-    // A streamed answer cannot carry x-changed, so what a turn changed is refetched when it ends.
-    onFinish: () => notifyChanged(CHAT_TOPICS),
+    // What a turn changes it changes after the request was answered (the stream), so the server reports it as events
+    // to every tab, this one included (events.ts: only a change made before the answer is skipped by its own tab).
     transport: new DefaultChatTransport({
       api: `/api/chat/${sessionId}/stream`,
       fetch: apiFetch,
-      // The server owns the conversation (#46): only the newest message goes (run cards, kept by the server, are not messages to send) (a reply whose tool
-      // approval was just answered goes again, by id). The view is read at send time.
+      // The server owns the conversation (#46): only the newest message goes (run cards, kept by the server, are not messages to send) (a reply with the
+      // result of a tool the browser carried out goes again, by id). The view is read at send time.
       prepareSendMessagesRequest: ({ messages, trigger }) => ({ body: { message: messages.findLast((message) => !isRunRecord(message)), trigger, view: view.current ?? undefined } }),
       // A turn this window did not start (a reload, another window, the server carrying on after
       // proposals were decided) is attached to from its start.
       prepareReconnectToStreamRequest: () => ({ api: `/api/chat/${sessionId}/stream` }),
     }),
-    sendAutomaticallyWhen: (options) => lastAssistantMessageIsCompleteWithApprovalResponses(options) || lastAssistantMessageIsCompleteWithToolCalls(options),
+    sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithToolCalls,
   });
   const entry = { chat, setView: (next: ChatView | null) => void (view.current = next) };
   chats.set(sessionId, entry);

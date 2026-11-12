@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -13,7 +13,7 @@ describe('proposal routes', () => {
   it('lists proposals, filters by status, and decides many at once oldest first', async () => {
     const db = openDatabase(':memory:');
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u0', group: 'g', source: 'Hi' }] }));
-    const app = new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', proposalRoutes);
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', proposalRoutes);
     const first = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_knowledge', input: { characters: [{ name: 'Alice' }] } });
     const second = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_knowledge', input: { relationships: [{ from: 'Alice', to: 'Alice', kind: '자기' }] } });
     db.update(s.proposals).set({ createdAt: new Date(Date.now() - 1000) }).where(eq(s.proposals.id, first.id)).run();

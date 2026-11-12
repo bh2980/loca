@@ -1,7 +1,7 @@
 /** 재시도 규칙: how an AI node sends lines that failed back to itself, smaller, after a wait, or on another model. */
 import { Trash2, Plus } from 'lucide-react';
 import { Box, Button, ExpandableRow, NumberInput, SelectField, SelectItem, Stack, Text, Field } from '@loca/ui';
-import { ITEM_ERROR_KINDS, ITEM_ERROR_KIND_IDS, RETRY_KIND_GROUPS, RETRY_SCALES, retryAction, retryRuleSchema, retryScaleTo, retryWaitText, retryWhen, type RetryRule } from '@tw/shared';
+import { ITEM_ERROR_KINDS, ITEM_ERROR_KIND_IDS, RETRY_KIND_GROUPS, RETRY_SCALES, retryAction, retryRuleSchema, retryScaleTo, retryWaitText, retryWhen, type RetryRule } from '@loca/shared';
 import { ModelPicker } from '@/components/model-picker';
 import { CheckItem } from '@/components/workflow/node-config/shared';
 

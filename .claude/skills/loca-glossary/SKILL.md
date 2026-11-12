@@ -15,7 +15,7 @@ loca terms usage <원문|id>          # 그 용어가 쓰인 대사 (앱 용어 
 loca lines --q "Guild" --all --jsonl   # 임의 글자 검색
 loca check terms                   # 확정 용어를 어긴 번역
 ```
-읽기 도구를 직접 쓰면 결과가 길 때 `truncated`가 붙으니 `offset`·`limit`으로 넘깁니다: `loca call list_terms '{"marks":["unused"],"limit":50}'`
+읽기 도구를 직접 쓰면 결과를 자르지 않고 그대로 줍니다. 쪽으로 나뉘는 도구(`list_terms`는 한 번에 200개까지)는 `total`에 닿을 때까지 `offset`으로 넘깁니다: `loca call list_terms '{"marks":["unused"],"limit":50}'`
 
 ## 대본에서 후보 찾기
 ```
@@ -37,7 +37,7 @@ loca terms --status 후보 --limit 50  # 찾은 후보 보기
 5. 확정 용어가 바뀌면 그 용어가 쓰인 줄(`loca terms usage`)을 `loca-review` 순서로 고칩니다.
 
 ## 비어 있는 번역어 채우기
-번역어가 없는 용어(`loca terms --empty-target`)를 한꺼번에 채우는 일은 용어 입력 워크플로(진입 `input: "terms"`, 기본 "용어 번역")를 `--status 후보 --empty-target` 범위로 실행해서 합니다. AI 노드(json: `target`, `note`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `용어 표기 저장`(`saveTermEntry`, 사람이 채운 칸은 건드리지 않음) 두 단계입니다. 용어가 아닌 후보는 용어집에서 사람이 버립니다. 만드는 법은 `loca-workflows`.
+번역어가 없는 용어(`loca terms --empty-target`)를 한꺼번에 채우는 일은 용어 입력 워크플로(진입 `input: "terms"`, 기본 "용어 번역")를 `--status 후보 --empty-target` 범위로 실행해서 합니다. AI 노드(json: `target`, `note`; 문맥 `examples`로 용어가 나온 대사를 함께 보냄) → `번역 저장`(`saveCandidate`: 용어에는 표기와 메모를 넣음, 사람이 저장한 것은 덮어쓰지 않음) 두 단계입니다. 용어가 아닌 후보는 용어집에서 사람이 버립니다. 만드는 법은 `loca-workflows`.
 ```
 loca runs plan 용어 번역 --status 후보 --empty-target    # 대상 용어 수와 요청 수 (모델은 부르지 않음)
 loca runs plan 용어 번역 --term Guild                        # 특정 용어만

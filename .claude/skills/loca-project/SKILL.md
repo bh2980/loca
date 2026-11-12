@@ -28,7 +28,7 @@ loca call delete_status '{"ids":["…","…"],"moveTo":"<남길 상태 id>"}'   
 - 순서: `loca statuses order <앞에 둘 이름...>` (빠진 것은 지금 순서대로 뒤에. 되돌리기는 `loca proposals undo`).
 
 ## 태그
-태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트 (`knowledge`는 people·documents·events 셋). 검사·검수가 찾은 문제를 적는 태그(`형식 오류`·`말투 어긋남` 등, 새 프로젝트에 처음부터 있음)도 보통 태그입니다: 이름·색·설명·붙는 곳을 바꾸거나 지울 수 있고, 워크플로의 출구 동작(태그 붙이기·떼기)이 고른 태그를 붙이고 뗍니다(번역이 바뀌어도 저절로 떨어지지 않음). 앱이 관리하는 태그는 없습니다. 자료의 #확인 권장은 자동 태그로, 분석이 남긴 이유(`reviewNote`)가 있는 동안 붙고 사람이 확인함·버리기·고치기로 정하면 떨어집니다.
+태그는 붙는 곳(`scope`)에만 붙습니다: `lines` 대사 · `terms` 용어집 · `people` 인물·관계 · `events` 사건 · `documents` 노트. 검사·검수가 찾은 문제를 적는 태그(`형식 오류`·`말투 어긋남` 등, 새 프로젝트에 처음부터 있음)도 보통 태그입니다: 이름·색·설명·붙는 곳을 바꾸거나 지울 수 있고, 워크플로의 출구 동작(태그 붙이기·떼기)이 고른 태그를 붙이고 뗍니다(번역이 바뀌어도 저절로 떨어지지 않음). 앱이 관리하는 태그는 없습니다. 자료의 #확인 권장은 자동 태그로, 분석이 남긴 이유(`reviewNote`)가 있는 동안 붙고 사람이 확인함·버리기·고치기로 정하면 떨어집니다.
 ```
 loca tags                                        # 태그와 기본 표시의 붙는 곳, 색, 쓰인 수
 loca call save_status '{"type":"tag","name":"지명","description":"땅·나라·건물 이름","scope":["terms"]}'
@@ -82,16 +82,16 @@ loca defaults pull statuses workflows            # 이 프로젝트로 가져오
 ```
 loca scenes list                                 # 묶음 목록과 대사 수
 loca call create_group '{"kind":"document","title":"편지","key":"letters"}'
-loca call update_group '{"groupId":"…","title":"…"}'   # 종류는 못 바꿈
-loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'
+loca call update_group '{"groupId":"…","title":"…"}'   # 제목·키·구역·설명(description). 종류는 못 바꿈
+loca call create_unit '{"groupId":"…","key":"letter_01","source":"…","speaker":null}'   # 묶음 끝에 추가
 loca call update_unit '{"unitId":"…","source":"…"}'   # 원문을 바꾸면 그 줄 상태가 처음으로 돌아감. groupId로 같은 종류의 다른 묶음으로 옮김
 ```
 
 대사 그래프도 프로젝트 데이터라 고칠 수 있습니다(가져온 파일이 원본이 아님). 대사·노드는 키로 부르고, 바꾼 것은 터미널 권한 모드에 따라 바로 반영되거나 제안이 됩니다. 직접 그은 선과 넣은 대사는 "AI가 만듦"으로 남습니다.
 ```
 loca call link_lines '{"from":"<키>","to":"<키>","action":"link"}'      # 선 잇기(label로 선택지 이름), "unlink"면 지우기
-loca call add_line_after '{"after":"<키>","source":"…","speaker":"Mira"}' # 그 대사 바로 뒤: 다음 대사가 하나면 사이에, 갈래면 새 갈래로
-loca call delete_lines '{"keys":["<키>"]}'                              # 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
+loca call create_unit '{"after":"<키>","source":"…","speaker":"Mira"}'    # groupId 대신 after: 그 대사 바로 뒤. 다음 대사가 하나면 사이에, 갈래면 새 갈래로
+loca call delete_lines '{"keys":["<키>"]}'                              # 그 대사만 지움. 대사가 없어진 노드는 지우면서 앞뒤를 이어 줌(bridge:false면 끊음)
 ```
 - `graph` 없이 가져온 파일(영화 대본 같은)은 장면의 대사마다 이어지지 않은 노드가 하나씩 생깁니다(문서·UI 묶음의 항목은 노드가 없음). 연결은 이렇게 만듭니다.
 - 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다. 장면끼리 잇거나 끊는 도구는 없습니다: 어느 대사에서 어느 대사로 이어지는지 확인해 `link_lines`로 그 대사들을 직접 잇거나 지웁니다(앱이 연결 지점을 추측해 선을 만들지 않음).
@@ -101,6 +101,9 @@ loca graph link <from키> <to키> [--label 선택지]   # link_lines
 loca graph unlink <from키> <to키>
 loca graph order --scene <장면...> --line <키...>   # 대본 순서로 잇기(둘 중 하나 이상)
 ```
-- 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_context`·`show_graph`로 먼저 확인합니다.
+- 파일에 없는 원문만 넣습니다. 흐름이 틀렸는지는 `loca call line_around`·`show_graph`로 먼저 확인합니다.
 - 게임 데이터가 가진 분기(선택지·조건)는 지어내지 않습니다. 게임 데이터에서 다시 가져와야 하면 `loca-import-format`.
-- 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `loca-knowledge`의 `save_group_summary`.
+- 대사를 지우는 도구는 `delete_lines` 하나입니다(대본 목록의 줄이든 그래프의 줄이든 키로). 지운 대사는 자료의 근거에서도 빠집니다. 삭제라서 자동 검토 모드에서도 항상 묻습니다.
+- 지운 것은 되살릴 수 있습니다. `delete_lines`·`delete_group`·`delete_items`의 결과에 `undoId`가 오고, 그 제안을 되돌리면(`loca proposals undo <id>`, 또는 사람이 앱에서 되돌리기) 대사와 거기 딸린 번역·후보·태그·이력·그래프 노드와 선, 근거까지 그대로 돌아옵니다. 직접 부를 때는 `loca call restore_deleted '{"kind":"script","id":"<undoId>"}'`(`kind`: 대사는 `script`, 묶음은 `scenes`, `delete_items`는 지울 때의 kind). 한 번만 되고 30일 동안 보관하며, 그사이 프로젝트가 바뀌어(묶음·상태 삭제, 같은 키 재사용) 그대로 되살릴 수 없으면 통째로 거절됩니다.
+- 그래프 편집도 같은 방식으로 되돌립니다. 대사 추가(`create_unit`)와 선 잇기·끊기(`loca graph link`·`unlink`·`order`)의 결과에도 `undoId`가 오고, 그 제안을 되돌리면(`loca proposals undo <id>`) 만든 대사·노드·선은 사라지고 바뀐 연결은 전과 같아집니다. 바뀐 것이 없었으면(이미 이어진 선) 되돌릴 것도 없습니다.
+- 장면 설명(AI 번역 노드가 장면 문맥으로 받음)은 `update_group`의 `description`으로 씁니다(쓰는 법은 `loca-knowledge`).

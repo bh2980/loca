@@ -1,5 +1,5 @@
 import { useSyncExternalStore } from 'react';
-import type { LineFilterInput } from '@tw/shared';
+import type { LineFilterInput } from '@loca/shared';
 
 /** What the screen shows when 내보내기 is pressed there: the list's filter, and how it is called. */
 export interface ExportView {

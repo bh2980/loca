@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { translationTemplate } from '@tw/shared';
+import { translationTemplate } from '@loca/shared';
 import { conditionExpression, parseCondition, type Condition } from './condition-clauses';
 
 describe('condition rows', () => {

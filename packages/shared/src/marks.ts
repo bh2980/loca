@@ -2,32 +2,19 @@ import { z } from 'zod';
 import { hasText, termText, type FormatRules } from './format-check.ts';
 import { aiDecided, isUnsureListener, type KnowledgeStatus, type ListenerOrigin, type StatusBy } from './knowledge.ts';
 
-/** Where a tag can be put and is offered: lines (대사), glossary terms (용어집), knowledge items (자료: people/documents/events). */
-export const TAG_SCOPES = ['lines', 'terms', 'knowledge', 'people', 'documents', 'events'] as const;
+/** Where a tag can be put and is offered: lines (대사), glossary terms (용어집), and the knowledge items by kind (인물·관계, 노트, 사건). */
+export const TAG_SCOPES = ['lines', 'terms', 'people', 'documents', 'events'] as const;
 export type TagScope = (typeof TAG_SCOPES)[number];
 export const TAG_SCOPE_LABELS: Record<TagScope, string> = {
   lines: '대사',
   terms: '용어집',
-  knowledge: '자료',
   people: '인물·관계',
   documents: '노트',
   events: '사건',
 };
 
-/** Normalizes stored or legacy tag scopes ('knowledge' -> 'people', 'documents', 'events'). */
-export function normalizeTagScopes(raw: readonly string[] | undefined): TagScope[] {
-  const out = new Set<TagScope>();
-  for (const item of raw ?? []) {
-    if (item === 'knowledge') {
-      out.add('people');
-      out.add('documents');
-      out.add('events');
-    } else if ((TAG_SCOPES as readonly string[]).includes(item)) {
-      out.add(item as TagScope);
-    }
-  }
-  return TAG_SCOPES.filter((scope) => out.has(scope));
-}
+/** Scopes once each, in the fixed place order. */
+export const orderedTagScopes = (scopes: readonly TagScope[]): TagScope[] => TAG_SCOPES.filter((scope) => scopes.includes(scope));
 
 /**
  * Automatic tags: facts the app reads off a line, a knowledge item or a term that no column of the
@@ -60,10 +47,7 @@ export const markName = (mark: AutoMark, styles?: MarkStyles | null) => styles?.
 export const markColor = (mark: AutoMark, styles?: MarkStyles | null) => styles?.[mark]?.color ?? AUTO_MARKS[mark].color;
 
 /** The marks that apply to `scope`. */
-export const marksOn = (scope: TagScope | 'knowledge'): AutoMark[] => {
-  const normalized = scope === 'knowledge' ? 'people' : scope;
-  return AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes(normalized));
-};
+export const marksOn = (scope: TagScope): AutoMark[] => AUTO_MARK_IDS.filter((id) => (AUTO_MARKS[id].on as readonly string[]).includes(scope));
 export const KNOWLEDGE_MARK_IDS = marksOn('people');
 export const TERM_MARK_IDS = marksOn('terms');
 
@@ -92,7 +76,7 @@ export type ExcludedFilter = (typeof EXCLUDED_FILTERS)[number];
 
 /**
  * What a line filter, a run scope and the CLI can ask of a line besides statuses, tags and marks:
- * the facts its row shows. One shape everywhere (lineFilterSchema, runScopeSchema, the list route).
+ * the facts its row shows. One shape everywhere (lineFilterSchema and what is resolved from it).
  */
 export const lineFactsShape = {
   /** Lines whose status is not final (true: 최종 아님, the work left; 번역 제외 lines are not work) or final (false). */

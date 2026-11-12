@@ -1,21 +1,6 @@
 import { useEffect, useState } from 'react';
-import { useChatSessions } from './logs';
-
-const key = (projectId: string) => `tw.chat.seen.${projectId}`;
-const readSeen = (projectId: string) => {
-  try {
-    return Number(localStorage.getItem(key(projectId))) || null;
-  } catch {
-    return null;
-  }
-};
-const writeSeen = (projectId: string, at: number) => {
-  try {
-    localStorage.setItem(key(projectId), String(at));
-  } catch {
-    /* private mode */
-  }
-};
+import { useChatSessions } from './chat-sessions';
+import { stored, STORED } from './storage';
 
 /**
  * Whether a conversation changed while the chat panel was closed (a reply arrived, from this window
@@ -24,14 +9,14 @@ const writeSeen = (projectId: string, at: number) => {
  */
 export function useChatUnread(projectId: string, open: boolean) {
   const sessions = useChatSessions(projectId);
-  const [seen, setSeen] = useState(() => readSeen(projectId) ?? Date.now());
+  const [seen, setSeen] = useState(() => stored(STORED.chatSeen, projectId).read() ?? Date.now());
   const latest = Math.max(0, ...(sessions.data ?? []).map((session) => new Date(session.updatedAt).getTime()));
 
   useEffect(() => {
     if (!open) return;
     const now = Math.max(Date.now(), latest);
     setSeen(now);
-    writeSeen(projectId, now);
+    stored(STORED.chatSeen, projectId).write(now);
   }, [open, latest, projectId]);
 
   return !open && latest > seen;

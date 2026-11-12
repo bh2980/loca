@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS } from '@tw/shared';
+import { isUnsureListener, listenerLabel, type ListenerOrigin, SPECIAL_LISTENERS } from '@loca/shared';
 import { Input, ScriptInlineListenerTrigger, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Text } from '@loca/ui';
 
 const LISTENER_ORIGIN_LABELS: Record<ListenerOrigin, string> = { import: '가져오기', ai: 'AI 추정', human: '사람' };
@@ -26,7 +26,6 @@ export function ListenerPicker({ line, cast, onPick, inline = false, arrow = tru
   const rest = cast.filter((person) => !scene.includes(person.name) && person.name !== line.speaker);
   const listed = new Set([...scene, ...rest.map((person) => person.name), ...Object.keys(SPECIAL_LISTENERS)]);
   const confidence = (line.listenerConfidence ?? 0).toFixed(2);
-  const listenerIsPerson = !unsure && Boolean(line.listener) && !Object.hasOwn(SPECIAL_LISTENERS, line.listener!);
   const hint = !line.listenerOrigin
     ? null
     : unsure

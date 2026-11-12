@@ -1,7 +1,7 @@
 /** 워크플로 호출: runs another saved workflow of the same input at this spot. */
 import { Link } from '@tanstack/react-router';
 import { Button, SelectField, SelectItem, Field } from '@loca/ui';
-import { workflowInput, type WorkflowNode } from '@tw/shared';
+import { workflowInput, type WorkflowNode } from '@loca/shared';
 import { type NodeRefs } from '@/components/workflow/node-config/shared';
 
 type CallNode = Extract<WorkflowNode, { type: 'call' }>;

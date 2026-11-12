@@ -1,6 +1,6 @@
 ---
 name: loca-review
-description: Review translations in a loca project for glossary violations, inconsistent translations of the same source, broken placeholders/tags, overlong UI strings and speech levels that break the speech rules, see what context an AI node sent for a line, and propose fixes in one batch. Use when asked to check, QA, proofread or find problems in loca translations.
+description: Review translations in a loca project for glossary violations, inconsistent translations of the same source, broken placeholders/tags and overlong UI strings, see what context an AI node sent for a line, and propose fixes in one batch. Use when asked to check, QA, proofread or find problems in loca translations.
 ---
 
 # loca로 번역 점검하기
@@ -18,7 +18,7 @@ loca check length --kind ui --ratio 1.5   # 원문보다 1.5배 넘게 긴 UI �
 범위는 `lines`와 같은 필터로 좁힙니다(`--section`, `--speaker`, `--listener`, `--group`, `--status`, `--tag`). 말투가 규칙과 맞는지는 점검 명령이 아니라 번역 워크플로의 말투 판정이 봅니다. 많으면 `--jsonl`로 작업 폴더(`W=$(loca workspace new review)`)에 받아 읽습니다.
 
 ## 번역이 문맥 탓인지 볼 때
-`loca context <키>`는 워크플로의 AI 노드가 그 대사를 번역할 때 보내는 문맥을 보여 줍니다: 앞 대사와 갈래, 넣은 항목과 이유, 상한 때문에 뺀 것. `-n <노드 id>`로 다른 노드, `--prompt`로 프롬프트 전문. 모델은 부르지 않습니다. 빠진 용어·말투 규칙·청자가 원인이면 `loca-glossary`·`loca-knowledge`로 자료부터 고칩니다.
+`loca context <키>`는 워크플로의 AI 노드가 그 대사를 번역할 때 보내는 문맥을 보여 줍니다: 앞 대사와 갈래, 넣은 항목과 이유, 상한 때문에 뺀 것. `-n <노드 id>`로 다른 노드, `--prompt`로 프롬프트 전문. 모델은 부르지 않습니다. 앞 노드의 결과를 읽는 노드(AI 수정 등)는 실행 중에야 내용이 정해져서 보여 주지 못한다고 답합니다(그런 요청은 앱의 실행 기록 › 호출에서 봄). 빠진 용어·말투 규칙·청자가 원인이면 `loca-glossary`·`loca-knowledge`로 자료부터 고칩니다.
 
 ## 고치기
 1. 문제 줄의 키를 모아 내보냅니다: `loca export --key <키> <키> ... --context 3 --terms -o "$W/fix.jsonl"` (많으면 `--section` 등으로 내보낸 뒤 해당 줄만 고침)

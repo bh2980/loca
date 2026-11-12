@@ -44,4 +44,16 @@ export const Grow: Story = {
   render: () => <SelectionBar count={2} grow onClear={() => {}}><Button variant="outline">번역</Button></SelectionBar>,
 }
 
+/** `floating`: over a canvas the bar has its own surface (a graph's picked nodes). */
+export const Floating: Story = {
+  render: () => (
+    <Box padding="comfortable" background="sunken">
+      <SelectionBar floating count={4} onClear={() => {}}>
+        <Button variant="ghost">보기로 저장</Button>
+        <Button variant="ghost">워크플로 실행</Button>
+      </SelectionBar>
+    </Box>
+  ),
+}
+
 export const NoActions: Story = { render: () => <SelectionBar count={1} onClear={() => {}} /> }

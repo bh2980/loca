@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { ModelError } from '@tw/ai';
-import { importFileSchema, workflowDefinitionSchema } from '@tw/shared';
+import { ModelError } from '@loca/ai';
+import { importFileSchema, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun, createRunInSteps } from './run-create.ts';
@@ -39,12 +39,8 @@ const wholeFlow = (choice: unknown, config: Record<string, unknown>) =>
     nodes: [
       { id: 'entry', type: 'entry', position: at, config: {} },
       { id: 'read', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'whole', size: 1, maxTokens: 300_000 }, ...config } },
-      { id: 'end', type: 'end', position: at },
     ],
-    edges: [
-      { id: '1', source: 'entry', sourceHandle: 'out', target: 'read' },
-      { id: '2', source: 'read', sourceHandle: 'out', target: 'end' },
-    ],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'read' }],
   });
 const peopleNode = { output: 'json', scope: 'batch', fields: [{ name: 'people', type: 'list', fields: [{ name: 'name', type: 'string' }, { name: 'evidence', type: 'lines' }] }] };
 const answer = { people: [{ name: 'Alice', evidence: ['L1', 'L3', 'L99'] }, { name: 'Bob', evidence: ['L2'] }] };
@@ -54,7 +50,7 @@ const port = (reply: (request: Request) => unknown): ModelPort => ({
   ask: async () => {
     throw new Error('unused');
   },
-  generate: async (_route, request) => ({ object: reply(request), usage: { inputTokens: 10, outputTokens: 5 } }) as never,
+  generate: async (_target, request) => ({ object: reply(request), usage: { inputTokens: 10, outputTokens: 5 } }) as never,
 });
 
 function run(db: ReturnType<typeof setup>['db'], projectId: string, definition: ReturnType<typeof wholeFlow>, scope = {}) {
@@ -121,7 +117,7 @@ describe('a node reading the script whole', () => {
     const prompts: string[] = [];
     const runner = new Runner(db, memoryStore(), {
       ...port(() => answer),
-      generate: async (_route, request) => {
+      generate: async (_target, request) => {
         prompts.push(request.prompt);
         if ((request.prompt.match(/^## /gm) ?? []).length > 1) throw new ModelError('too-long', 'prompt is too long', false);
         return { object: { people: [{ name: 'Alice', evidence: ['L1'] }] }, usage: { inputTokens: 1, outputTokens: 1 } } as never;
@@ -133,7 +129,7 @@ describe('a node reading the script whole', () => {
       ...base,
       settings: { ...base.settings, retries: [] },
       nodes: [...base.nodes, { id: 'scenes', type: 'ai', position: at, config: { model: choice, instructions: 'Read the script.', batch: { mode: 'group', size: 1, maxTokens: 500 }, ...peopleNode } }],
-      edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }, { id: '4', source: 'scenes', sourceHandle: 'out', target: 'end' }],
+      edges: [...base.edges, { id: '3', source: 'read', sourceHandle: 'error', target: 'scenes' }],
     });
     const { runId } = run(db, projectId, definition);
     await runner.drain();
@@ -151,7 +147,7 @@ describe('a node reading the script whole', () => {
     const runner = new Runner(db, memoryStore(), {
       ...port(() => answer),
       generate: async () => {
-        throw new ModelError('cli', 'CLI가 실패를 반환했습니다: Your previous response was cut off because it exceeded the output token limit', false);
+        throw new ModelError('cut-off', '응답이 모델의 출력 한도에 걸려 잘렸습니다.', false);
       },
     });
     const { runId } = run(db, projectId, wholeFlow(choice, peopleNode));

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import type { InferResponseType } from 'hono/client';
 import { Link } from '@tanstack/react-router';
-import { Box, Button, Grid, Inline, NumberInput, SectionHeading, Stack, Text, Field } from '@loca/ui';
+import { Box, Button, Grid, Inline, NumberInput, SectionHeading, Text, Field } from '@loca/ui';
 import type { CapEdits, Caps } from '@/lib/run-limits';
 import { splitBasis, splitTitle } from '@/lib/split-text';
 import { paceParts } from '@/lib/run-summary';
@@ -111,15 +111,18 @@ export function RunModels({ nodes, picked, onPick, onReset, changedNote = '이�
   );
 }
 
-/** The caps a run pauses at, filled with the suggestion; emptying a field removes that cap. */
-export function RunCaps({ suggested, edits, onChange }: { suggested: Caps | undefined; edits: CapEdits; onChange: (edits: CapEdits) => void }) {
+/**
+ * The caps a run pauses at, filled with the suggestion (a new run) or with the caps the run has (`underWay`: one
+ * that goes on, whose caps count what it already used); emptying a field removes that cap.
+ */
+export function RunCaps({ suggested, edits, onChange, underWay = false }: { suggested: Caps | undefined; edits: CapEdits; onChange: (edits: CapEdits) => void; underWay?: boolean }) {
   const shown = (key: keyof Caps) => (edits[key] === undefined ? suggested?.[key] : edits[key]);
   return (
     <Grid columns="twoFromSm" gap="normal">
-      <Field label="호출 상한" description="비우면 상한 없이 실행합니다." help="이만큼 쓰면 실행을 멈춥니다. AI 노드의 재시도 규칙이 쓸 수 있는 여유분이 들어 있습니다.">
+      <Field label="호출 상한" description="비우면 상한 없이 실행합니다." help={underWay ? '이만큼 쓰면 실행을 멈춥니다. 지금까지 쓴 호출도 셉니다.' : '이만큼 쓰면 실행을 멈춥니다. AI 노드의 재시도 규칙이 쓸 수 있는 여유분이 들어 있습니다.'}>
         <NumberInput optional min={1} value={shown('maxCalls')} onValueChange={(next) => onChange({ ...edits, maxCalls: next ?? null })} />
       </Field>
-      <Field label="입력 상한" description="비우면 상한 없이 실행합니다." help="실행 전체가 AI에 보내는 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다.">
+      <Field label="입력 상한" description="비우면 상한 없이 실행합니다." help={underWay ? '실행 전체가 보낸 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다. 지금까지 쓴 것도 셉니다.' : '실행 전체가 AI에 보내는 입력 토큰(캐시 포함)이 이만큼 되기 전에 멈춥니다.'}>
         <NumberInput optional min={1} value={shown('maxInputTokens')} onValueChange={(next) => onChange({ ...edits, maxInputTokens: next ?? null })} />
       </Field>
     </Grid>

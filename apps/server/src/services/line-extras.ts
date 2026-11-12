@@ -1,7 +1,7 @@
 import { and, desc, eq, inArray } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
-import { nodeName } from '@tw/shared';
+import { nodeName } from '@loca/shared';
 import * as s from '../db/schema.ts';
 
 /** How many runs a line's history shows, newest first. */
@@ -58,4 +58,3 @@ export function lineExtras(db: Db, projectId: string, ids: readonly string[]) {
   }));
 }
 
-export type LineExtras = ReturnType<typeof lineExtras>[number];

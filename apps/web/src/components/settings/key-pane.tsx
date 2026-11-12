@@ -2,21 +2,20 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, Input, Text, Inspector, InspectorHeader, Section, Field, Box } from '@loca/ui';
-import { unwrap } from '@/lib/api';
-import { connectionsApi, type SettingsTarget } from '@/lib/settings-target';
+import { Button, Input, Text, Inspector, InspectorHeader, Section, Field, Box, ConfirmDialog } from '@loca/ui';
+import { type SettingsTarget, connectionWrites } from '@/lib/settings-target';
 
 export type KeyRow = { id: string; name: string; headerTemplate: string | null; hasKey: boolean };
 export const DEFAULT_HEADER = 'Authorization: Bearer {key}';
 const fail = (error: Error) => toast.error(error.message);
 
 export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsTarget; row?: KeyRow; onClose: () => void; onCreated: (id: string) => void }) {
-  const api = connectionsApi(target);
+  const api = connectionWrites(target);
   const [name, setName] = useState(row?.name ?? '');
   const [header, setHeader] = useState(row?.headerTemplate ?? DEFAULT_HEADER);
   const [secret, setSecret] = useState('');
   const create = useMutation({
-    mutationFn: () => unwrap(api.create({ kind: 'http', name: name.trim(), headerTemplate: header.trim() || undefined, apiKey: secret.trim() || undefined })),
+    mutationFn: () => api.create({ kind: 'http', name: name.trim(), headerTemplate: header.trim() || undefined, apiKey: secret.trim() || undefined }),
     onSuccess: (created) => {
       toast.success('API 키를 추가했습니다.');
       onCreated(created.id);
@@ -25,8 +24,8 @@ export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsT
   });
   const save = useMutation({
     mutationFn: async () => {
-      await unwrap(api.patch(row!.id, { name: name.trim(), headerTemplate: header.trim() }));
-      if (secret.trim()) await unwrap(api.putKey(row!.id, secret.trim()));
+      await api.patch(row!.id, { name: name.trim(), headerTemplate: header.trim() });
+      if (secret.trim()) await api.putKey(row!.id, secret.trim());
     },
     onSuccess: () => {
       setSecret('');
@@ -34,7 +33,7 @@ export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsT
     },
     onError: fail,
   });
-  const remove = useMutation({ mutationFn: () => unwrap(api.remove(row!.id)), onSuccess: onClose, onError: fail });
+  const remove = useMutation({ mutationFn: () => api.remove(row!.id), onSuccess: onClose, onError: fail });
   const revert = () => {
     setName(row?.name ?? '');
     setHeader(row?.headerTemplate ?? DEFAULT_HEADER);
@@ -43,23 +42,12 @@ export function KeyPane({ target, row, onClose, onCreated }: { target: SettingsT
   const dirty = !row || name !== row.name || header !== (row.headerTemplate ?? '') || Boolean(secret.trim());
 
   return (
-    <Inspector footerStart={row ? (<><AlertDialog>
-            <AlertDialogTrigger asChild>
-              <Button variant="ghost" tone="danger">
-                <Trash2 /> API 키 삭제
-              </Button>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>API 키를 삭제할까요?</AlertDialogTitle>
-                <AlertDialogDescription>“{row.name}”을(를) 고른 HTTP 노드는 키 없이 호출하게 되어 검증 오류가 납니다.</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction onClick={() => remove.mutate()}>삭제</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog></>) : undefined} header={<InspectorHeader kind="API 키" name={row ? row.name : 'API 키 추가'} onClose={onClose} />} footer={
+    <Inspector footerStart={row ? (<><ConfirmDialog
+            trigger={<Button variant="ghost" tone="danger"><Trash2 /> API 키 삭제</Button>}
+            title="API 키를 삭제할까요?"
+            description={`“${row.name}”을(를) 고른 HTTP 노드는 키 없이 호출하게 되어 검증 오류가 납니다.`}
+            onConfirm={() => remove.mutate()}
+          /></>) : undefined} header={<InspectorHeader kind="API 키" name={row ? row.name : 'API 키 추가'} onClose={onClose} />} footer={
         <>
           {row && dirty && (
             <>

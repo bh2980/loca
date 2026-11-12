@@ -5,7 +5,7 @@ import { createRouter, RouterProvider } from '@tanstack/react-router';
 import { Notice, Spinner, Toaster, TooltipProvider } from '@loca/ui';
 import { setChangeListener, useServerDown } from '@/lib/api';
 import { queryClient } from '@/lib/query-client';
-import { refetchKeys } from '@/lib/live';
+import { refetchTopics, startLive } from '@/lib/live';
 import { routeTree } from './routeTree.gen';
 import '@loca/ui/fonts.css';
 import './index.css';
@@ -13,9 +13,10 @@ import './index.css';
 
 // A write's answer names the topics it changed: refetch those queries now. The event for the same
 // change names this tab as its origin and is skipped (lib/live.ts), so it is fetched once (#20).
-setChangeListener((topics) => {
-  for (const key of refetchKeys(topics)) void queryClient.invalidateQueries({ queryKey: [key] });
-});
+setChangeListener((topics) => refetchTopics(queryClient, topics));
+// The event stream is opened before anything is read, and once: the collections read their rows when it is open,
+// so no change falls between a read and the events that follow it.
+startLive(queryClient);
 
 const router = createRouter({
   routeTree,

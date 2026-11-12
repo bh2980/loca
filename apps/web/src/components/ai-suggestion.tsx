@@ -1,12 +1,11 @@
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Button, EditorAiSuggestion, EditorDiffWord, Section } from '@loca/ui';
-import { sameTranslation } from '@tw/shared';
+import { sameTranslation } from '@loca/shared';
 import { TokenText } from '@/components/editor/source-text';
 import { replaceLineText } from '@/components/editor/translation-input';
-import { client, unwrap } from '@/lib/api';
 import { wordDiff } from '@/lib/diff';
-import { useSaveLine } from '@/lib/line-save';
+import { useSaveLine, declineSuggestion } from '@/lib/line-writes';
 
 interface Candidate {
   id: string;
@@ -31,12 +30,11 @@ export const suggestionFrom = (candidate: Pick<Candidate, 'runId' | 'model' | 'n
  * text into the box instead (saving it then settles the suggestion). Nothing shows, its frame included, when no suggestion
  * waits or the box already holds its text (line breaks of another kind are the same text).
  */
-export function AiSuggestion({ projectId, unit, draft, dirty, base, onDraft, framed }: {
+export function AiSuggestion({ projectId, unit, draft, dirty, onDraft, framed }: {
   projectId: string;
   unit: { id: string; source: string; translation: string | null; candidates: Candidate[] };
   draft: string;
   dirty: boolean;
-  base?: string | null;
   /** Puts text into the line's box (or its draft, when no editor is open). */
   onDraft: (text: string) => void;
   /** In a pane of sections: it is a section of its own. */
@@ -44,7 +42,7 @@ export function AiSuggestion({ projectId, unit, draft, dirty, base, onDraft, fra
 }) {
   const save = useSaveLine(projectId);
   const decline = useMutation({
-    mutationFn: (candidateId: string) => unwrap(client.units[':unitId'].candidates[':candidateId'].decline.$post({ param: { unitId: unit.id, candidateId } })),
+    mutationFn: (candidateId: string) => declineSuggestion(projectId, unit.id, candidateId),
     onError: (error) => toast.error(error.message),
   });
   const waiting = unit.candidates.filter((candidate) => candidate.state === 'pending' && !sameTranslation(candidate.text, draft) && !sameTranslation(candidate.text, unit.translation));
@@ -57,7 +55,7 @@ export function AiSuggestion({ projectId, unit, draft, dirty, base, onDraft, fra
       toast.info('편집 중인 글이 있어 입력란에 넣었습니다. 저장하면 적용됩니다.');
       return;
     }
-    save.mutate({ unitId: unit.id, candidateId: suggestion.id, candidateText: suggestion.text, base }, { onError: (error) => toast.error(error.message) });
+    save.mutate({ unitId: unit.id, candidateId: suggestion.id, candidateText: suggestion.text }, { onError: (error) => toast.error(error.message) });
   };
   const busy = save.isPending || decline.isPending;
   const notice = (

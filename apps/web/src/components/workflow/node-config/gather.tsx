@@ -1,8 +1,8 @@
 /** 모으기: waits for every request of the step before it and passes their results on as one combined result. */
-import { previousSteps } from '@tw/shared';
+import { previousSteps } from '@loca/shared';
 import { Stack, Text, Field } from '@loca/ui';
 import { CheckItem, StepChips, outputFieldNames, type NodeRefs } from '@/components/workflow/node-config/shared';
-import type { WorkflowNode } from '@tw/shared';
+import type { WorkflowNode } from '@loca/shared';
 
 type GatherNode = Extract<WorkflowNode, { type: 'gather' }>;
 

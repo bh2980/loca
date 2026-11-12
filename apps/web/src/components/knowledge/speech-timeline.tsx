@@ -2,11 +2,12 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
-import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@tw/shared';
+import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@loca/shared';
 import { Box, Button, Chip, Field, Inline, InspectorList, InspectorResult, Input, ListRow, Section, Text, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes, TimelineStart } from '@loca/ui';
 import { DraftEditor, FieldInput } from '@/components/knowledge/editor';
 import { placeOf, quoteLabel } from '@/components/knowledge/evidence';
 import { confirmLabel, fail, SourceBadge, type KindSpec, type SpeechRuleRow } from '@/components/knowledge/table';
+import { useGroupsById } from '@/lib/groups';
 import { splitList } from '@/lib/list-value';
 import { q, useMarkStyles } from '@/lib/queries';
 import { useLinePage, useLinesByKeys } from '@/lib/units';
@@ -40,8 +41,9 @@ function Counts({ projectId, rule, range }: { projectId: string; rule: SpeechRul
 function Quotes({ projectId, keys }: { projectId: string; keys: string[] }) {
   const first = useMemo(() => keys.slice(0, 2), [keys]);
   const lines = useLinesByKeys(projectId, first).data ?? [];
+  const groupOf = useGroupsById(projectId);
   if (!lines.length) return null;
-  return <TimelineQuotes items={lines.map((line) => ({ id: line.id, label: quoteLabel(line), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }))} />;
+  return <TimelineQuotes items={lines.map((line) => ({ id: line.id, label: quoteLabel(line, groupOf.get(line.groupId)), text: `${line.speaker ? `${line.speaker}: ` : ''}${line.source}`, sub: line.translation || undefined }))} />;
 }
 
 export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, pointSpec, characters, dirty, onDecide, addRule, fallback }: {
@@ -95,6 +97,7 @@ export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, poin
   );
   const review = (rule: SpeechRuleRow) => rule.reviewNote && <InspectorResult tone="info">{markName('review', markStyles)}: {rule.reviewNote}</InspectorResult>;
   const editor = (rule: SpeechRuleRow, fields: KindSpec) => <DraftEditor key={rule.id} embedded bare projectId={projectId} kind="speechRules" spec={fields} row={rule} characters={characters} />;
+  const groupOf = useGroupsById(projectId);
   const rangeOf = (index: number, start: string) => {
     const next = points[index + 1]?.startKey;
     return next ? `${start} ~ ${next} 전` : `${start} ~ 끝`;
@@ -158,7 +161,7 @@ export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, poin
                     key={rule.id}
                     mark={rule.status === 'candidate' ? 'candidate' : 'confirmed'}
                     title={`${rule.startKey}부터`}
-                    meta={placeOf(start)}
+                    meta={placeOf(start && groupOf.get(start.groupId))}
                     status={status(rule)}
                     counts={<Counts projectId={projectId} rule={rule} range={rangeOf(index, rule.startKey!)} />}
                     actions={actions(rule)}
@@ -204,8 +207,9 @@ function AddChange({ projectId, from, to, rules, spec, characters, addRule, onDo
   addRule: (json: SpeechRuleCreate) => Promise<{ id: string }>;
   onDone: () => void;
 }) {
-  const page = useLinePage(projectId, { speaker: from, listener: to, limit: 300 });
+  const page = useLinePage(projectId, { speakers: [from], listeners: [to], limit: 300 });
   const lines = page.data?.rows;
+  const groupOf = useGroupsById(projectId);
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<string | undefined>();
   const indexOf = new Map(lines?.map((line, index) => [line.key, index]));
@@ -246,7 +250,7 @@ function AddChange({ projectId, from, to, rules, spec, characters, addRule, onDo
             <ListRow key={line.id} variant="choice" selected={line.key === picked}>
               <Button variant="ghost" size="row" aria-pressed={line.key === picked} disabled={taken.has(line.key)} onClick={() => pick(line.key)}>
                 <Text minWidth={0}>
-                  <Text display="block" variant="caption" tone="muted" truncate>{line.key} · {line.groupTitle}</Text>
+                  <Text display="block" variant="caption" tone="muted" truncate>{line.key} · {groupOf.get(line.groupId)?.title}</Text>
                   {line.source}
                 </Text>
               </Button>

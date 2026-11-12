@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { judgmentProblem, workflowNodeSchema, type AiNode } from '@tw/shared';
+import { judgmentProblem, workflowNodeSchema, type AiNode } from '@loca/shared';
 import { judgmentOutcome, judgmentQuestions } from './judgment.ts';
 
 const node = (config: Record<string, unknown>) => workflowNodeSchema.parse({ id: 'n', type: 'ai', position: { x: 0, y: 0 }, config }) as AiNode;

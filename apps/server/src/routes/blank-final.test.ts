@@ -1,13 +1,13 @@
 import { Hono } from 'hono';
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
-import { attachUnitTags } from '../services/tag-scope.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
+import { attachUnitTags } from '../domain/tag-scope.ts';
 import { sourceRoutes } from './source.ts';
 
 function setup() {
@@ -22,7 +22,7 @@ function setup() {
     ],
   });
   const { projectId } = importProject(db, file, null as never);
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -77,7 +77,7 @@ describe('final statuses require a translation', () => {
     await send('POST', `/units/${unit.id}/save`, { text: '번역문', statusId: finalStatus.id });
     const before = line(unit.id);
 
-    const response = await send('POST', `/units/${unit.id}/save`, { text: '  ', base: '번역문' });
+    const response = await send('POST', `/units/${unit.id}/save`, { text: '  ' });
 
     expect(response.status).toBe(400);
     expect(line(unit.id)).toEqual(before);

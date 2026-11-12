@@ -59,6 +59,5 @@ export const UNRESOLVED_RELATIONSHIP_KIND = '관계 미확인';
 
 /** Why a talking pair has no relationship: not a person (a UI text, device, place), nothing in the lines shows one, or the parts disagree. */
 export const UNRESOLVED_PAIR_KINDS = ['notPerson', 'noEvidence', 'undecided'] as const;
-export type UnresolvedPairKind = (typeof UNRESOLVED_PAIR_KINDS)[number];
 /** The review note a stored character gets when the AI says its name is not a person ("<prefix><reason>"). */
 export const NOT_A_PERSON_NOTE = '인물이 아닐 수 있음: ';

@@ -8,11 +8,11 @@ type Story = StoryObj<typeof meta>
 
 export const Playground: Story = {}
 
-/** Shape and color per state: running pulses, failed is a diamond. */
+/** Shape and color per state: preparing and running pulse, failed is a diamond. */
 export const States: Story = {
   render: () => (
     <Stack gap="tight">
-      {(["running", "paused", "completed", "failed", "cancelled"] as const).map((status) => <RunStatusBadge key={status} status={status} />)}
+      {(["preparing", "running", "paused", "completed", "failed", "cancelled"] as const).map((status) => <RunStatusBadge key={status} status={status} />)}
     </Stack>
   ),
 }

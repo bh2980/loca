@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
-import { afterEach, describe, expect, it } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import type { Env } from '../context.ts';
+import { onError, type Env } from '../http.ts';
 import { sourceRoutes } from './source.ts';
 
 describe('graph layout direction variants', () => {
@@ -19,7 +19,7 @@ describe('graph layout direction variants', () => {
       { projectId: project.id, scope: 'dialogue', section: '', direction: 'vertical', status: 'ready', data: { version: 8, width: 280, height: 220, nodes: [{ id: 'n1', x: 0, y: 0, width: 260, height: 76 }, { id: 'n2', x: 0, y: 144, width: 260, height: 76 }], edges: [verticalEdge] } },
       { projectId: project.id, scope: 'dialogue', section: '', direction: 'horizontal', status: 'ready', data: { version: 8, width: 600, height: 76, nodes: [{ id: 'n1', x: 0, y: 0, width: 260, height: 76 }, { id: 'n2', x: 320, y: 0, width: 260, height: 76 }], edges: [horizontalEdge] } },
     ]).run();
-    const app = new Hono<Env>().use(async (c, next) => {
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
     }).route('/', sourceRoutes);

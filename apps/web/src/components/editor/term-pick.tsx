@@ -1,11 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Box, Button, EditorTermPopover, Input, Popover, PopoverAnchor, Stack, Text, SectionHeading } from '@loca/ui';
-import { client } from '@/lib/api';
+import { Box, Button, Input, Popover, PopoverAnchor, PopoverContent, Stack, Text, SectionHeading } from '@loca/ui';
 import { selectionInLine } from './translation-input';
-import { useTerms } from '@/lib/terms';
-import { sent } from '@/lib/collections';
+import { useTerms, createTerm } from '@/lib/terms';
 
 /**
  * Selecting words in a line's source offers to add them to the glossary on the spot: the source
@@ -31,7 +29,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
   }, [unitId]);
 
   const add = useMutation({
-    mutationFn: (term: { source: string; target: string }) => sent(projectId, client.projects[':projectId'].terms.$post({ param: { projectId }, json: { source: term.source.trim(), target: term.target.trim() } })),
+    mutationFn: (term: { source: string; target: string }) => createTerm(projectId, { source: term.source.trim(), target: term.target.trim() }),
     onSuccess: (term) => {
       toast.success(`용어집에 추가했습니다: ${term.source}${term.target ? ` → ${term.target}` : ''}`);
       setPick(undefined);
@@ -44,7 +42,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
       {children}
       <Popover open={!!pick} onOpenChange={(open) => !open && setPick(undefined)}>
         {pick && <PopoverAnchor virtualRef={{ current: { getBoundingClientRect: () => pick.rect } }} />}
-        <EditorTermPopover side="bottom" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
+        <PopoverContent side="bottom" align="start" onOpenAutoFocus={(event) => event.preventDefault()}>
           {pick && (
             <Box
               as="form"
@@ -72,7 +70,7 @@ export function TermPick({ projectId, unitId, children }: { projectId: string; u
               </Stack>
             </Box>
           )}
-        </EditorTermPopover>
+        </PopoverContent>
       </Popover>
     </div>
   );

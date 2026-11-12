@@ -3,12 +3,10 @@ import { homedir, tmpdir } from 'node:os';
 import path from 'node:path';
 import { execa, ExecaError, type Options } from 'execa';
 import { z } from 'zod';
-import type { ConnectionKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { cliSpawn, resolveCli } from './spawn.ts';
-import { keepOutput, ModelError, SERVER_DOWN, TOO_LONG, withOutput } from './errors.ts';
-import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ResolvedRoute, type Usage } from './types.ts';
-
-type CliKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
+import { failureInText, keepOutput, ModelError, withOutput } from './errors.ts';
+import { addUsage, readUsage, type GenerateRequest, type GenerateResult, type ModelLimitsInfo, type ModelTarget, type Usage } from './types.ts';
 
 const COMMAND: Record<CliKind, string> = { codex: 'codex', claude: 'claude', grok: 'grok', antigravity: 'agy', opencode: 'opencode' };
 
@@ -63,12 +61,12 @@ export function codexIsolationArgs(instructionsFile: string): string[] {
   ];
 }
 
-function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files, timeoutMs: number): string[] {
-  const effort = route.effort;
+function args(kind: CliKind, target: ModelTarget, schema: object, files: Files, timeoutMs: number): string[] {
+  const effort = target.effort;
   switch (kind) {
     case 'codex':
       return [
-        'exec', '--model', route.model, '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
+        'exec', '--model', target.model, '--sandbox', 'read-only', '--skip-git-repo-check', '--ephemeral',
         '--ignore-user-config', '--color', 'never', '--json', '--cd', files.dir,
         '--output-schema', files.schema, '--output-last-message', files.result,
         ...codexIsolationArgs(files.instructions),
@@ -77,7 +75,7 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       ];
     case 'claude':
       return [
-        '--print', '--safe-mode', '--model', route.model, '--json-schema', JSON.stringify(schema),
+        '--print', '--safe-mode', '--model', target.model, '--json-schema', JSON.stringify(schema),
         // --tools '' removes the built-in tools; a blanket --disallowedTools would also block the
         // structured-output tool that --json-schema answers through.
         '--output-format', 'json', '--input-format', 'text', '--no-session-persistence', '--max-turns', '1',
@@ -87,7 +85,7 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       ];
     case 'grok':
       return [
-        '--prompt-file', files.prompt, '--model', route.model, '--json-schema', JSON.stringify(schema),
+        '--prompt-file', files.prompt, '--model', target.model, '--json-schema', JSON.stringify(schema),
         '--output-format', 'json', '--cwd', files.dir, '--max-turns', '1', '--no-subagents',
         '--disable-web-search', '--tools', '', '--deny', '*', '--permission-mode', 'dontAsk',
         ...(effort ? ['--reasoning-effort', effort] : []),
@@ -96,14 +94,14 @@ function args(kind: CliKind, route: ResolvedRoute, schema: object, files: Files,
       // agy 1.3: --print takes the prompt as its value, so the prompt goes in on stdin as one
       // stream-json message instead (no command-line length limit on Windows).
       return [
-        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', route.model,
+        '--print=', '--input-format', 'stream-json', '--output-format', 'stream-json', '--model', target.model,
         '--json-schema', files.schema, '--sandbox', '--disable-slash-commands', '--print-timeout', `${Math.ceil(timeoutMs / 1000)}s`,
         ...(effort ? ['--effort', effort] : []),
       ];
     case 'opencode':
       // One non-interactive turn with the read-only plan agent in an empty folder; the prompt
       // comes on stdin. opencode has no schema flag, so the schema is in the prompt (cliGenerate).
-      return ['run', '--format', 'json', '--model', route.model, '--agent', 'plan'];
+      return ['run', '--format', 'json', '--model', target.model, '--agent', 'plan'];
   }
 }
 
@@ -120,16 +118,8 @@ function parseJson(text: string, usage?: Usage): unknown {
   }
 }
 
-/** CLIs report an exhausted plan or rate limit only in their text; treat it like HTTP 429 so it gets the same 'rate-limit' kind. */
-const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
-const cliFailure = (detail: string, usage?: Usage) =>
-  QUOTA.test(detail)
-    ? new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage)
-    : SERVER_DOWN.test(detail)
-      ? new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage)
-    : TOO_LONG.test(detail)
-      ? new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage)
-      : new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
+/** A failure a CLI printed in its own envelope: what its text names (failureInText), else the text as it is. */
+const cliFailure = (detail: string, usage?: Usage) => failureInText(detail, detail, { usage }) ?? new ModelError('cli', `CLI가 실패를 반환했습니다: ${detail}`, false, usage);
 
 /** JSON somewhere in a model's text answer: a fenced block, else the outermost braces. */
 function parseLooseJson(text: string, usage?: Usage): unknown {
@@ -203,7 +193,8 @@ export function unwrap(kind: CliKind, stdout: string): { data: unknown; usage: U
   if (envelope.is_error === true || envelope.type === 'error' || envelope.status === 'ERROR' || String(envelope.subtype ?? '').startsWith('error'))
     throw cliFailure(String(envelope.result ?? envelope.error ?? '').slice(0, 300), usage);
   const stop = String(envelope.stopReason ?? envelope.stop_reason ?? '').toLowerCase();
-  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('invalid-output', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
+  if (/max_?tokens|length|truncat/.test(stop)) throw new ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false, usage);
+  if (/refus|content_?filter/.test(stop)) throw new ModelError('refused', '모델이 응답을 거절했습니다.', false, usage);
   const data =
     envelope.structured_output ??
     envelope.structuredOutput ??
@@ -261,8 +252,8 @@ const hasFinalEvent = (kind: CliKind, stdout: string) => {
   });
 };
 
-export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
-  const kind = route.kind as CliKind;
+export async function cliGenerate<T>(target: ModelTarget, request: GenerateRequest<T>, tempRoot = tmpdir()): Promise<GenerateResult<T>> {
+  const kind = target.kind as CliKind;
   const schema = z.toJSONSchema(request.schema, { target: 'draft-7' });
   const dir = await mkdtemp(path.join(tempRoot, 'tw-call-'));
   const files: Files = { dir, schema: path.join(dir, 'schema.json'), prompt: path.join(dir, 'prompt.txt'), result: path.join(dir, 'result.json'), instructions: path.join(dir, 'instructions.md') };
@@ -275,7 +266,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
   let ending: NodeJS.Timeout | undefined;
   try {
     await Promise.all([writeFile(files.schema, JSON.stringify(schema)), writeFile(files.prompt, prompt), ...(kind === 'codex' ? [writeFile(files.instructions, instructions)] : [])]);
-    const subprocess = execaCli(cliCommand(kind, route.executable), args(kind, route, schema, files, request.timeoutMs), {
+    const subprocess = execaCli(cliCommand(kind, target.executable), args(kind, target, schema, files, request.timeoutMs), {
       cwd: dir,
       input: kind === 'grok' ? undefined : kind === 'antigravity' ? `${JSON.stringify({ event: 'user', message: { role: 'user', content: prompt } })}\n` : prompt,
       timeout: request.timeoutMs,
@@ -313,7 +304,7 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
         }
       }
       if (error.timedOut) throw new ModelError('timeout', 'CLI 호출이 제한 시간을 초과했습니다.');
-      if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, route.executable)), false);
+      if (error.code === 'ENOENT') throw new ModelError('config', cliMissing(cliCommand(kind, target.executable)), false);
       // A CLI that exits non-zero often still printed its envelope on stdout: its own error, and usage.
       const stdout = (error.stdout ?? '').toString();
       const stderr = (error.stderr ?? '').toString();
@@ -329,9 +320,8 @@ export async function cliGenerate<T>(route: ResolvedRoute, request: GenerateRequ
       const output = `${stderr}\n${stdout}`;
       const detail = (error.stderr || stdout || '').toString().trim().split('\n').slice(-3).join(' ').slice(0, 400);
       // The whole output is searched: a pretty-printed envelope can push the reason far from the last lines.
-      if (QUOTA.test(output)) throw new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`, undefined, usage, kept);
-      if (SERVER_DOWN.test(output)) throw new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}`, undefined, usage, kept);
-      if (TOO_LONG.test(output)) throw new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false, usage, kept);
+      const named = failureInText(output, detail, { usage, output: kept });
+      if (named) throw named;
       throw new ModelError('cli', `CLI가 실패했습니다 (exit ${error.exitCode}). ${detail}`, false, usage, kept);
     }
     throw new ModelError('unknown', error instanceof Error ? error.message : String(error), false);
@@ -375,8 +365,6 @@ const MODEL_LIST: Partial<Record<CliKind, (stdout: string) => string[]>> = {
       .map((line) => line.split('\t')[0].trim())
       .filter(Boolean),
 };
-
-export const cliListsModels = (kind: CliKind) => kind in MODEL_LIST || kind === 'claude';
 
 const positive = (value: unknown) => (typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : undefined);
 const limitsOrNone = (contextWindow: unknown, maxOutput?: unknown): ModelLimitsInfo | undefined => {

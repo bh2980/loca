@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { z } from 'zod';
-import { AI_PRESET_IDS, presetConfig, workflowNodeSchema, type AiNode, type JsonField } from '@tw/shared';
+import { AI_PRESET_IDS, presetConfig, workflowNodeSchema, type AiNode, type JsonField } from '@loca/shared';
 import { DEFAULT_OPTIONS, resolveOptions, respond, usageFor, type MockOptions } from '../../../../scripts/mock-llm-core.ts';
-import type { BatchContext } from '../services/context.ts';
+import type { BatchContext } from './ai-context.ts';
 import { INPUT_SCRIPT } from './format-sentences.ts';
 import { buildPrompt, outputSchema, type PromptLine } from './prompts.ts';
 

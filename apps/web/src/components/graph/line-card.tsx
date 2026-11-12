@@ -5,7 +5,8 @@ import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText } from '@/components/editor/source-text';
 import { Box, Button, FloatingCard, Inline, Skeleton, Text } from '@loca/ui';
 import { useLineDetail } from '@/lib/units';
-import { keyLabel } from '@/lib/keys';
+import { keyLabel, matchedKey } from '@/lib/keys';
+import { SHORTCUTS } from '@/lib/shortcuts';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { LineNote } from '@/components/script/line-note';
 import { PersonName } from '@/lib/person-colors';
@@ -54,10 +55,11 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
       style={{ width: LINE_CARD_WIDTH, maxHeight }}
       onKeyDown={(event) => {
         if (event.defaultPrevented) return;
-        if (event.altKey && (event.key === 'ArrowDown' || event.key === 'ArrowUp')) {
+        const step = matchedKey(event, SHORTCUTS.cardStep.keys);
+        if (step) {
           event.preventDefault();
-          onStep(event.key === 'ArrowDown' ? 1 : -1);
-        } else if (event.key === 'Escape') {
+          onStep(step === 'Alt+Down' ? 1 : -1);
+        } else if (matchedKey(event, SHORTCUTS.cardClose.keys)) {
           event.preventDefault();
           onClose();
         }
@@ -72,10 +74,10 @@ export function LineCard({ projectId, unitId, choice, position, maxHeight, onSte
           )}
         </Text>
         {position && <Text variant="caption" tone="muted" tabular>{position}</Text>}
-        <Button variant="ghost" size="icon-xs" aria-label={`이전 줄 (${keyLabel('Alt+Up')})`} title={`이전 줄 (${keyLabel('Alt+Up')})`} onClick={() => onStep(-1)}>
+        <Button variant="ghost" size="icon-xs" aria-label={`이전 줄 (${keyLabel(SHORTCUTS.cardStep.keys[0]!)})`} title={`이전 줄 (${keyLabel(SHORTCUTS.cardStep.keys[0]!)})`} onClick={() => onStep(-1)}>
           <ChevronUp />
         </Button>
-        <Button variant="ghost" size="icon-xs" aria-label={`다음 줄 (${keyLabel('Alt+Down')})`} title={`다음 줄 (${keyLabel('Alt+Down')})`} onClick={() => onStep(1)}>
+        <Button variant="ghost" size="icon-xs" aria-label={`다음 줄 (${keyLabel(SHORTCUTS.cardStep.keys[1]!)})`} title={`다음 줄 (${keyLabel(SHORTCUTS.cardStep.keys[1]!)})`} onClick={() => onStep(1)}>
           <ChevronDown />
         </Button>
         {line && !line.note && (

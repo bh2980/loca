@@ -1,7 +1,7 @@
 import { afterEach, expect, it, vi } from 'vitest';
 import { Hono } from 'hono';
-import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from '../services/importer.ts';
 import { workflowRoutes } from './workflows.ts';
@@ -11,7 +11,7 @@ afterEach(() => db.$client.close());
 
 it('lists the workflows that call a workflow (calledBy) and refuses to delete it while any does', async () => {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
-  const app = new Hono<Env>().use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
+  const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
   const json = { 'content-type': 'application/json' };
   const create = async (name: string) => (await (await app.request(`/projects/${projectId}/workflows`, { method: 'POST', headers: json, body: JSON.stringify({ name }) })).json()) as { id: string; version: number; definition: { nodes: unknown[] } };
   const inner = await create('안쪽');

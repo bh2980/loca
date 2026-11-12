@@ -3,20 +3,19 @@ import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { ChevronLeft, OctagonAlert, Pause, Play, CircleStop } from 'lucide-react';
-import { nodePorts, runNodeName, type WorkflowNode } from '@tw/shared';
+import { ChevronLeft, CircleStop, Hourglass, OctagonAlert, Pause, Play } from 'lucide-react';
+import { nodePorts, runNodeName, type WorkflowNode, INPUT_TYPES, bySubject, type Subject } from '@loca/shared';
 import { parseExitKey } from '@/components/workflow/exit-marks';
 import { ContextItemList } from '@/components/ai-context';
 import { LineDetail } from '@/components/line-detail';
 import { TermEditor } from '@/components/glossary/term-pane';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
-import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, Separator, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Tabs, TabsList, TabsTrigger, Skeleton } from '@loca/ui';
+import { Inspector, InspectorHeader, Group, KeyValue, KeyValueRow, Section, EmptyState, SectionHeading, DataTable, type ColumnDef, Pager, FilterBar, ActionBar, SplitPane, RunStatusBadge, StatusBarItem, Notice, NoticeDescription, NoticeRow, Chip, Box, Button, Inline, Text, ExpandableRow, Progress, Tabs, TabsList, TabsTrigger, Skeleton, ConfirmDialog } from '@loca/ui';
 import { HeaderFilter } from '@/components/header-filter';
-import { client, unwrap } from '@/lib/api';
 import { ITEM_STATE } from '@/lib/labels';
 import { errorKindLabel, retryReason, retryState } from '@/lib/retry-info';
 import { q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
 import { BatchList } from '@/components/workflow/batch-list';
 import { ContinueRun } from '@/components/workflow/continue-run';
 import { RaiseCaps } from '@/components/workflow/raise-caps';
@@ -25,32 +24,28 @@ import { topCallIds } from '@/components/workflow/run-calls';
 import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
 import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
+import { controlRun } from '@/lib/runs';
+import { decideItems } from '@/lib/knowledge';
+import { param, searchParams } from '@/lib/search';
 
 type State = keyof typeof ITEM_STATE | 'retrying';
-interface RunSearch {
-  state?: State;
+const runSearchParams = {
+  /** The open inspector's tab (lib/inspector-tab.ts). */
+  pane: param.text,
+  state: param.oneOf<State>([...(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]), 'retrying']),
   /** Where the lines are now (the 위치 column's filter). */
-  node?: string;
+  node: param.text,
   /** The lines that came through a node (the run graph opens these), and out of which of its exits. */
-  through?: string;
-  exit?: string;
-  page?: number;
-  line?: string;
-  tab?: 'steps' | 'plan' | 'graph';
-  aiNode?: string;
-}
+  through: param.text,
+  exit: param.text,
+  page: param.positive,
+  line: param.text,
+  tab: param.oneOf(['steps', 'plan', 'graph']),
+  aiNode: param.read((raw) => (typeof raw === 'string' && raw.includes(':') ? raw : undefined)),
+};
 
 export const Route = createFileRoute('/p/$projectId/runs/$runId')({
-  validateSearch: (raw: Record<string, unknown>): RunSearch => ({
-    state: typeof raw.state === 'string' && (raw.state in ITEM_STATE || raw.state === 'retrying') ? (raw.state as State) : undefined,
-    node: typeof raw.node === 'string' ? raw.node : undefined,
-    through: typeof raw.through === 'string' ? raw.through : undefined,
-    exit: typeof raw.exit === 'string' ? raw.exit : undefined,
-    page: typeof raw.page === 'number' && raw.page > 0 ? raw.page : undefined,
-    line: typeof raw.line === 'string' ? raw.line : undefined,
-    tab: raw.tab === 'steps' || raw.tab === 'plan' || raw.tab === 'graph' ? raw.tab : undefined,
-    aiNode: typeof raw.aiNode === 'string' && raw.aiNode.includes(':') ? raw.aiNode : undefined,
-  }),
+  validateSearch: searchParams(runSearchParams),
   component: RunDetail,
 });
 
@@ -79,23 +74,25 @@ function RunDetail() {
   const run = useRunDetail(projectId, runId);
   const items = useRunItems(projectId, runId, { state: search.state, nodeId: search.node, through: search.through, exit: search.through ? search.exit : undefined, offset: (search.page ?? 0) * PAGE });
   const nodeExits = useQuery({ ...runNodeExits(runId, search.through ?? ''), enabled: Boolean(search.through) });
-  const terms = items.data?.subject === 'terms';
+  const subject: Subject = items.data?.subject ?? 'lines';
+  const input = INPUT_TYPES[subject];
+  // The page has two forms: a run on lines (items are script lines, with a translation plan) and one on glossary terms (the detail is the term).
+  const terms = bySubject(subject, { lines: false, terms: true });
   const termList = useTerms(projectId, { enabled: terms && Boolean(search.line) });
   const selectedTerm = terms ? termList.data?.find((term) => term.id === search.line) : undefined;
   const decide = useMutation({
-    mutationFn: (accept: boolean) => unwrap(client.projects[':projectId'].drafts.$post({ param: { projectId }, json: { kind: 'terms', ids: [search.line!], action: accept ? 'confirm' : 'discard' } })),
+    mutationFn: (accept: boolean) => decideItems(projectId, [{ kind: 'terms', ids: [search.line!] }], accept ? 'confirm' : 'discard'),
     onError: (error) => toast.error(error.message),
   });
   const steps = useRunSteps(projectId, runId, search.tab === 'steps');
   const plan = useQuery({ ...q.runPlan(runId), enabled: search.tab === 'plan' });
-  const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => unwrap(client.runs[':id'][':action{pause|resume|cancel}'].$post({ param: { id: runId, action } })) });
-  const setSearch = (next: Partial<RunSearch>, replace = false) => void navigate({ search: (previous) => ({ ...previous, ...next }), replace });
-  useReportView('run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]);
+  const control = useMutation({ mutationFn: (action: 'pause' | 'resume' | 'cancel') => controlRun(projectId, runId, action) });
+  const { setSearch, toggle } = useListScreen({ search, navigate, selection: 'line', report: ['run', [run.data && { kind: '실행', id: run.data.id, label: run.data.workflowName }]] });
 
   if (!run.data)
     return (
       <Page title="실행" flush>
-        {run.isError ? <ReadFailed title="실행을 불러오지 못했습니다" message={run.error.message} onRetry={() => void run.refetch()} /> : (
+        {run.isError ? <ReadFailed title="실행을 불러오지 못했습니다" message={run.error?.message ?? ""} onRetry={() => void run.refetch()} /> : (
           <Box spaceY="normal" padding="comfortable">
             <Skeleton height="control" width="1/2" />
             <Skeleton height="placeholder-sm" />
@@ -127,10 +124,11 @@ function RunDetail() {
       { value: node.id, label: nodeName(node.id), hint: nodeTotals[node.id] },
     ];
   });
-  const active = data.status === 'running' || data.status === 'paused';
+  // A run whose lines are still being stored (preparing) can only be cancelled; it starts by itself once they are in.
+  const active = data.status === 'preparing' || data.status === 'running' || data.status === 'paused';
   const total = items.data?.total ?? 0;
   const filtered = Boolean(search.state || search.node || search.through);
-  const noun = terms ? '용어' : '대사';
+  const noun = input.label;
   const exitLabel = (port: string) => {
     const node = search.through ? nodeById.get(search.through) : undefined;
     return (node && nodePorts(node).find((item) => item.id === port)?.label) ?? (port === 'retry' ? '다시 보냄' : port);
@@ -147,7 +145,7 @@ function RunDetail() {
         <HeaderFilter
           label="위치"
           value={search.node}
-          onChange={(node) => setSearch({ node, page: undefined, line: undefined }, true)}
+          onChange={(node) => setSearch({ node, page: undefined, line: undefined })}
           options={locations}
         />
       ),
@@ -160,7 +158,7 @@ function RunDetail() {
         <HeaderFilter
           label="상태"
           value={search.state}
-          onChange={(state) => setSearch({ state: state as State | undefined, page: undefined, line: undefined }, true)}
+          onChange={(state) => setSearch({ state: state as State | undefined, page: undefined, line: undefined })}
           options={[
             ...(Object.keys(ITEM_STATE) as (keyof typeof ITEM_STATE)[]).filter((state) => totals[state]).map((state) => ({ value: state, label: ITEM_STATE[state], hint: totals[state] })),
             ...(retryingTotal || search.state === 'retrying' ? [{ value: 'retrying', label: '다시 보내는 중', hint: retryingTotal }] : []),
@@ -209,18 +207,15 @@ function RunDetail() {
   ];
 
   const stop = (
-    <AlertDialog open={cancelOpen} onOpenChange={setCancelOpen}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>실행을 취소할까요?</AlertDialogTitle>
-          <AlertDialogDescription>아직 처리하지 않은 {data.subject === 'terms' ? '용어' : '대사'}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>계속 실행</AlertDialogCancel>
-          <AlertDialogAction onClick={() => control.mutate('cancel')}>실행 취소</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={cancelOpen}
+      onOpenChange={setCancelOpen}
+      title="실행을 취소할까요?"
+      description={`아직 처리하지 않은 ${INPUT_TYPES[data.subject].label}는 이 실행에서 빠집니다. 이미 반영된 번역·상태는 그대로입니다.`}
+      cancelLabel="계속 실행"
+      confirmLabel="실행 취소"
+      onConfirm={() => control.mutate('cancel')}
+    />
   );
 
   const percent = data.total ? Math.round((finished / data.total) * 100) : 0;
@@ -236,7 +231,7 @@ function RunDetail() {
         <Box spaceY="condensed">
           <Text as="p" variant="body" tabular>
             <Text as="b">{finished.toLocaleString()}</Text>
-            <Text tone="muted"> / {data.total.toLocaleString()} {terms ? '용어' : '대사'} 처리 · {percent}%</Text>
+            <Text tone="muted"> / {data.total.toLocaleString()} {input.label} 처리 · {percent}%</Text>
           </Text>
           <Progress value={percent} />
         </Box>
@@ -260,7 +255,7 @@ function RunDetail() {
           <KeyValue>
             {exitNotes.map((entry) => (
               <KeyValueRow key={`${entry.at}:${entry.note}`} label={entry.where}>
-                <Text breakWords>{entry.note} <Text tone="muted" tabular>{entry.count.toLocaleString()}{terms ? '개' : '줄'}</Text></Text>
+                <Text breakWords>{entry.note} <Text tone="muted" tabular>{entry.count.toLocaleString()}{input.unit}</Text></Text>
               </KeyValueRow>
             ))}
           </KeyValue>
@@ -298,8 +293,8 @@ function RunDetail() {
       <Section title={`이 노드를 거친 ${noun}`}>
         {nodeExits.isError ? <Text as="p" variant="caption" tone="danger">{nodeExits.error.message}</Text> : (
           <KeyValue>
-            <KeyValueRow label="도착"><Text tabular>{nodeExits.data ? `${nodeExits.data.arrived.toLocaleString()}${terms ? '개' : '줄'}` : '…'}</Text></KeyValueRow>
-            {(nodeExits.data?.here ?? 0) > 0 && <KeyValueRow label="지금 여기"><Text tabular>{nodeExits.data!.here.toLocaleString()}{terms ? '개' : '줄'}</Text></KeyValueRow>}
+            <KeyValueRow label="도착"><Text tabular>{nodeExits.data ? `${nodeExits.data.arrived.toLocaleString()}${input.unit}` : '…'}</Text></KeyValueRow>
+            {(nodeExits.data?.here ?? 0) > 0 && <KeyValueRow label="지금 여기"><Text tabular>{nodeExits.data!.here.toLocaleString()}{input.unit}</Text></KeyValueRow>}
           </KeyValue>
         )}
       </Section>
@@ -308,7 +303,7 @@ function RunDetail() {
           <Box as="ul" spaceY="tight">
             {nodeExits.data!.exits.map((exit) => (
               <Box as="li" key={exit.port}>
-                <Button variant={search.exit === exit.port ? 'secondary' : 'ghost'} height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" aria-pressed={search.exit === exit.port} title={`이 출구로 나간 ${noun} 보기`} onClick={() => setSearch({ exit: search.exit === exit.port ? undefined : exit.port, page: undefined }, true)}>
+                <Button variant={search.exit === exit.port ? 'secondary' : 'ghost'} height="auto" width="full" justifyContent="between" gap="condensed" paddingY="tight" weight="normal" aria-pressed={search.exit === exit.port} title={`이 출구로 나간 ${noun} 보기`} onClick={() => setSearch({ exit: search.exit === exit.port ? undefined : exit.port, page: undefined })}>
                   <Text minWidth={0} truncate align="start">{exitLabel(exit.port)}</Text>
                   <Text shrink={false} variant="caption" tone="muted" tabular>{exit.count.toLocaleString()}</Text>
                 </Button>
@@ -328,19 +323,19 @@ function RunDetail() {
         pane={
           !search.line ? (nodeInfo || runInfo) : (terms ? (
             selectedTerm ? (
-              <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined }, true)} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
+              <TermEditor key={selectedTerm.id} projectId={projectId} term={selectedTerm} onClose={() => setSearch({ line: undefined })} onDecide={(accept) => decide.mutate(accept)} deciding={decide.isPending} />
             ) : (
-              <Text as="p" padding="comfortable" variant="body" tone="muted">{termList.isSuccess ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
+              <Text as="p" padding="comfortable" variant="body" tone="muted">{Boolean(termList.data) ? '용어집에서 사라진 용어입니다.' : '용어를 불러오는 중…'}</Text>
             )
           ) : (
             <LineDetail
               projectId={projectId}
               unitId={search.line}
-              onClose={() => setSearch({ line: undefined }, true)}
+              onClose={() => setSearch({ line: undefined })}
               showScene
               editor
               aiNode={search.aiNode}
-              onAiNode={(aiNode) => setSearch({ aiNode }, true)}
+              onAiNode={(aiNode) => setSearch({ aiNode })}
             />
           ))
         }
@@ -348,14 +343,14 @@ function RunDetail() {
         {/* The views next to the title (as every page's); the run's actions stay at the right. */}
         <HeaderViews>
           <Box asChild alignSelf="stretch">
-          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined }, true)}>
+          <Tabs value={view} onValueChange={(value) => setSearch({ tab: value === 'steps' || value === 'plan' || value === 'graph' ? value : undefined })}>
             <Box asChild height="full" border="noBottom">
             <TabsList variant="line" aria-label="보기">
-              <TabsTrigger value="items">{terms ? '용어별' : '대사별'} <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
+              <TabsTrigger value="items">{input.label}별 <Text tone="muted" tabular>{data.total.toLocaleString()}</Text></TabsTrigger>
               <TabsTrigger value="graph">그래프</TabsTrigger>
               <TabsTrigger value="steps">AI 호출</TabsTrigger>
               {/* Terms are not planned in scene batches: there is no plan to show. */}
-              {data.subject !== 'terms' && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
+              {!terms && <TabsTrigger value="plan">번역 계획</TabsTrigger>}
             </TabsList>
             </Box>
           </Tabs>
@@ -364,28 +359,42 @@ function RunDetail() {
         <HeaderActions>
           {data.status === 'running' && <Button onClick={() => control.mutate('pause')}><Pause /> 일시정지</Button>}
           {data.status === 'paused' && <Button variant={data.limits?.hit ? 'outline' : 'default'} onClick={() => control.mutate('resume')}><Play /> 재개</Button>}
-          {data.status === 'completed' && (totals.failed ?? 0) > 0 && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} />}
+          {data.status === 'completed' && (totals.failed ?? 0) > 0 && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused={false} limits={data.limits ?? undefined} />}
           {(active || data.status === 'paused') && <ActionBar aria-label="실행 동작" items={[
             ...(active ? [{ id: 'cancel', label: '실행 취소', icon: <CircleStop />, destructive: true, onSelect: () => setCancelOpen(true) }] : []),
-            ...(data.status === 'paused' && !data.filling ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
+            ...(data.status === 'paused' ? [{ id: 'continue', label: '모델 바꿔 재개', icon: <Play />, onSelect: () => setContinueOpen(true) }] : []),
           ]} />}
         </HeaderActions>
-        {data.status === 'paused' && !data.filling && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
+        {data.status === 'paused' && <ContinueRun runId={runId} failed={totals.failed ?? 0} paused limits={data.limits ?? undefined} hideTrigger open={continueOpen} onOpenChange={setContinueOpen} />}
         {active && stop}
         <StatusBarItem><RunStatusBadge status={data.status} /></StatusBarItem>
         {/* Only a filter (a state or node picked elsewhere) earns a bar: it says how many it left and takes it off. The run's count is on the tab. */}
-        {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{terms ? '개' : '줄'}</Text> : undefined}>
+        {view === 'items' && filtered && <FilterBar end={items.data ? <Text variant="micro" tabular>{total.toLocaleString()}{input.unit}</Text> : undefined}>
           {search.through && <Text minWidth={0} truncate variant="caption">‘{nodeName(search.through)}’ 노드를 거친 {noun}{search.exit ? ` · 출구 ${exitLabel(search.exit)}` : ''}</Text>}
-          <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined }, true)}>
+          <Button variant="ghost" onClick={() => setSearch({ state: undefined, node: undefined, through: undefined, exit: undefined, page: undefined, line: undefined })}>
             필터 지우기
           </Button>
         </FilterBar>}
 
+        {data.status === 'preparing' && (
+          <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
+            <Notice icon={<Hourglass />} title="실행을 준비하는 중입니다">
+              <NoticeDescription>{noun}를 넣고 있습니다. 다 넣으면 바로 시작합니다.</NoticeDescription>
+            </Notice>
+          </Box>
+        )}
+        {data.status === 'cancelled' && data.notice && (
+          <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
+            <Notice tone="danger" icon={<OctagonAlert />} title="실행이 시작되지 못했습니다">
+              <NoticeDescription>{data.notice}</NoticeDescription>
+            </Notice>
+          </Box>
+        )}
         {data.status === 'paused' && data.notice && (
           <Box shrink={false} border="bottom" paddingX="comfortable" paddingY="normal">
             <Notice tone="danger" icon={<OctagonAlert />} title="실행이 멈췄습니다">
               <NoticeDescription>{data.notice}</NoticeDescription>
-              {data.limits?.hit && !data.filling && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} runId={runId} limits={data.limits} />}
+              {data.limits?.hit && <RaiseCaps key={`${data.limits.maxCalls}-${data.limits.maxInputTokens}`} projectId={projectId} runId={runId} limits={data.limits} />}
             </Notice>
           </Box>
         )}
@@ -397,15 +406,15 @@ function RunDetail() {
             rowId={(item) => item.id}
             loading={!items.data}
             selected={items.data?.rows.find((item) => item.unitId === search.line)?.id}
-            onRowClick={(item) => setSearch({ line: search.line === item.unitId ? undefined : item.unitId }, true)}
+            onRowClick={(item) => toggle(item.unitId)}
             empty={search.through && !search.exit && !search.state && !search.node
               ? <EmptyState noun={noun} hint="아직 이 노드에 도착하지 않았습니다." />
               : <EmptyState noun={noun} filtered={filtered} />}
-            footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined })} />}
+            footer={<Pager page={search.page ?? 0} total={total} pageSize={PAGE} onPage={(page) => setSearch({ page: page || undefined }, 'push')} />}
           />
         )) : view === 'graph' ? (
           <Box minHeight={0} grow>
-            <RunGraph projectId={projectId} run={data} selected={search.through ?? search.node} onOpenNode={(through) => setSearch({ tab: undefined, through, exit: undefined, node: undefined, state: undefined, page: undefined, line: undefined })} />
+            <RunGraph projectId={projectId} run={data} selected={search.through ?? search.node} onOpenNode={(through) => setSearch({ tab: undefined, through, exit: undefined, node: undefined, state: undefined, page: undefined, line: undefined }, 'push')} />
           </Box>
         ) : view === 'plan' ? (
           <Box minHeight={0} grow overflow="auto" padding="comfortable">
@@ -441,7 +450,7 @@ function RunDetail() {
                           <Text width="field" truncate align="start" weight="medium">{nodeName(step.nodeId)}</Text>{' '}
                           <Chip variant={step.ok ? 'outline' : 'solid'} tone={step.ok ? undefined : 'danger'}>{step.ok ? '성공' : '실패'}</Chip>{' '}
                           {!step.ok && errorKindLabel(step.errorKind) && <Chip variant="outline">{errorKindLabel(step.errorKind)}</Chip>}{' '}
-                          <Text tone="muted">{terms ? `용어 ${step.subjectIds.length}개` : `대사 ${step.subjectIds.length}줄`}</Text>{' '}
+                          <Text tone="muted">{`${input.label} ${step.subjectIds.length}${input.unit}`}</Text>{' '}
                           <Text minWidth={0} truncate tone="muted">{[data.models.find((model) => model.connectionId === step.connectionId)?.name, step.model].filter(Boolean).join(' · ')}</Text>
                           {' '}
                       </>}

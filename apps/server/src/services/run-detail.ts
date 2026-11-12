@@ -1,21 +1,21 @@
-import { and, asc, count, desc, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
-import { CONNECTION_KIND_INFO, nodeRetries, type WorkflowDefinition } from '@tw/shared';
+import { and, count, eq, inArray, or, sql, type SQL } from 'drizzle-orm';
+import { CONNECTION_KIND_INFO, nodeRetries, type WorkflowDefinition, type Subject } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
 import type { Runner } from '../engine/runner.ts';
-import { FILLING } from '../engine/run-create.ts';
+import { subjectOf } from '../engine/subjects.ts';
 
 /**
  * A run's detail in two parts. Its items (lines or terms, each where it is in the workflow) are rows
  * the browser holds for the page it shows (runItemRows), named by the row feed when one changes. Its
  * progress (counts by node, usage, retries, requests in flight) is one row per run (runProgress), read
  * again when the run's row changes. What stays the same while it runs (definition, models, limits) is
- * GET /runs/:id.
+ * GET /runs/:id/start, which repeats nothing of the progress row.
  */
 
 /** A line waiting to go through an AI node again: it was last sent back by the node's retry rule (the node has not answered since). */
-export const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and json_extract(${s.runItems.data}, '$.path[#-1].port') = 'retry' and json_extract(${s.runItems.data}, '$.retry.last.kind') is not null)`;
+export const RETRYING = sql`(${s.runItems.state} in ('queued', 'running') and ${s.itemData.lastPort} = 'retry' and ${s.itemData.retryLastKind} is not null)`;
 
 /**
  * Why a line is being sent again: the resend count of the retry rule that sent it (of that rule's limit), the failure that
@@ -58,7 +58,7 @@ function itemsWhere(runId: string, { state, nodeId, through, exit }: Pick<RunIte
   if (nodeId) conditions.push(or(eq(s.runItems.nodeId, nodeId), sql`substr(${s.runItems.nodeId}, 1, ${nodeId.length + 1}) = ${`${nodeId}/`}`)!);
   // `visits` has every node an item reached, including the one it is waiting at.
   if (through) conditions.push(sql`exists (select 1 from json_each(${s.runItems.visits}) visit where visit.key = ${through} or substr(visit.key, 1, ${through.length + 1}) = ${`${through}/`})`);
-  if (through && exit) conditions.push(sql`exists (select 1 from json_each(${s.runItems.data}, '$.path') step where json_extract(step.value, '$.nodeId') = ${through} and json_extract(step.value, '$.port') = ${exit})`);
+  if (through && exit) conditions.push(sql`exists (select 1 from ${s.itemData.pathEach()} where ${s.itemData.stepNodeId} = ${through} and ${s.itemData.stepPort} = ${exit})`);
   return and(...conditions)!;
 }
 
@@ -66,7 +66,7 @@ function itemsWhere(runId: string, { state, nodeId, through, exit }: Pick<RunIte
 export function runNodeExits(db: Db, runId: string, nodeId: string) {
   const arrived = db.select({ count: count() }).from(s.runItems).where(itemsWhere(runId, { through: nodeId })).get()!.count;
   const here = db.select({ count: count() }).from(s.runItems).where(and(eq(s.runItems.runId, runId), eq(s.runItems.nodeId, nodeId), inArray(s.runItems.state, ['queued', 'running']))).get()!.count;
-  const exits = db.all<{ port: string; count: number }>(sql`select json_extract(step.value, '$.port') as port, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.path') step where item.run_id = ${runId} and json_extract(step.value, '$.nodeId') = ${nodeId} group by port order by count desc`);
+  const exits = db.all<{ port: string; count: number }>(sql`select ${s.itemData.stepPort} as port, count(distinct item.id) as count from ${s.runItems} item, ${s.itemData.pathEach(sql`item.data`)} where item.run_id = ${runId} and ${s.itemData.stepNodeId} = ${nodeId} group by port order by count desc`);
   return { arrived, here, exits };
 }
 
@@ -74,13 +74,8 @@ export function runNodeExits(db: Db, runId: string, nodeId: string) {
 export function runItemIds(db: Db, runId: string, query: RunItemQuery) {
   const where = itemsWhere(runId, query);
   const total = db.select({ count: count() }).from(s.runItems).where(where).get()!.count;
-  const run = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get();
-  const subject = run?.subject === 'terms' ? ('terms' as const) : ('lines' as const);
-  const ids =
-    subject === 'terms'
-      ? db.select({ id: s.runItems.id }).from(s.runItems).innerJoin(s.terms, eq(s.terms.id, s.runItems.subjectId)).where(where).orderBy(desc(sql`coalesce(${s.terms.lines}, 0)`), asc(s.terms.source)).limit(query.limit).offset(query.offset).all()
-      : db.select({ id: s.runItems.id }).from(s.runItems).innerJoin(s.units, eq(s.units.id, s.runItems.subjectId)).where(where).orderBy(asc(s.units.seq)).limit(query.limit).offset(query.offset).all();
-  return { total, subject, ids: ids.map((row) => row.id) };
+  const subject: Subject = db.select({ subject: s.runs.subject }).from(s.runs).where(eq(s.runs.id, runId)).get()?.subject ?? 'lines';
+  return { total, subject, ids: subjectOf(subject).itemIds(db, where, query.limit, query.offset) };
 }
 
 /**
@@ -98,10 +93,8 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
       .where(and(eq(s.runs.projectId, projectId), inArray(s.runItems.id, slice)))
       .all(),
   );
-  const lines = new Set(inChunks(items.filter((item) => item.subject !== 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.units.id }).from(s.units).where(inArray(s.units.id, slice)).all()).map((unit) => unit.id));
-  const terms = new Map(
-    inChunks(items.filter((item) => item.subject === 'terms').map((item) => item.unitId), (slice) => db.select({ id: s.terms.id, source: s.terms.source, target: s.terms.target }).from(s.terms).where(inArray(s.terms.id, slice)).all()).map((term) => [term.id, term]),
-  );
+  // The row behind each item, read per kind of item (a page can hold items of several runs).
+  const rows = new Map([...Map.groupBy(items, (item) => item.subject)].map(([subject, own]) => [subject, subjectOf(subject).itemRows(db, own.map((item) => item.unitId))]));
   const runs = new Map(
     inChunks([...new Set(items.map((item) => item.runId))], (slice) => db.select({ id: s.runs.id, definition: s.runs.definition, models: s.runs.models }).from(s.runs).where(inArray(s.runs.id, slice)).all()).map((run) => [run.id, run]),
   );
@@ -109,11 +102,8 @@ export function runItemRows(db: Db, projectId: string, ids: readonly string[]) {
     items.flatMap(({ subject, runId, ...item }) => {
       const run = runs.get(runId);
       const retry = run ? retryOf(item, run) : null;
-      if (subject === 'terms') {
-        const term = terms.get(item.unitId);
-        return term ? [[item.id, { ...item, runId, term: { source: term.source, target: term.target as string | null } as { source: string; target: string | null } | null, retry }] as const] : [];
-      }
-      return lines.has(item.unitId) ? [[item.id, { ...item, runId, term: null as { source: string; target: string | null } | null, retry }] as const] : [];
+      const row = rows.get(subject)?.get(item.unitId);
+      return row ? [[item.id, { ...item, runId, term: row.term, retry }] as const] : [];
     }),
   );
   return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
@@ -153,17 +143,16 @@ export function runProgress(db: Db, runner: Runner, projectId: string, ids: read
     );
     // What the exits' actions could not do (node id:exit → note → lines): a person's status kept, a tag name no tag has.
     const exits: Record<string, { notes: Record<string, number> }> = {};
-    for (const row of db.all<{ at: string; note: string; count: number }>(sql`select json_extract(entry.value, '$.at') as at, json_extract(entry.value, '$.note') as note, count(distinct item.id) as count from ${s.runItems} item, json_each(item.data, '$.exitNotes') entry where item.run_id = ${run.id} group by at, note`))
+    for (const row of db.all<{ at: string; note: string; count: number }>(sql`select ${s.itemData.noteAt} as at, ${s.itemData.noteText} as note, count(distinct item.id) as count from ${s.runItems} item, ${s.itemData.exitNotesEach(sql`item.data`)} where item.run_id = ${run.id} group by at, note`))
       (exits[row.at] ??= { notes: {} }).notes[row.note] = row.count;
     // Lines waiting to go through an AI node again, by that node: how many, and the failure kinds that sent them back.
     const retrying: Record<string, { count: number; kinds: Record<string, number> }> = {};
-    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select json_extract(data, '$.retry.last.nodeId') as nodeId, json_extract(data, '$.retry.last.kind') as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
+    for (const row of db.all<{ nodeId: string; kind: string; count: number }>(sql`select ${s.itemData.retryLastNodeId} as nodeId, ${s.itemData.retryLastKind} as kind, count(*) as count from ${s.runItems} where run_id = ${run.id} and ${RETRYING} group by nodeId, kind`)) {
       const entry = (retrying[row.nodeId] ??= { count: 0, kinds: {} });
       entry.count += row.count;
       entry.kinds[row.kind] = row.count;
     }
-    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, exits, retrying, filling: run.notice === FILLING };
+    return { id: run.id, status: run.status, notice: run.notice, total: run.total, finishedAt: run.finishedAt, nodes, calls: runner.liveCalls(run.id), usage, byModel, passed, exits, retrying };
   });
 }
 
-export type RunProgress = ReturnType<typeof runProgress>[number];

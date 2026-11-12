@@ -1,4 +1,5 @@
-import { useEffect, useRef } from 'react';
+import { ownsKeys } from '@/lib/keys';
+import { keyOf, useShortcuts } from '@/lib/shortcuts';
 
 /**
  * What a graph can do from the keyboard. Every graph uses this one map, so the same keys do the same
@@ -22,45 +23,31 @@ export interface GraphShortcuts {
 }
 
 /** The shortcut hints a graph's menus show, in keyLabel form. */
-export const GRAPH_KEYS = { undo: 'Mod+Z', redo: 'Mod+Shift+Z', copy: 'Mod+C', cut: 'Mod+X', paste: 'Mod+V', remove: 'Delete', ungroup: 'Mod+Shift+G' } as const;
+export const GRAPH_KEYS = { undo: keyOf('graphUndo'), redo: keyOf('graphRedo'), copy: keyOf('graphCopy'), cut: keyOf('graphCut'), paste: keyOf('graphPaste'), remove: keyOf('graphRemove'), ungroup: keyOf('frameUngroup') } as const;
 
-/** Where typing goes to a field (or a dialog or menu has the keys), the graph does not act. */
-const typingIn = (target: EventTarget | null) =>
-  Boolean((target as HTMLElement | null)?.closest?.('input, textarea, select, [contenteditable="true"], [role="dialog"], [role="alertdialog"], [role="menu"]'));
-
-/** A region that keeps its own keys (the chat panel): marked `data-own-keys`. */
-const ownKeys = (target: EventTarget | null) => Boolean((target as HTMLElement | null)?.closest?.('[data-own-keys]'));
 /** Where the person last clicked: text picked in the chat leaves the focus on the page body. */
 let lastPointer: EventTarget | null = null;
 if (typeof window !== 'undefined') window.addEventListener('pointerdown', (event) => (lastPointer = event.target), true);
 /** Text selected on the page: ⌘/Ctrl+C and X copy it, not the graph's nodes. */
 const textPicked = () => Boolean(window.getSelection()?.toString());
 
-/** Listens for the shared graph keys while `enabled`; ⌘ on a Mac, Ctrl elsewhere (both work everywhere). */
+/**
+ * Listens for the shared graph keys while `enabled`; ⌘ on a Mac, Ctrl elsewhere (both work everywhere). Where typing
+ * goes to a field, or a dialog, a menu or the chat panel has the keys, the graph does not act (the shortcuts' own rules).
+ */
 export function useGraphShortcuts(shortcuts: GraphShortcuts, enabled = true) {
-  const latest = useRef(shortcuts);
-  latest.current = shortcuts;
-  useEffect(() => {
-    if (!enabled) return;
-    const onKey = (event: KeyboardEvent) => {
-      if (event.defaultPrevented || typingIn(event.target) || ownKeys(event.target) || ownKeys(lastPointer)) return;
-      const mod = event.metaKey || event.ctrlKey;
-      const key = event.key.toLowerCase();
-      const act = (run: (() => void) | undefined) => {
-        if (!run) return;
-        event.preventDefault();
-        run();
-      };
-      if (mod && key === 'z') return act(event.shiftKey ? latest.current.redo : latest.current.undo);
-      if (mod && key === 'y') return act(latest.current.redo);
-      if (mod && (key === 'c' || key === 'x') && textPicked()) return;
-      if (mod && key === 'c') return act(latest.current.copy);
-      if (mod && key === 'x') return act(latest.current.cut);
-      if (mod && key === 'v') return act(latest.current.paste);
-      if (mod && event.shiftKey && key === 'g') return act(latest.current.ungroup);
-      if (!mod && (event.key === 'Delete' || event.key === 'Backspace')) return act(latest.current.remove);
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [enabled]);
+  const act = (run: (() => void) | undefined) => run && (() => void run());
+  const unlessText = (run: (() => void) | undefined) => run && (() => (textPicked() ? false : void run()));
+  useShortcuts(
+    {
+      graphUndo: act(shortcuts.undo),
+      graphRedo: act(shortcuts.redo),
+      graphCopy: unlessText(shortcuts.copy),
+      graphCut: unlessText(shortcuts.cut),
+      graphPaste: act(shortcuts.paste),
+      frameUngroup: act(shortcuts.ungroup),
+      graphRemove: act(shortcuts.remove),
+    },
+    { enabled, when: () => !ownsKeys(lastPointer) },
+  );
 }

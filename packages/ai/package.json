@@ -1,5 +1,5 @@
 {
-  "name": "@tw/ai",
+  "name": "@loca/ai",
   "private": true,
   "type": "module",
   "exports": {
@@ -16,7 +16,7 @@
     "@ai-sdk/openai-compatible": "^3.0.66",
     "@modelcontextprotocol/sdk": "1.32.1",
     "@simonepri/refined-antigravity-acp": "1.6.1",
-    "@tw/shared": "workspace:*",
+    "@loca/shared": "workspace:*",
     "@typesafe-ai/sdk": "^0.6.0",
     "ai": "^7.0.134",
     "cross-spawn": "7.0.6",

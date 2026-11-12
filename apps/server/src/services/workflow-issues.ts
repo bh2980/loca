@@ -1,16 +1,19 @@
 import { and, eq } from 'drizzle-orm';
-import { runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition } from '@tw/shared';
+import { connectionCan, runNodeName, validateWorkflow, workflowRefOf, type WorkflowDefinition, type WorkflowIssue } from '@loca/shared';
 import { expandedDefinition } from '../engine/expand-calls.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
 /** A workflow's problems against this project's connections, statuses and tags (shown in the editor, refused at run start). */
 export function workflowIssues(db: Db, projectId: string, definition: WorkflowDefinition, workflowId?: string) {
+  // A stored definition the schema refused is read empty (schema.ts): its one problem is that, not what an empty workflow lacks.
+  const unreadable = s.definitionProblem(definition);
+  if (unreadable) return [{ level: 'error', message: `저장된 정의를 읽을 수 없습니다 (빈 워크플로로 열립니다): ${unreadable}` }] satisfies WorkflowIssue[];
   const ids = (rows: { id: string }[]) => new Set(rows.map((row) => row.id));
   return validateWorkflow(definition, {
     workflows: workflowRefsOf(db, projectId),
     workflowId,
-    connections: new Map(db.select({ id: s.connections.id, kind: s.connections.kind }).from(s.connections).where(eq(s.connections.projectId, projectId)).all().filter((row) => row.kind !== 'http').map((row) => [row.id, row.kind])),
+    connections: new Map(db.select({ id: s.connections.id, kind: s.connections.kind }).from(s.connections).where(eq(s.connections.projectId, projectId)).all().filter((row) => !connectionCan(row.kind, 'tool')).map((row) => [row.id, row.kind])),
     statusIds: ids(db.select({ id: s.statuses.id }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all()),
     tagIds: ids(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all()),
     toolConnectionIds: ids(db.select({ id: s.connections.id }).from(s.connections).where(and(eq(s.connections.projectId, projectId), eq(s.connections.kind, 'http'))).all()),

@@ -1,7 +1,7 @@
 /** Config of a condition node: the condition as rows, anything rows cannot say as JSON Logic. */
 import { useEffect, useState } from 'react';
 import { Plus, X } from 'lucide-react';
-import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@tw/shared';
+import { type AutoMark, CONDITION_MARK_IDS, INPUT_TYPES, ITEM_ERROR_KIND_IDS, ITEM_ERROR_KINDS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, type WorkflowNode } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { type StyleProps, Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, Input, NumberInput, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, StatusIcon, Switch, TagChip, Text, Textarea, Field } from '@loca/ui';
 import { comparableFields, conditionExpression, parseCondition, type Clause, type Condition, type FieldOperator, type Join } from '@/components/workflow/node-config/condition-clauses';
@@ -56,7 +56,7 @@ export function ConditionEditor({ node, nodes, refs, readOnly, onChange }: { nod
   const json = asJson || !parsed;
   const statuses = refs?.statuses ?? [];
   const tags = refs?.tags ?? [];
-  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry' && other.type !== 'end');
+  const others = nodes.filter((other) => other.id !== node.id && other.type !== 'entry');
   const outputs = others.map((other) => ({ node: other, fields: comparableFields(other) })).filter((entry) => entry.fields.length > 0);
   const fieldsOf = (id: string) => outputs.find((entry) => entry.node.id === id)?.fields ?? [];
   // AI nodes that pick one option: their choice can be compared with the line's speech rule.

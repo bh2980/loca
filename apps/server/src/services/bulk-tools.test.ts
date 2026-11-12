@@ -1,13 +1,14 @@
-import { AGENT_RESOURCES } from '@tw/shared';
+import { AGENT_RESOURCES } from '@loca/shared';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import { importProject } from './importer.ts';
 import * as s from '../db/schema.ts';
 import { agentTools } from './agent-tools.ts';
-import { autoReview, itemCount } from './change-gate.ts';
-import { prepareProposal } from './proposal-check.ts';
+import { itemCount } from '@loca/shared';
+import { autoReview } from './change-gate.ts';
+import { prepareProposal } from './agent-catalog.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -46,7 +47,7 @@ describe('bulk and project tools (#45)', () => {
 
   it('save_knowledge counts all its items for auto review', () => {
     const many = { characters: Array.from({ length: 15 }, (_, i) => ({ name: `c${i}` })), documents: Array.from({ length: 10 }, (_, i) => ({ title: `d${i}` })) };
-    expect(itemCount(many)).toBe(25);
+    expect(itemCount('save_knowledge', many)).toBe(25);
     expect(autoReview('save_knowledge', many, null).pass).toBe(false);
     expect(autoReview('delete_items', { kind: 'terms', ids: ['x'] }, null).pass).toBe(false);
   });

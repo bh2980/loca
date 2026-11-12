@@ -1,10 +1,13 @@
 import { z } from 'zod';
 import { customFormatRuleSchema, formatPatternError } from './format-check.ts';
+import { SUBJECTS, type Subject } from './subject.ts';
 
 /**
- * Function nodes run one function from this registry. Each entry declares its parameters and exits;
- * the server holds the implementation (apps/server/src/engine/functions). Adding a function means
- * adding an entry here and one implementation file there.
+ * Function nodes run one function from this registry. An entry is everything about the function that is
+ * data: its name and help, its settings, exits and results, where the editor lists it, whether it calls
+ * out and what it writes. What is code is keyed by the same names and typed against this registry, so a
+ * function missing one does not compile: its implementation (apps/server/src/engine/functions), its
+ * checks (FUNCTION_ISSUES in workflow.ts), its config form and its icon (apps/web workflow/node-config).
  */
 export interface Port {
   id: string;
@@ -14,13 +17,22 @@ export interface Port {
 export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
   label: string;
   description: string;
+  /**
+   * Its settings as a node stores them. A draft the editor is still typing fits (a rule with no pattern yet, an
+   * address not entered); what is not ready to run is said by validateWorkflow, never by this schema.
+   */
   params: P;
   /** Exits can depend on the parameters (e.g. a script declares its own). `error` is always added. */
   ports: (params: z.infer<P>) => Port[];
-  /** The line ends here (as failed): no exits, not even "error". */
-  ends?: boolean;
-  /** Runs outside the instant pass (network, sandbox); the runner dispatches it like an AI call. */
-  async: boolean;
+  /** Calls out of the server (network, sandbox): the runner dispatches it like an AI call, with the node's own 동시 처리 수. */
+  callsOut: boolean;
+  /**
+   * The editor's group, which also gives the node its colour: 반영 writes to the project (the apply targets), 함수 reads
+   * and judges or computes. The library lists a group's functions in the order they are declared here.
+   */
+  group: FunctionGroup;
+  /** What it writes: the item itself (a line's translation or listener, a term's form), the project's knowledge, or nothing. */
+  changes: 'item' | 'project' | null;
   /** The workflow inputs it is a node of (unset: both). */
   inputs?: readonly Subject[];
   /**
@@ -28,7 +40,10 @@ export interface FunctionInfo<P extends z.ZodType = z.ZodType> {
    * fixed fields, or "declared" by the node (a script's or an HTTP call's fields). Unset: it passes the line on.
    */
   outputs?: readonly JsonField[] | 'declared';
+  /** The line under the node's title, from its settings. Unset: its label (a save node says where it writes, see nodeSummary). */
+  summary?: (params: z.infer<P>) => string;
 }
+export type FunctionGroup = 'function' | 'apply';
 
 /**
  * Types a JSON output field can have (AI "json" output, script data). `strings`: a list of texts;
@@ -50,6 +65,8 @@ export interface JsonField {
   min?: number;
   max?: number;
 }
+const FIELD_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
 /**
  * Fields read off a sample result (a script's or an HTTP call's test run), for "이 결과로 칸 채우기":
  * each top-level key with the type its value has; a list of objects keeps its items' fields. Names
@@ -64,13 +81,14 @@ export function fieldsFromSample(sample: unknown): JsonField[] {
     return { type: 'string' };
   };
   return Object.entries(sample as Record<string, unknown>)
-    .filter(([name]) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(name))
+    .filter(([name]) => FIELD_NAME.test(name))
     .map(([name, value]) => ({ name, description: '', ...typeOf(value) }));
 }
 
+/** A field as a node stores it. A name still being typed fits; jsonFieldIssues says when one cannot be used. */
 export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
   z.object({
-    name: z.string().trim().regex(/^[A-Za-z_][A-Za-z0-9_]*$/, '영문·숫자·_ 로 된 이름'),
+    name: z.string().trim(),
     type: z.enum(JSON_FIELD_TYPES).default('string'),
     description: z.string().default(''),
     fields: z.array(jsonFieldSchema).optional(),
@@ -79,6 +97,19 @@ export const jsonFieldSchema: z.ZodType<JsonField> = z.lazy(() =>
     max: z.number().optional(),
   }),
 ) as z.ZodType<JsonField>;
+
+/** What keeps declared fields from being used: a name that is empty or not letters, digits and _, or one used twice in the same list. */
+export function jsonFieldIssues(fields: readonly JsonField[]): string[] {
+  const issues: string[] = [];
+  const seen = new Set<string>();
+  for (const field of fields) {
+    if (!FIELD_NAME.test(field.name)) issues.push(field.name ? `필드 이름 '${field.name}'은(는) 쓸 수 없습니다. 영문·숫자·_ 로 적고 숫자로 시작하지 마세요.` : '이름이 없는 필드가 있습니다.');
+    else if (seen.has(field.name)) issues.push(`필드 이름 '${field.name}'이(가) 두 번 있습니다.`);
+    seen.add(field.name);
+    issues.push(...jsonFieldIssues(field.fields ?? []));
+  }
+  return issues;
+}
 
 const pass: Port[] = [{ id: 'pass', label: '통과' }, { id: 'fail', label: '실패' }];
 /** What a check returns: the text it checked, whether it passed, what it found and the kind of problem it looks for (a 태그 붙이기 node can name its tag after it). */
@@ -108,14 +139,37 @@ export const formatCheckParams = z.object({
   maxLengthRatio: z.number().min(0).default(0),
   /** Comma-separated plain words the translation must not contain. */
   forbiddenWords: z.string().default(''),
-  customRules: z
-    .array(
-      customFormatRuleSchema.extend({
-        pattern: z.string().min(1).refine((pattern) => !formatPatternError(pattern), { message: '쓸 수 없는 정규식입니다.' }),
-      }),
-    )
-    .default([]),
+  /** A rule being typed may have no pattern yet, or one that is not a regex yet: the check skips it and validation asks for it. */
+  customRules: z.array(customFormatRuleSchema.extend({ pattern: z.string() })).default([]),
 });
+export type FormatCheckParams = z.infer<typeof formatCheckParams>;
+
+/** A custom rule that cannot be checked yet, in words: no pattern, or not a regex. */
+export const customRuleIssue = (rule: { pattern: string }): string | null => (rule.pattern.trim() ? formatPatternError(rule.pattern) : '패턴을 입력하세요.');
+
+/** The format check's line under its title: the checks that are on. */
+function formatCheckSummary(params: FormatCheckParams) {
+  const checks = [
+    params.placeholders && '자리표시자',
+    params.tags && '서식 태그',
+    params.newlines && '줄바꿈',
+    params.emptyText && '빈 번역',
+    params.numbers && '숫자',
+    params.spaces && '공백',
+    params.particles && '조사',
+    (params.maxChars || params.maxBytes || params.maxLineChars || params.maxLines || params.maxLengthRatio) && '길이',
+    params.forbiddenWords.split(',').some((word) => word.trim()) && '금지어',
+    params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
+  ].filter(Boolean);
+  return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
+}
+
+/** An address as a card's line: without the scheme, its query left out ("?…" says there is one), cut at `max`. */
+function shortAddress(url: string, max = 48) {
+  const [, bare = '', rest = ''] = /^(?:https?:\/\/)?([^?#]*)(.*)$/i.exec(url.trim()) ?? [];
+  const address = rest.startsWith('?') ? `${bare}?…` : bare;
+  return address.length > max ? `${address.slice(0, max - 1)}…` : address;
+}
 
 /**
  * 반영 노드: put a node's output into the project. Each one is the workflow form of a chat/CLI
@@ -134,13 +188,13 @@ export interface ApplyField {
   /** Item fields of a `list` field (e.g. a relationship's views and their changes); mapped as "<field>.<sub>" (with the whole path for deeper ones) or by the same name. */
   fields?: ApplyField[];
 }
-/** A workflow's input: what its items are (INPUT_TYPES in workflow.ts). */
-export type Subject = 'lines' | 'terms';
 export interface ApplyTarget {
   label: string;
   description: string;
   shape: ApplyShape;
   fields: ApplyField[];
+  /** Where it writes, in the words of the screens that show it ("→ 용어집"); per input where the item itself is what it writes. */
+  writes: string | Record<Subject, string>;
   /** The chat/CLI tool a proposal is filed as (proposals.tool), and whose service writes it. */
   tool: string;
   /** The workflow inputs it is a node of; a `line` shape writes the item itself, so only its kind. */
@@ -156,6 +210,7 @@ export const APPLY_TARGETS = {
       { name: 'text', label: '번역', type: 'string', required: true },
       { name: 'note', label: '메모', type: 'string' },
     ],
+    writes: { lines: '대사 번역', terms: '용어 번역어' },
     tool: 'propose_changes',
     inputs: ['lines', 'terms'],
   },
@@ -167,6 +222,7 @@ export const APPLY_TARGETS = {
       { name: 'listener', label: '청자', type: 'string', required: true },
       { name: 'confidence', label: '확신도', type: 'number' },
     ],
+    writes: '대사 청자',
     tool: 'set_listeners',
     inputs: ['lines'],
   },
@@ -182,6 +238,7 @@ export const APPLY_TARGETS = {
       { name: 'note', label: '메모', type: 'string' },
       evidenceField,
     ],
+    writes: '용어집',
     tool: 'save_terms',
     inputs: ['lines', 'terms'],
   },
@@ -200,6 +257,7 @@ export const APPLY_TARGETS = {
       { name: 'player', label: '플레이어 캐릭터', type: 'boolean' },
       evidenceField,
     ],
+    writes: '인물',
     tool: 'save_knowledge',
     inputs: ['lines', 'terms'],
   },
@@ -233,6 +291,7 @@ export const APPLY_TARGETS = {
         ],
       },
     ],
+    writes: '관계',
     tool: 'save_knowledge',
     inputs: ['lines', 'terms'],
   },
@@ -249,6 +308,7 @@ export const APPLY_TARGETS = {
       { name: 'startKey', label: '시작 대사', type: 'lines' },
       evidenceField,
     ],
+    writes: '말투 규칙',
     tool: 'save_knowledge',
     inputs: ['lines', 'terms'],
   },
@@ -264,6 +324,7 @@ export const APPLY_TARGETS = {
       { name: 'participants', label: '관련 인물', type: 'strings' },
       evidenceField,
     ],
+    writes: '사건',
     tool: 'save_knowledge',
     inputs: ['lines', 'terms'],
   },
@@ -277,6 +338,7 @@ export const APPLY_TARGETS = {
       { name: 'kind', label: '종류', type: 'string' },
       evidenceField,
     ],
+    writes: '노트',
     tool: 'save_document',
     inputs: ['lines', 'terms'],
   },
@@ -334,75 +396,95 @@ export const scriptParams = z.object({
   fields: z.array(jsonFieldSchema).default([]),
 });
 
+/** A function node's concurrency (HTTP and script nodes only): how many of the node's calls a run makes at once. */
+export const FUNCTION_CONCURRENCY = { min: 1, max: 8, default: 2 } as const;
+
 export const FUNCTIONS = {
   formatCheck: {
     label: '형식 검사',
     description: '번역 후보를 검사해 통과·실패만 정합니다(태그는 붙이지 않습니다). 켠 항목(치환자·서식 태그·줄바꿈·빈 번역·숫자·공백·한국어 조사), 길이 제한(글자·바이트·줄·원문 대비 비율), 금칙어, 사용자 정의 정규식 규칙을 검사합니다. 치환자·태그 문법은 프로젝트 설정의 치환자·태그 문법을 따릅니다.',
     params: formatCheckParams,
     ports: () => pass,
-    async: false,
+    callsOut: false,
+    group: 'function',
+    changes: null,
     inputs: ['lines', 'terms'],
     outputs: CHECK_OUTPUTS,
+    summary: formatCheckSummary,
   },
   glossaryCheck: {
     label: '용어 검사',
     description: '원문에 나온 확정 용어의 지정 번역이 후보에 쓰였는지 검사해 통과·실패만 정합니다(태그는 붙이지 않습니다).',
     params: z.object({}),
     ports: () => pass,
-    async: false,
+    callsOut: false,
+    group: 'function',
+    changes: null,
     inputs: ['lines', 'terms'],
     outputs: CHECK_OUTPUTS,
-  },
-  ...(Object.fromEntries(
-    Object.entries(APPLY_TARGETS).map(([name, target]) => [name, { label: target.label, description: target.description, params: applyParams, ports: () => out, async: false, inputs: target.inputs }]),
-  ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
-  saveCharacters: { label: APPLY_TARGETS.saveCharacters.label, description: APPLY_TARGETS.saveCharacters.description, params: applyParams, ports: () => out, async: false, inputs: APPLY_TARGETS.saveCharacters.inputs },
-  http: {
-    label: 'HTTP 호출',
-    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
-    params: httpParams,
-    ports: () => out,
-    async: true,
-    outputs: 'declared',
   },
   script: {
     label: '스크립트',
     description: '직접 작성한 JavaScript 함수를 격리된 샌드박스에서 실행합니다(네트워크·파일 접근 없음).',
     params: scriptParams,
     ports: (params: z.infer<typeof scriptParams>) => params.ports.map((id) => ({ id, label: id })),
-    async: true,
+    callsOut: true,
+    group: 'function',
+    changes: null,
     outputs: 'declared',
+    summary: (params: z.infer<typeof scriptParams>) => `출구: ${params.ports.join(', ')}`,
   },
+  http: {
+    label: 'HTTP 호출',
+    description: '외부 API(맞춤법·사전 등)를 주소로 호출하고, 응답에서 고른 값을 선언한 결과 칸으로 돌려줍니다. text 칸은 대사의 지금 번역이 됩니다. 키가 필요하면 설정의 API 키를 고릅니다.',
+    params: httpParams,
+    ports: () => out,
+    callsOut: true,
+    group: 'function',
+    changes: null,
+    outputs: 'declared',
+    summary: (params: z.infer<typeof httpParams>) => `${params.method} ${shortAddress(params.url) || '주소 없음'}`,
+  },
+  // The save nodes, one per apply target: a `line` shape writes the item itself, the others the project's knowledge.
+  ...(Object.fromEntries(
+    Object.entries(APPLY_TARGETS).map(([name, target]) => [
+      name,
+      { label: target.label, description: target.description, params: applyParams, ports: () => out, callsOut: false, group: 'apply', changes: target.shape === 'line' ? 'item' : 'project', inputs: target.inputs } satisfies FunctionInfo<typeof applyParams>,
+    ]),
+  ) as unknown as Record<ApplyFunctionName, FunctionInfo<typeof applyParams>>),
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } satisfies Record<string, FunctionInfo<any>>;
 
 export type FunctionName = keyof typeof FUNCTIONS;
 export const FUNCTION_NAMES = Object.keys(FUNCTIONS) as FunctionName[];
-/** Standalone deterministic functions exposed in the workflow node library under '함수 동작'. */
-export const PALETTE_FUNCTION_NAMES: FunctionName[] = [
-  'formatCheck',
-  'glossaryCheck',
-  'script',
-  'http',
-];
+export const isFunctionName = (name: string): name is FunctionName => Object.hasOwn(FUNCTIONS, name);
+/** A function's settings, as its node stores them. */
+export type FunctionParams<F extends FunctionName = FunctionName> = z.infer<(typeof FUNCTIONS)[F]['params']>;
+/** A function's registry entry read as plain data (its own params type forgotten). */
+export const functionInfo = (fn: FunctionName): FunctionInfo => FUNCTIONS[fn] as unknown as FunctionInfo;
 
-/**
- * The editor's group of a function node, which also gives its colour: 반영 writes to the project (the apply
- * targets), 함수 reads and judges or computes. Tags and statuses are exit actions, not nodes.
- */
-export const functionGroup = (fn: string): 'apply' | 'function' => (fn in APPLY_TARGETS ? 'apply' : 'function');
+/** A function node's config: the function and its own settings. One member per function, so `params` is typed by `fn`. */
+export type FunctionConfig<F extends FunctionName = FunctionName> = { [K in F]: { fn: K; params: FunctionParams<K>; concurrency: number } }[F];
+type FunctionConfigInput = { [K in FunctionName]: { fn: K; params?: z.input<(typeof FUNCTIONS)[K]['params']>; concurrency?: number } }[FunctionName];
+/** Built from FUNCTIONS: a config naming a function that is not there, or carrying settings of the wrong shape, does not parse. */
+export const functionConfigSchema = z.discriminatedUnion(
+  'fn',
+  FUNCTION_NAMES.map((fn) =>
+    z.object({
+      fn: z.literal(fn),
+      params: functionInfo(fn).params.prefault({}),
+      concurrency: z.number().int().min(FUNCTION_CONCURRENCY.min).max(FUNCTION_CONCURRENCY.max).default(FUNCTION_CONCURRENCY.default),
+    }),
+  ) as never,
+) as unknown as z.ZodType<FunctionConfig, FunctionConfigInput>;
 
-/** The 반영 group in the editor: the 저장 nodes (the item's own, then the project's knowledge). */
-export const APPLY_PALETTE_ORDER: FunctionName[] = ['saveCandidate', 'setListener', 'saveTerms', 'saveCharacters', 'saveRelationships', 'saveSpeechRules', 'saveEvents', 'saveDocument'];
+/** The editor's library: a group's functions, in the order they are declared. */
+export const paletteFunctions = (group: FunctionGroup): FunctionName[] => FUNCTION_NAMES.filter((fn) => FUNCTIONS[fn].group === group);
 
-export function functionPorts(fn: string, params: unknown): Port[] {
-  const info = FUNCTIONS[fn as FunctionName] as unknown as FunctionInfo | undefined;
-  if (!info) return [{ id: 'error', label: '오류' }];
-  const parsed = info.params.safeParse(params ?? {});
-  const ports = info.ports(parsed.success ? parsed.data : info.params.parse({}));
-  return info.ends ? ports : [...ports, { id: 'error', label: '오류' }];
+/** A function node's exits: its own for its settings, then 오류. */
+export function functionPorts(config: FunctionConfig): Port[] {
+  return [...(functionInfo(config.fn).ports as (params: FunctionParams) => Port[])(config.params), { id: 'error', label: '오류' }];
 }
 
-/** Whether a function node can work on a workflow's items. */
 /** Whether a function is a node of workflows with this input. */
-export const functionTakes = (fn: string, input: Subject) => ((FUNCTIONS[fn as FunctionName] as FunctionInfo | undefined)?.inputs ?? ['lines', 'terms']).includes(input);
+export const functionTakes = (fn: FunctionName, input: Subject) => (functionInfo(fn).inputs ?? SUBJECTS).includes(input);

@@ -1,13 +1,14 @@
 import { Hono } from 'hono';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { agentSettingsSchema, agentToolAvailable, agentToolPermissionOptions, importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { agentSettingsSchema, agentToolAvailable, agentToolPermissionOptions, importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';
 import { importProject } from './importer.ts';
-import { gatedTools, proposeChange } from './change-gate.ts';
+import { proposeChange } from './change-gate.ts';
+import { apiChatTools } from './tool-run.ts';
 import { decideProposal } from './proposals.ts';
 import { agentCatalog } from './agent-catalog.ts';
 
@@ -41,7 +42,7 @@ function cliTool(db: ReturnType<typeof openDatabase>, projectId: string, name: s
 
 type ApiTool = { execute(input: unknown, options: unknown): Promise<unknown> };
 function apiTool(db: ReturnType<typeof openDatabase>, projectId: string, sessionId: string, name: string) {
-  const found = (gatedTools(db, projectId, sessionId, { model: null }) as unknown as Record<string, ApiTool>)[name];
+  const found = (apiChatTools(db, projectId, sessionId, { model: null }) as unknown as Record<string, ApiTool>)[name];
   if (!found) throw new Error(`Missing API tool: ${name}`);
   return found;
 }
@@ -107,12 +108,12 @@ describe('agent resource permissions', () => {
     expect(character(db, projectId, 'Eve')).toBeUndefined();
   });
 
-  it('keeps mixed batches all-or-nothing and conservatively maps legacy disabled save_character to bulk', async () => {
+  it('keeps mixed batches all-or-nothing, and leaves out a tool none of whose calls is allowed', async () => {
     const { db, projectId } = setup();
     const alice = character(db, projectId, 'Alice')!;
     const cachedBulk = cliTool(db, projectId, 'save_knowledge') as RuntimeTool;
 
-    settings(db, projectId, { disabledTools: ['save_character'] });
+    settings(db, projectId, { permissions: { characters: { create: false, update: false } } });
     const mixed = await cachedBulk.run({ characters: [{ id: alice.id, name: 'Alice edited' }, { name: 'Cara' }] }) as { ok: boolean; error: string };
     expect(mixed).toMatchObject({ ok: false, error: expect.stringContaining('인물') });
     expect(character(db, projectId, 'Alice')?.id).toBe(alice.id);
@@ -127,7 +128,7 @@ describe('agent resource permissions', () => {
     expect(proposed).toMatchObject({ ok: true, status: 'pending' });
     if (!proposed.ok) throw new Error(proposed.error);
 
-    settings(db, projectId, { permissions: { characters: { create: false } } });
+    settings(db, projectId, { permissions: { characters: { create: false, update: false } } });
     const decided = await decideProposal(db, proposed.proposalId, true);
     expect(decided.status).toBe('failed');
     expect(decided.result).toMatchObject({ ok: false });
@@ -187,7 +188,7 @@ describe('agent resource permissions', () => {
     const tool = cliTool(db, projectId, 'create_unit');
     expect(tool.changes).toBe(true);
 
-    const app = new Hono<Env>()
+    const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => { c.set('deps', { db } as never); await next(); })
       .route('/', scriptRoutes);
     const response = await app.request(`/projects/${projectId}/tools/create_unit`, {
@@ -200,7 +201,8 @@ describe('agent resource permissions', () => {
     expect(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.source, 'New source line'))).get()).toBeUndefined();
 
     expect((await decideProposal(db, proposed.proposalId, true)).status).toBe('accepted');
-    expect(db.select({ undo: s.proposals.undo }).from(s.proposals).where(eq(s.proposals.id, proposed.proposalId)).get()?.undo).toEqual({ none: '이 변경은 되돌릴 수 없습니다' });
+    // The new line is taken back by the record its creation left (undo-records.ts), like a delete.
+    expect(db.select({ undo: s.proposals.undo }).from(s.proposals).where(eq(s.proposals.id, proposed.proposalId)).get()?.undo).toEqual({ calls: [{ tool: 'restore_deleted', input: { kind: 'script', id: expect.any(String) } }] });
     expect(db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.source, 'New source line'))).get()).toBeDefined();
   });
 
@@ -220,14 +222,14 @@ describe('agent resource permissions', () => {
       const onlyDeletes = options.every((option) => option.some((permission) => permission.action === 'delete'));
       expect(agentToolAvailable({}, entry.name), entry.name).toBe(!onlyDeletes);
     }
-    expect(agentToolAvailable({}, 'delete_units')).toBe(false);
-    const withDelete = Object.fromEntries(agentToolPermissionOptions('delete_units').flat().map(({ resource }) => [resource, { delete: true }]));
-    expect(agentToolAvailable({ permissions: withDelete }, 'delete_units')).toBe(true);
+    expect(agentToolAvailable({}, 'delete_lines')).toBe(false);
+    const withDelete = Object.fromEntries(agentToolPermissionOptions('delete_lines').flat().map(({ resource }) => [resource, { delete: true }]));
+    expect(agentToolAvailable({ permissions: withDelete }, 'delete_lines')).toBe(true);
     for (const name of ['create_unit', 'update_unit', 'create_group', 'update_group', 'update_status', 'update_tag']) {
       expect(catalog.some((entry) => entry.name === name && entry.changes), name).toBe(true);
     }
     // Delete tools are listed only once deleting is switched on.
-    for (const name of ['delete_units', 'delete_group', 'delete_status', 'delete_tag', 'delete_workflow']) {
+    for (const name of ['delete_lines', 'delete_group', 'delete_status', 'delete_tag', 'delete_workflow']) {
       expect(catalog.some((entry) => entry.name === name), name).toBe(false);
     }
   });

@@ -2,10 +2,12 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { exitActionsFromNodes, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
+import { APP_FEED, DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate, type Topic } from '@loca/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
+import { exitActionsFromNodes } from './exit-actions-migrate.ts';
+import { eventsOf } from '../events.ts';
 import { rowChangesOf } from './row-changes.ts';
 
 const migrationsFolder = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../drizzle');
@@ -44,6 +46,12 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
   // row_changed(collection, row id, op, project id): the row feed's triggers (0106) note a changed row (db/row-changes.ts).
   sqlite.function('row_changed', (collection: unknown, rowId: unknown, op: unknown, projectId: unknown) => {
     rowChangesOf(sqlite).note(String(collection), String(rowId), op === 'delete' ? 'delete' : 'upsert', typeof projectId === 'string' ? projectId : null);
+    return null;
+  });
+  // topic_changed(topic, project id): the topic triggers (db/topics.ts) say which questions a changed row belongs to.
+  // The project is APP_FEED for the app's own rows and null for a row whose parent is already gone (its delete said it).
+  sqlite.function('topic_changed', (topic: unknown, projectId: unknown) => {
+    if (typeof projectId === 'string') eventsOf(sqlite).changed(projectId === APP_FEED ? undefined : projectId, topic as Topic);
     return null;
   });
   // issue_tag_nodes(definition json, role → tag id json): a workflow's 태그 붙이기 nodes once tags have no roles (0102):
@@ -122,7 +130,7 @@ export function registerMigrationFunctions(sqlite: Database.Database) {
     return retryChains(JSON.parse(definition) as Raw).find((entry) => entry.chain.includes(nodeId))?.ai.id ?? nodeId;
   });
   // exit_actions(definition json): 태그 붙이기·떼기 and 상태 변경 nodes became exit actions (0122,
-  // the conversion is @tw/shared's, which a browser's unsaved draft goes through too).
+  // the conversion is exit-actions-migrate.ts).
   // exit_action_next(definition json, node id): where a line waiting at such a node goes instead (the first other node
   // along its 다음 exit), '' when it would end there; any other node id as it is.
   type ExitRaw = { nodes?: { id: string; type?: string; config?: { fn?: string } }[]; edges?: { source: string; sourceHandle: string; target: string }[] };
@@ -173,6 +181,15 @@ export function openDatabase(file: string, folder = migrationsFolder) {
       const rulesKey = typeof rules === 'string' ? rules : '';
       if (!exclusionsOf.has(rulesKey)) exclusionsOf.set(rulesKey, exclusionRulesSchema.parse(rulesKey ? JSON.parse(rulesKey) : {}));
       return lineExclusion({ source: String(source ?? ''), translate: (translate as LineTranslate | null) ?? null }, rulesOf.get(formatKey), exclusionsOf.get(rulesKey), typeof language === 'string' ? language : null);
+    });
+    // mentions_any(source, names json): the source mentions one of the names as a whole word or as a {NAME} placeholder
+    // (mentions in shared itself), so a line filter's mentions are a condition like the others (domain/line-filter.ts).
+    let named: { json: string; names: string[] } | undefined;
+    sqlite.function('mentions_any', { deterministic: true }, (source: unknown, names: unknown) => {
+      const json = typeof names === 'string' ? names : '[]';
+      if (named?.json !== json) named = { json, names: JSON.parse(json) as string[] };
+      const text = String(source ?? '');
+      return named.names.some((name) => mentions(text, name) || text.includes(`{${name}}`)) ? 1 : 0;
     });
     registerMigrationFunctions(sqlite);
     const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;

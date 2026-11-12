@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { initialRunScope, type RunScopeMode } from '@/lib/run-scope';
-import { keepPreviousData, useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
+import { useMutation, useQuery, type UseQueryResult } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
 import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
-import { Box, ExpandableRow, Heading, Inline, ReadinessDot, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, AUTO_MARK_IDS } from '@tw/shared';
+import { Box, ExpandableRow, Heading, Inline, ReadinessDot, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
+import { client } from '@/lib/api';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, SUBJECTS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS, type Subject, bySubject, type TagScope } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { lineScopeSections, ScopePicker, toggled, type PickSection } from '@/components/scope-picker';
 import type { ModelValue } from '@/components/model-picker';
@@ -17,7 +16,8 @@ import { tagsIn } from '@/lib/queries';
 import { useTerms } from '@/lib/terms';
 import { useTaxonomy } from '@/lib/knowledge';
 import { useGroups } from '@/lib/groups';
-import { useWorkflows } from '@/lib/workflows';
+import { useWorkflows, runPreflight, startRun } from '@/lib/workflows';
+import { stored, STORED } from '@/lib/storage';
 
 /** Run-scope filters on what a row shows (the list pages' 최종 아님, 정한 쪽, 메모, 번역 비어 있음), beside statuses. */
 const RUN_FACTS = {
@@ -44,7 +44,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   groupIds?: string[];
   unitIds?: string[];
   /** What the page holds: a workflow of this input is picked first, and the page's lines or `termIds` are its scope. The picked workflow's input decides the scope fields. */
-  subject?: 'lines' | 'terms';
+  subject?: Subject;
   termIds?: string[];
   /** What the named lines are, when they are not simply picked ('이번 길 번역 안 한 줄'); the scope button reads it with the count. */
   unitsLabel?: string;
@@ -91,24 +91,12 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [runModels, setRunModels] = useState<Record<string, ModelValue>>({});
   const [capEdits, setCapEdits] = useState<CapEdits>({});
   const workflows = useWorkflows(projectId, { enabled: open });
-  const rememberKey = remember && `run-dialog:${projectId}:${remember}`;
-  const [chosen, setChosen] = useState<string | undefined>(() => {
-    if (!rememberKey) return undefined;
-    try {
-      return localStorage.getItem(rememberKey) ?? undefined;
-    } catch {
-      return undefined;
-    }
-  });
+  // A button that remembers its workflow (`remember` names it) keeps the last one picked there, in this browser.
+  const rememberKey = remember || undefined;
+  const [chosen, setChosen] = useState<string | undefined>(() => (rememberKey ? (stored(STORED.runWorkflow, projectId, rememberKey).read() ?? undefined) : undefined));
   const choose = (id: string) => {
     setChosen(id);
-    if (rememberKey) {
-      try {
-        localStorage.setItem(rememberKey, id);
-      } catch {
-        // A blocked storage only loses the memory.
-      }
-    }
+    if (rememberKey) stored(STORED.runWorkflow, projectId, rememberKey).write(id);
   };
   const pickable = workflows.data;
   const valid = (id: string | undefined) => (id && pickable?.some((workflow) => workflow.id === id && !workflow.errorCount) ? id : undefined);
@@ -118,9 +106,10 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const workflow = workflows.data?.find((item) => item.id === workflowId);
   // What the run takes is the workflow's input (its entry node); the scope fields below follow it.
   const subject = workflow?.input ?? givenSubject;
-  const terms = subject === 'terms';
-  const tags = tagsIn(taxonomy.tags, terms ? 'terms' : 'lines');
-  const unit = terms ? '개' : '줄';
+  // The dialog has two forms, by what the input's scope picks with (INPUT_TYPES[subject].scope): the line filter, or the terms pick.
+  const terms = bySubject(subject, { lines: false, terms: true });
+  const tags = tagsIn(taxonomy.tags, bySubject<TagScope>(subject, { lines: 'lines', terms: 'terms' }));
+  const unit = INPUT_TYPES[subject].unit;
   const groups = useGroups(projectId, { enabled: open });
   const here = groupIds?.length ? groups.data?.filter((group) => groupIds.includes(group.id)) : undefined;
 
@@ -128,26 +117,16 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   const [pickedTerms, setPickedTerms] = useState<Set<string>>(new Set());
 
   // The filters start as they were the last time this workflow ran from here (this browser only).
-  const filtersKey = workflowId && `run-filters:${projectId}:${workflowId}`;
   useEffect(() => {
     if (!open) return;
-    let saved: { statuses?: string[]; marks?: string[]; tags?: string[]; facts?: RunFact[] } = {};
-    try {
-      saved = filtersKey && !defaultIgnoreStatus ? JSON.parse(localStorage.getItem(filtersKey) ?? '{}') : {};
-    } catch {
-      // A blocked or broken storage starts with no filters.
-    }
+    const saved = workflowId && !defaultIgnoreStatus ? stored(STORED.runFilters, projectId, workflowId).read() : {};
     setPickedStatuses(new Set(saved.statuses ?? []));
     setPickedMarks(new Set((saved.marks ?? []).filter((mark) => (AUTO_MARK_IDS as readonly string[]).includes(mark))));
     setPickedTags(new Set(saved.tags ?? []));
-    setPickedFacts(new Set((saved.facts ?? []).filter((fact) => fact in RUN_FACTS)));
-  }, [open, filtersKey]); // eslint-disable-line react-hooks/exhaustive-deps
+    setPickedFacts(new Set((saved.facts ?? []).filter((fact): fact is RunFact => fact in RUN_FACTS)));
+  }, [open, workflowId]); // eslint-disable-line react-hooks/exhaustive-deps
   const rememberFilters = () => {
-    try {
-      if (filtersKey) localStorage.setItem(filtersKey, JSON.stringify({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags], facts: [...pickedFacts] }));
-    } catch {
-      // Not remembered: the next run starts without filters.
-    }
+    if (workflowId) stored(STORED.runFilters, projectId, workflowId).write({ statuses: [...pickedStatuses], marks: [...pickedMarks], tags: [...pickedTags], facts: [...pickedFacts] });
   };
 
   // Opened from the UI strings or documents view: every group of that kind starts picked.
@@ -174,29 +153,31 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     ? [{ key: 'terms', items: (termList.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })) }]
     : lineScopeSections(groups.data ?? []);
 
-  let computedUnitIds: string[] | undefined;
-  let computedGroupIds: string[] | undefined;
-  if (scopeTarget === 'units') computedUnitIds = unitIds;
-  else if (scopeTarget === 'here') computedGroupIds = groupIds;
-  else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
-
-  // The filters, the list pages' rules: statuses (a line's project statuses, a term's 후보·확정), automatic marks and tags.
-  const filters = {
-    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
-    ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
-    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
-    ...(pickedFacts.has('unfinished') && !terms ? { unfinished: true } : {}),
-    ...(pickedFacts.has('noted') && !terms ? { noted: true } : {}),
-    ...(pickedFacts.has('ai') ? { decidedBy: 'ai' as const } : {}),
-    ...(pickedFacts.has('emptyTarget') && terms ? { emptyTarget: true } : {}),
-  };
+  // The scope as the server takes it (runScopeInputSchema): the line filter of a lines workflow, or the terms of a terms
+  // workflow. A list goes out only when it holds something; the server refuses an empty one rather than guess.
+  const some = <T,>(list: readonly T[] | undefined) => (list?.length ? [...list] : undefined);
+  // Only picks the dialog shows as ticked go out: a remembered status or tag the project no longer has is not sent.
+  const statusOptions: readonly string[] = terms ? KNOWLEDGE_STATUSES : (taxonomy.statuses ?? []).map((status) => status.id);
+  const markOptions: readonly string[] = terms ? TERM_MARK_IDS : LINE_MARK_IDS;
+  const statuses = some([...pickedStatuses].filter((id) => statusOptions.includes(id)));
+  const marks = some([...pickedMarks].filter((mark) => markOptions.includes(mark)));
+  const tagPicks = some([...pickedTags].filter((id) => tags.some((tag) => tag.id === id)));
+  const decidedBy = pickedFacts.has('ai') ? ('ai' as const) : undefined;
   const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
-  const scope = terms
-    ? { ...(pickedTermIds?.length ? { termIds: pickedTermIds } : {}), ...filters }
+  const scope: RunScopeInput = terms
+    ? { terms: { terms: some(pickedTermIds), statuses, marks: marks as AutoMark[] | undefined, tags: tagPicks, decidedBy, emptyTarget: pickedFacts.has('emptyTarget') ? true : undefined } }
     : {
-        ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
-        ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
-        ...filters,
+        filter: {
+          // Picked lines, the scenes it was opened in, or the scenes picked here (every scene picked: the whole project, no condition).
+          ids: scopeTarget === 'units' ? some(unitIds) : undefined,
+          groups: scopeTarget === 'here' ? some(groupIds) : scopeTarget === 'groups' && !wholeProject ? some([...pickedScenes]) : undefined,
+          statuses,
+          marks: marks as LineMark[] | undefined,
+          tags: tagPicks,
+          decidedBy,
+          unfinished: pickedFacts.has('unfinished') ? true : undefined,
+          noted: pickedFacts.has('noted') ? true : undefined,
+        },
       };
 
   const ready =
@@ -208,13 +189,8 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
   // Only finished picks go out; one still missing its model stays in the picker meanwhile.
   const chosenModels = Object.fromEntries(Object.entries(runModels).filter(([, value]) => value.connectionId && value.model));
   const request = { ...scope, ...(Object.keys(chosenModels).length ? { models: chosenModels } : {}) };
-  const plan = useQuery({
-    queryKey: ['units', 'run-preflight', workflowId, request],
-    queryFn: () => unwrap(client.workflows[':id'].preflight.$post({ param: { id: workflowId! }, json: request })),
-    enabled: open && Boolean(workflowId) && ready,
-    // Picking another model re-estimates without blanking the dialog (its pickers stay put).
-    placeholderData: keepPreviousData,
-  });
+  // Picking another model re-estimates without blanking the dialog (its pickers stay put: the question keeps its last answer).
+  const plan = useQuery({ ...runPreflight(workflowId ?? '', request), enabled: open && Boolean(workflowId) && ready });
   const data = ready ? plan.data : undefined;
   // A count that takes this long is stuck (a dropped connection, a server restart): offer to ask again.
   const [slow, setSlow] = useState(false);
@@ -232,7 +208,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     mutationFn: () => {
       // The caps past which the run pauses: what the person changed; the server adds the suggestion the fields show for the rest.
       const limits = startLimits(capEdits);
-      return unwrap(client.workflows[':id'].runs.$post({ param: { id: workflowId! }, json: { ...request, ...(changeHuman && !terms ? { changeHuman: true } : {}), ...(Object.keys(limits).length ? { limits } : {}) } }));
+      return startRun(projectId, workflowId!, { ...request, ...(changeHuman && !terms ? { changeHuman: true } : {}), ...(Object.keys(limits).length ? { limits } : {}) });
     },
     onSuccess: (run) => {
       rememberFilters();
@@ -335,7 +311,7 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
                 <SelectValue placeholder="워크플로 선택" />
               </SelectTrigger></Box>
               <SelectContent>
-                {WORKFLOW_SUBJECT_IDS.map((input) => {
+                {SUBJECTS.map((input) => {
                   const rows = pickable?.filter((item) => item.input === input) ?? [];
                   return rows.length ? (
                     <SelectGroup key={input}>

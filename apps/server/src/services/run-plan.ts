@@ -1,46 +1,17 @@
-import { and, eq, inArray, ne, or } from 'drizzle-orm';
-import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, AUTO_MARKS, marksOn, nodeName, withRunModels, workflowInput, type AutoMark, type RunCardPlan, type RunModels, type WorkflowDefinition, type WorkflowSubject , type DecidedBy } from '@tw/shared';
+import { and, eq, inArray, ne } from 'drizzle-orm';
+import { KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, nodeName, someOf, withRunModels, workflowInput, type RunCardPlan, type RunModels, type RunScope, type RunScopeInput, type RunTerms, type RunTermsInput, type WorkflowDefinition, type Subject, SUBJECTS, INPUT_TYPES } from '@loca/shared';
 import { z } from 'zod';
-import { inChunks, inList } from '../db/chunk.ts';
+import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { tagIdsOf } from './knowledge-list.ts';
-import { selectRunTerms, selectRunUnits } from '../engine/run-create.ts';
-import { preflight } from './preflight.ts';
-import { findTerm } from './term-usage.ts';
-import { lookups } from './script-query.ts';
-import { calledWorkflowErrors, workflowIssues } from './workflow-issues.ts';
+import { tagIdsOf } from '../domain/knowledge-list.ts';
+import { preflight } from '../engine/preflight.ts';
+import { findTerm } from '../domain/term-usage.ts';
+import { resolveLineFilter, unknownMessage } from '../domain/line-filter.ts';
 
-export interface PlanInput {
-  /** Workflow id or name. */
+/** What plan_run is given: a workflow by id or name, the scope as asked (names), and this run's models. */
+export interface PlanInput extends Omit<RunScopeInput, 'changeHuman'> {
   workflow: string;
-  /** Scenes/groups by key, id or title. */
-  groups?: string[];
-  /** Line keys. */
-  keys?: string[];
-  /** Tag names or ids; a line must carry all of them. */
-  tags?: string[];
-  /** Automatic marks the items must all have (line marks, or term marks for a terms workflow). */
-  marks?: string[];
-  /** Terms by id or source: the scope of a terms workflow. */
-  terms?: string[];
-  /** Statuses the items must be in (none = any): a lines workflow's status names or ids, a terms workflow's 후보 / 확정 / 버림 (or candidate / confirmed / rejected). */
-  statuses?: string[];
-  /** Speakers by name, alias or speaker key (a whole word of a name finds it, like `loca lines --speaker`). */
-  speakers?: string[];
-  /** Listeners by name, alias or special listener; '-' = lines whose listener is not known. */
-  listeners?: string[];
-  /** Line kinds: dialogue, ui, … */
-  kinds?: string[];
-  /** Text in the source. */
-  q?: string;
-  /** Lines: 최종 아님 (true) / 최종 (false); with (true) or without (false) a memo. */
-  unfinished?: boolean;
-  noted?: boolean;
-  /** Who decided it (정한 쪽): a line's status, or a term's decision. */
-  decidedBy?: DecidedBy;
-  /** Terms: with no Korean form (true) or with one (false). */
-  emptyTarget?: boolean;
   /** Models for this run instead of the nodes' own (see runModelInput). */
   models?: RunModelInput;
 }
@@ -70,122 +41,71 @@ export function resolveRunModels(db: Db, projectId: string, definition: Workflow
   return { models, unknown };
 }
 
-/** The run dialog's scope (groupIds, unitIds, tagIds, marks) from names, keys and tag names; whatever did not resolve is returned as `unknown`. */
-export function resolveRunScope(db: Db, projectId: string, input: Omit<PlanInput, 'workflow'>, kind: WorkflowSubject = 'lines') {
+const SCOPE_MISMATCH: Record<Subject, string> = {
+  terms: '용어 입력 워크플로에는 대사 필터(filter)를 쓸 수 없습니다. 용어·상태·정한 쪽·번역 비어 있음·표시·태그로 범위를 정하세요(terms).',
+  lines: '대사 입력 워크플로에는 용어 범위(terms)를 쓸 수 없습니다. 대사 필터(filter)로 범위를 정하세요.',
+};
+
+/** Why a scope does not fit the workflow's input (a line filter for a terms workflow, terms for a lines workflow), or null. Asked or resolved: both name their parts alike. */
+export function scopeMismatch(input: Subject, scope: { filter?: object; terms?: object }): string | null {
+  // The part of a scope each input picks by (InputType.scope); naming another input's part is the mismatch.
+  const foreign = SUBJECTS.find((other) => other !== input && Object.keys(scope[INPUT_TYPES[other].scope] ?? {}).length);
+  return foreign ? SCOPE_MISMATCH[input] : null;
+}
+
+/** The terms of a scope from what was asked: terms by id or source, statuses by label or id, tags by name or id. */
+function resolveRunTerms(db: Db, projectId: string, input: RunTermsInput): { terms: RunTerms; unknown: string[] } {
   const unknown: string[] = [];
-  const scope: s.RunScope = {};
-  if (input.groups?.length) {
-    const rows = inChunks(input.groups, (slice) => db.select({ id: s.groups.id, key: s.groups.key, title: s.groups.title }).from(s.groups).where(and(eq(s.groups.projectId, projectId), or(inList(s.groups.key, slice), inList(s.groups.id, slice), inList(s.groups.title, slice)))).all());
-    const seen = new Set(rows.flatMap((row) => [row.key, row.id, row.title]));
-    unknown.push(...input.groups.filter((value) => !seen.has(value)).map((value) => `묶음 ${value}`));
-    scope.groupIds = rows.map((row) => row.id);
-  }
-  if (input.keys?.length) {
-    const rows = inChunks(input.keys, (slice) => db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all());
-    const seen = new Set(rows.map((row) => row.key));
-    unknown.push(...input.keys.filter((key) => !seen.has(key)).map((key) => `대사 ${key}`));
-    scope.unitIds = rows.map((row) => row.id);
-  }
-  if (input.tags?.length) {
-    const ids = tagIdsOf(db, projectId, input.tags);
-    const known = new Set(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.id));
-    unknown.push(...input.tags.filter((_, index) => !known.has(ids[index]!)).map((tag) => `태그 ${tag}`));
-    scope.tagIds = ids.filter((id) => known.has(id));
-  }
-  if (input.marks?.length) scope.marks = input.marks as AutoMark[];
-  for (const key of ['unfinished', 'noted', 'decidedBy', 'emptyTarget'] as const) if (input[key] !== undefined) Object.assign(scope, { [key]: input[key] });
-  if (input.statuses?.length) {
-    // Terms: their three statuses by label or id; lines: the project's statuses by name or id.
-    const known = kind === 'terms'
-      ? KNOWLEDGE_STATUSES.map((id) => ({ id, names: [id, KNOWLEDGE_STATUS_LABELS[id]] }))
-      : db.select({ id: s.statuses.id, name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((row) => ({ id: row.id, names: [row.id, row.name] }));
-    const found = input.statuses.map((value) => ({ value, row: known.find((row) => row.names.includes(value)) }));
-    unknown.push(...found.filter((entry) => !entry.row).map((entry) => `상태 ${entry.value}`));
-    scope.statusIds = [...new Set(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])))];
-  }
+  const terms: RunTerms = {};
   if (input.terms?.length) {
     const found = input.terms.map((term) => ({ term, row: findTerm(db, projectId, term) }));
     unknown.push(...found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`));
-    scope.termIds = [...new Set(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])))];
+    const ids = someOf(found.flatMap((entry) => (entry.row ? [entry.row.id] : [])));
+    if (ids) terms.ids = ids;
   }
-  // People by every spelling they go by, as the line list finds them.
-  if (input.speakers?.length || input.listeners?.length) {
-    const { namesOf } = lookups(db, projectId);
-    if (input.speakers?.length) scope.speakers = [...new Set(input.speakers.flatMap(namesOf))];
-    if (input.listeners?.length) scope.listeners = [...new Set(input.listeners.flatMap((name) => (name === '-' ? ['-'] : namesOf(name))))];
+  if (input.statuses?.length) {
+    const found = input.statuses.map((value) => ({ value, id: KNOWLEDGE_STATUSES.find((id) => id === value || KNOWLEDGE_STATUS_LABELS[id] === value) }));
+    unknown.push(...found.filter((entry) => !entry.id).map((entry) => `상태 ${entry.value}`));
+    const statuses = someOf(found.flatMap((entry) => (entry.id ? [entry.id] : [])));
+    if (statuses) terms.statuses = statuses;
   }
-  if (input.kinds?.length) scope.kinds = input.kinds;
-  if (input.q?.trim()) scope.q = input.q.trim();
-  return { scope, unknown };
+  if (input.tags?.length) {
+    const known = new Set(db.select({ id: s.tags.id }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.id));
+    const ids = tagIdsOf(db, projectId, input.tags);
+    unknown.push(...input.tags.filter((_, index) => !known.has(ids[index]!)).map((tag) => `태그 ${tag}`));
+    const tagIds = someOf(ids.filter((id) => known.has(id)));
+    if (tagIds) terms.tagIds = tagIds;
+  }
+  const marks = someOf(input.marks ?? []);
+  if (marks) terms.marks = marks;
+  if (input.decidedBy) terms.decidedBy = input.decidedBy;
+  if (input.emptyTarget !== undefined) terms.emptyTarget = input.emptyTarget;
+  // As in resolveLineFilter: a name that was not found never widens the scope, even for a caller that ignores `unknown`.
+  if (unknown.length) terms.nothing = true;
+  return { terms, unknown };
 }
 
-/** Why a scope does not fit the workflow's input (line conditions for a terms workflow, terms for a lines workflow), or null. */
-export function scopeMismatch(input: WorkflowSubject, scope: s.RunScope): string | null {
-  const lineScope = Boolean(scope.groupIds?.length || scope.unitIds?.length || scope.speakers?.length || scope.listeners?.length || scope.kinds?.length || scope.q || scope.unfinished !== undefined || scope.noted !== undefined);
-  if (input === 'terms' && lineScope) return '용어 입력 워크플로에는 대사 범위(묶음·대사 키·화자·청자·종류·글자·최종 아님·메모)를 쓸 수 없습니다. 용어·상태·정한 쪽·번역 비어 있음·표시·태그로 범위를 정하세요.';
-  if (input === 'lines' && (scope.termIds?.length || scope.emptyTarget !== undefined)) return '대사 입력 워크플로에는 용어나 번역 비어 있음을 고를 수 없습니다.';
-  const foreign = (scope.marks ?? []).filter((mark) => !marksOn(input).includes(mark));
-  if (foreign.length) return `${input === 'terms' ? '용어' : '대사'}에 없는 표시입니다: ${foreign.map((mark) => AUTO_MARKS[mark].name).join(', ')}`;
-  return null;
+/** The scope a run stores, from the scope as asked: the line filter resolved (resolveLineFilter) or the terms; whatever the project does not have is returned as `unknown`. */
+export function resolveRunScope(db: Db, projectId: string, input: RunScopeInput): { scope: RunScope; unknown: string[] } {
+  const lines = input.filter && Object.keys(input.filter).length ? resolveLineFilter(db, projectId, input.filter) : null;
+  const terms = input.terms && Object.keys(input.terms).length ? resolveRunTerms(db, projectId, input.terms) : null;
+  return {
+    scope: { ...(lines && { filter: lines.filter }), ...(terms && { terms: terms.terms }), ...(input.changeHuman && { changeHuman: true }) },
+    unknown: [...(lines?.unknown ?? []), ...(terms?.unknown ?? [])],
+  };
+}
+
+/** The scope asked of a workflow, resolved, or why it cannot be: it does not fit the workflow's input, or it names what the project does not have. The same answer wherever a run is planned or started. */
+export function askedScope(db: Db, projectId: string, subject: Subject, input: RunScopeInput): { ok: true; scope: RunScope } | { ok: false; error: string } {
+  const mismatch = scopeMismatch(subject, input);
+  if (mismatch) return { ok: false, error: mismatch };
+  const { scope, unknown } = resolveRunScope(db, projectId, input);
+  if (unknown.length) return { ok: false, error: unknownMessage(unknown) };
+  return { ok: true, scope };
 }
 
 /** The part of a preflight a person decides on: a run card and the card of a proposed run keep it, so they say what they said when they were made. */
 export const planOf = (full: RunCardPlan): RunCardPlan => ({ lines: { total: full.lines.total, excluded: full.lines.excluded }, totals: { calls: full.totals.calls }, pace: full.pace, ...(full.suggestedLimits && { suggestedLimits: { maxCalls: full.suggestedLimits.maxCalls, maxInputTokens: full.suggestedLimits.maxInputTokens } }) });
-
-/** What start_run is given: a saved workflow and a scope in the agent's terms (names or ids). */
-export interface StartRunInput {
-  workflowId: string;
-  groupIds?: string[];
-  unitIds?: string[];
-  tagIds?: string[];
-  marks?: string[];
-  termIds?: string[];
-  statuses?: string[];
-  speakers?: string[];
-  listeners?: string[];
-  kinds?: string[];
-  q?: string;
-  unfinished?: boolean;
-  noted?: boolean;
-  decidedBy?: DecidedBy;
-  emptyTarget?: boolean;
-  changeHuman?: boolean;
-  models?: RunModelInput;
-  /** The run's caps (start-run.ts runLimits); not part of what it runs on. */
-  limits?: { maxCalls?: number | null; maxInputTokens?: number | null };
-}
-
-/**
- * What a start_run means, or why it cannot run: the workflow with this run's models and the scope, with something in it.
- * The proposal asks when it is made (the card then says what accepting starts) and the tool again when it runs.
- */
-export function resolveStartRun(db: Db, projectId: string, { workflowId, models, termIds, statuses, marks, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget, limits: _limits, ...lineScope }: StartRunInput) {
-  const refuse = (error: string) => ({ ok: false as const, error });
-  const stored = db.select().from(s.workflows).where(and(eq(s.workflows.id, workflowId), eq(s.workflows.projectId, projectId))).get();
-  if (!stored) return refuse('워크플로를 찾을 수 없습니다.');
-  const picked = resolveRunModels(db, projectId, stored.definition, models);
-  if (picked.unknown.length) return refuse(`찾지 못함: ${picked.unknown.join(', ')}`);
-  const workflow = { ...stored, definition: withRunModels(stored.definition, picked.models) };
-  const errors = workflowIssues(db, projectId, workflow.definition, workflow.id).filter((issue) => issue.level === 'error');
-  if (errors.length) return refuse(`워크플로에 오류가 있습니다: ${errors[0].message}`);
-  try {
-    const called = calledWorkflowErrors(db, projectId, workflow.definition, workflow.id);
-    if (called.length) return refuse(`부르는 워크플로에 오류가 있습니다: ${called[0]}`);
-  } catch (error) {
-    return refuse(error instanceof Error ? error.message : String(error));
-  }
-  const found = (termIds ?? []).map((term) => ({ term, row: findTerm(db, projectId, term) }));
-  if (found.some((entry) => !entry.row)) return refuse(`찾지 못함: ${found.filter((entry) => !entry.row).map((entry) => `용어 ${entry.term}`).join(', ')}`);
-  const subject = workflowInput(workflow.definition);
-  const named = resolveRunScope(db, projectId, { statuses, speakers, listeners, kinds, q, unfinished, noted, decidedBy, emptyTarget }, subject);
-  if (named.unknown.length) return refuse(`찾지 못함: ${named.unknown.join(', ')}`);
-  const { statusIds: namedStatuses, ...namedLines } = named.scope;
-  const scope: s.RunScope = { ...lineScope, ...namedLines, ...(marks?.length && { marks: marks as s.RunScope['marks'] }), ...(namedStatuses && { statusIds: namedStatuses }), ...(found.length && { termIds: [...new Set(found.map((entry) => entry.row!.id))] }) };
-  const mismatch = scopeMismatch(subject, scope);
-  if (mismatch) return refuse(mismatch);
-  if (subject === 'terms' ? !selectRunTerms(db, projectId, scope).length : !selectRunUnits(db, projectId, scope).length) return refuse(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
-  return { ok: true as const, workflow, subject, scope };
-}
 
 /**
  * The run dialog's preflight for a scope, read-only (no run is made, no model called): lines,
@@ -197,10 +117,9 @@ export async function planRun(db: Db, projectId: string, input: PlanInput) {
   const wanted = input.workflow.toLowerCase();
   const workflow = workflows.find((row) => row.id === input.workflow) ?? workflows.find((row) => row.name.toLowerCase() === wanted) ?? workflows.filter((row) => row.name.toLowerCase().includes(wanted))[0];
   if (!workflow) return { ok: false as const, error: `워크플로를 찾을 수 없습니다: ${input.workflow}. 있는 것: ${workflows.map((row) => row.name).join(', ') || '(없음)'}` };
-  const { scope, unknown } = resolveRunScope(db, projectId, input, workflowInput(workflow.definition));
-  const mismatch = scopeMismatch(workflowInput(workflow.definition), scope);
-  if (mismatch) return { ok: false as const, error: mismatch };
-  if (unknown.length) return { ok: false as const, error: `찾지 못함: ${unknown.slice(0, 10).join(', ')}` };
+  const resolved = askedScope(db, projectId, workflowInput(workflow.definition), { filter: input.filter, terms: input.terms });
+  if (!resolved.ok) return resolved;
+  const { scope } = resolved;
   const picked = resolveRunModels(db, projectId, workflow.definition, input.models);
   if (picked.unknown.length) return { ok: false as const, error: `찾지 못함: ${picked.unknown.join(', ')}` };
   let planned;

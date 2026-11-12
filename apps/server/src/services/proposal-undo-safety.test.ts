@@ -1,11 +1,12 @@
-import { AGENT_RESOURCES } from '@tw/shared';
+import { AGENT_RESOURCES } from '@loca/shared';
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { decideProposal, propose, undoProposals } from './proposals.ts';
+import { decideProposal, propose } from './proposals.ts';
+import { undoChanges } from './change-gate.ts';
 
 // Undo must never lose data: not through a cascade, and not over a person's later edit (#102 review).
 function setup() {
@@ -24,7 +25,7 @@ function setup() {
     expect(row.status).toBe('accepted');
     return proposal.id;
   };
-  const undo = (...ids: string[]) => undoProposals(db, session.id, ids);
+  const undo = (...ids: string[]) => undoChanges(db, session.id, ids);
   const character = (name: string) => db.select().from(s.characters).where(and(eq(s.characters.projectId, projectId), eq(s.characters.name, name))).get();
   const relationship = () => db.select().from(s.relationships).where(eq(s.relationships.id, rel.id)).get();
   // These tests delete through the tools: switch deleting on, as a person would (it is off by default).

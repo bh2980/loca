@@ -1,9 +1,9 @@
 import { and, asc, desc, eq, inArray, ne, or, sql, type AnyColumn, type SQL } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, CHARACTER_ROLE_LABELS, listenerLabel, SPEECH_LEVEL_LABELS, type AttachItem, type AttachKind, type AttachSearchResult } from '@tw/shared';
+import { ATTACH_KINDS, ATTACH_PAGE, ATTACH_PER_KIND, CHARACTER_ROLE_LABELS, listenerLabel, SPEECH_LEVEL_LABELS, type AttachItem, type AttachKind, type AttachSearchResult } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { lineTextFilter } from './line-text.ts';
+import { lineTextFilter } from '../domain/line-text.ts';
 
 /**
  * The chat's @ search (docs/CHAT-INPUT-DESIGN.md 2): one query per kind, each limited in SQL (lines go
@@ -41,7 +41,7 @@ const path = (projectId: string, page: string, search: Record<string, string | b
 const json = (ids: string[]) => JSON.stringify(ids);
 
 const DOCUMENT_KIND_LABELS = { story: '스토리', world: '세계관', style: '문체', note: '메모' } as const;
-const RUN_STATUS_LABELS = { running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
+const RUN_STATUS_LABELS: Record<s.RunStatus, string> = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' };
 const two = (value: number) => String(value).padStart(2, '0');
 /** "10/23 11:02": when a run started, in the server's (the person's) local time. */
 export const runStamp = (at: Date) => `${two(at.getMonth() + 1)}/${two(at.getDate())} ${two(at.getHours())}:${two(at.getMinutes())}`;

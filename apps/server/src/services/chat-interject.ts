@@ -1,14 +1,14 @@
 import { eq } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { stopTurn } from './chat-turns.ts';
+import { stopTurn } from './chat-turn-registry.ts';
 import { hasUnreportedDecisions, takeDecisions } from './proposals.ts';
 
 /**
  * What reaches a running turn from outside its model: messages the person sent meanwhile (#44)
  * and how its proposals were decided (#43). Each backend takes them at turn start and at every step
  * boundary, writes them into the reply where they came in (a `data-steer` part, see
- * chat-context.ts expandRecord) and hands them to the model as a user message.
+ * chat-record.ts expandRecord) and hands them to the model as a user message.
  */
 export interface Interjection {
   text: string;
@@ -18,7 +18,7 @@ export interface Interjection {
 /**
  * Messages sent while a turn is running (#44). The running turn hands them to its model at the next
  * step boundary (after a tool result, or when it would otherwise stop); what a turn could not take
- * (it stopped for a tool approval) waits for the next turn. Stored on the conversation, so neither
+ * (it had ended, or was stopped) waits for the next turn. Stored on the conversation, so neither
  * the gap between two turns nor a server restart loses them.
  */
 const pendingOf = (db: Db, sessionId: string) => db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get()?.pending ?? [];
@@ -54,7 +54,7 @@ export const hasSteers = (db: Db, sessionId: string) => pendingOf(db, sessionId)
 
 /** Stops the running turn (if any); the messages no turn took go back to the person (the input box). */
 export function stopWithQueued(db: Db, sessionId: string) {
-  return { stopped: stopTurn(sessionId), queued: takeSteers(db, sessionId) };
+  return { stopped: stopTurn(db, sessionId), queued: takeSteers(db, sessionId) };
 }
 
 /** Takes (and marks as told) everything waiting for the conversation's agent. */

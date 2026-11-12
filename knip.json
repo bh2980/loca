@@ -1,0 +1,79 @@
+{
+  "$schema": "https://unpkg.com/knip@latest/schema.json",
+  "include": [
+    "files",
+    "exports",
+    "types"
+  ],
+  "ignoreExportsUsedInFile": true,
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.ts"
+      ],
+      "project": [
+        "scripts/**/*.ts"
+      ]
+    },
+    "apps/server": {
+      "entry": [
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "apps/web": {
+      "entry": [
+        "src/main.tsx",
+        "src/routes/**/*.tsx",
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "vite": false
+    },
+    "apps/cli": {
+      "entry": [
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ]
+    },
+    "packages/shared": {
+      "entry": [
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "includeEntryExports": true
+    },
+    "packages/ai": {
+      "entry": [
+        "src/**/*.test.ts"
+      ],
+      "project": [
+        "src/**/*.ts"
+      ],
+      "includeEntryExports": true
+    },
+    "packages/ui": {
+      "entry": [
+        "src/**/*.stories.tsx",
+        "src/**/*.test.ts",
+        ".storybook/*.{ts,tsx}"
+      ],
+      "project": [
+        "src/**/*.{ts,tsx}"
+      ],
+      "includeEntryExports": true,
+      "ignore": [
+        "src/**/*.stories.tsx",
+        ".storybook/**"
+      ]
+    }
+  }
+}

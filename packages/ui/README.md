@@ -63,7 +63,7 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 배치: `grow` `shrink` `overflow` `position`(`relative`) `display`(`block` `flex`) `alignSelf` `justifyContent` `fieldSizing` `resize` `cursor` `opacity` `userSelect`.
 글자: `variant` `tone` `weight` `mono` `tabular` `truncate` `lines` `leading` `lineThrough` `underline`(`true` `offset` `hover`) `preserveLines` `breakWords`(`true` `all` `keep`: 한글을 단어 사이에서만 줄바꿈) `nowrap` `textAlign` `srOnly`.
 
-한 부품이나 한 라이브러리만 쓰는 옵션은 여기 없고 그 부품의 prop입니다: React Flow 연결점의 모양은 `FlowHandle look`, 위에 덮는 자리는 `Overlay` · `CanvasFloat` · `VirtualItem`, 부모 안쪽 여백을 넘는 상자는 `Bleed by`, 목록 첫·마지막 줄의 여백 제거와 줄 호버 묶음은 `ListItem trim` · `group`, 버튼의 정렬·호버 표시·접힘 화살표 묶음은 `Button flush` · `align` · `reveal` · `group`, 대화창 너비·높이는 `DialogContent size` · `tall`, 경고 안 줄은 `AlertRow`.
+한 부품이나 한 라이브러리만 쓰는 옵션은 여기 없고 그 부품의 prop입니다: React Flow 연결점의 모양은 `FlowHandle look`, 위에 덮는 자리는 `Overlay` · `CanvasFloat` · `VirtualItem`, 부모 안쪽 여백을 넘는 상자는 `Bleed by`, 목록 첫·마지막 줄의 여백 제거와 줄 호버 묶음은 `ListItem trim` · `group`, 버튼의 정렬·호버 표시·접힘 화살표 묶음은 `Button flush` · `align` · `reveal` · `group`, 대화창 너비·높이는 `DialogContent size` · `tall`, 경고 안 줄은 `NoticeRow`.
 
 ## 색 토큰
 
@@ -71,7 +71,7 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 
 ## 폴더
 
-`src/tokens`(css) < `primitives`(Box Stack Inline Grid Text Heading Icon, ListItem Overlay) < `controls`(shadcn 기반 조작) < `patterns`(여러 화면이 같은 모양으로 쓰는 것) < `domains/{app,chat,graph,knowledge,script,workflow}`. 의존은 아래로만이고 `pnpm ui-rules`(`scripts/ui-tiers.ts`)가 가져오기 방향, 기초·조작·패턴 이름의 업무 단어, 공개 속성의 `className`을 막습니다. 부품 목록과 속성은 `docs/DESIGN-SYSTEM.md` 2-1입니다. 같은 역할의 사본을 새로 만들지 말고 속성을 더합니다.
+`src/tokens`(css) < `primitives`(Box Stack Inline Grid Text Heading Icon, ListItem Overlay) < `controls`(shadcn 기반 조작) < `patterns`(여러 화면이 같은 모양으로 쓰는 것) < `domains/{app,chat,editor,graph,knowledge,script,settings,workflow}`. `domains/<업무>`는 `apps/web/src/components/<업무>`와 같은 이름이고 그 업무의 화면만 쓰는 부품을 둡니다(`app`은 앱 틀·홈·최상위 화면). 여러 업무가 쓰는 부품은 `patterns`에 둡니다: 캔버스 면·도구줄·방향 조작(`canvas-*`), 연결점(`flow-handle`), 선택 도구함(`selection-toolbox`), 메뉴 줄(`menu-row`), 삭제 확인(`ConfirmDialog`). `lib/storage.ts`는 부품이 브라우저에 기억하는 값(접은 구역, 표 열 너비·순서, 창 너비)의 한 곳입니다: 키는 모두 `loca.`로 시작하고 저장소가 없거나 실패해도 부품은 그대로 동작합니다. 의존은 아래로만이고 `pnpm ui-rules`(`scripts/ui-tiers.ts`)가 가져오기 방향, 기초·조작·패턴 이름의 업무 단어, 공개 속성의 `className`을 막습니다. 부품 목록과 속성은 `docs/DESIGN-SYSTEM.md` 2-1입니다. 같은 역할의 사본을 새로 만들지 말고 속성을 더합니다.
 
 ## 규칙
 
@@ -79,6 +79,8 @@ Workbench의 화면 부품과 토큰. 화면은 여기 있는 부품만으로 �
 
 - 화면(`apps/web`)은 위 부품과 `controls/` `patterns/` `domains/<업무>/`의 부품으로 짭니다. 데이터·상태·동작은 화면에, 마크업은 부품에 둡니다.
 - `className`은 부품 안(`packages/ui`)에서만 씁니다. `pnpm ui-rules`가 `apps/web` 전체에서 `className`을 막습니다.
+- `style=`은 데이터·치수에서 계산한 값에만 씁니다(잰 너비, 인물 색, 캔버스 위 좌표). 적어 둔 값(리터럴, 리터럴 사이의 선택)은 부품의 prop이나 클래스로 둡니다. `pnpm ui-rules`가 `apps/web`과 `packages/ui`의 `style` 객체에서 리터럴 값을 막습니다(React Flow의 `BaseEdge`·`NodeToolbar`, sonner는 사유와 함께 `scripts/ui-style.ts`에 예외).
+- 되돌릴 수 없는 일을 묻는 창은 `ConfirmDialog` 하나입니다(여는 버튼 또는 `open`, 제목, 설명, 확인 문구, `pending`). 문구는 화면이 정하고 `AlertDialog`를 화면에서 직접 쓰지 않습니다.
 - 새 옵션이 필요하면 `style.ts`의 표에 이름과 클래스를 한 줄 더합니다. 클래스는 Tailwind가 찾을 수 있게 통째로 적고, 크기는 `tokens/system.css`에 새 이름을 먼저 둡니다. 한 화면·한 라이브러리에만 필요한 옵션은 표에 넣지 않고 그 부품의 prop으로 둡니다.
 
 ## Storybook

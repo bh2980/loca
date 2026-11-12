@@ -7,10 +7,11 @@ import { Text } from "../../primitives/text"
 import { Button } from "../../controls/button"
 import { TooltipProvider } from "../../controls/tooltip"
 import { Chip } from "../../patterns/chip"
-import { CanvasDirectionControl, type CanvasDirection } from "./canvas-direction-control"
-import { CanvasFloat, CanvasOverlay, CanvasSurface, GraphCanvasElement, GraphMinimap, SelectionRect } from "./canvas-surface"
-import { CanvasToolbar } from "./canvas-toolbar"
-import { SelectionToolbox } from "./selection-toolbox"
+import { CanvasDirectionControl, type CanvasDirection } from "../../patterns/canvas-direction-control"
+import { CanvasFloat, CanvasOverlay, CanvasSurface } from "../../patterns/canvas-surface"
+import { GraphCanvasElement, GraphMinimap, SelectionRect } from "./graph-canvas-parts"
+import { CanvasToolbar } from "../../patterns/canvas-toolbar"
+import { SelectionToolbox } from "../../patterns/selection-toolbox"
 
 const meta = { title: "Domains/Graph/Canvas", decorators: [(Story) => <TooltipProvider><Box style={{ width: 520 }}><Story /></Box></TooltipProvider>] } satisfies Meta
 export default meta

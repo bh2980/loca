@@ -4,7 +4,7 @@ import { Link } from '@tanstack/react-router';
 import { Download, TriangleAlert } from 'lucide-react';
 import { toast } from 'sonner';
 import { Bleed, Box, Button, Checkbox, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, ExpandableRow, Heading, Icon, Inline, Label, Notice, RadioGroup, RadioGroupItem, ScopeRow, Spinner, Stack, StatusIcon, Text } from '@loca/ui';
-import type { ResultRequest, ResultRest } from '@tw/shared';
+import type { ResultRequest, ResultRest } from '@loca/shared';
 import { lineScopeSections, ScopePicker } from '@/components/scope-picker';
 import { exportDialog, useExportDialog, type ExportStart } from '@/lib/export-dialog';
 import { useGroups } from '@/lib/groups';
@@ -39,19 +39,21 @@ function ExportBody({ projectId, start }: { projectId: string; start: ExportStar
     setPickedGroups(new Set(groups.data.map((group) => group.id)));
   }, [groups.data]);
   const whole = pickedGroups.size === (groups.data?.length ?? 0);
-  const filter: ResultRequest['filter'] = target === 'units' ? { ids: start.unitIds } : target === 'view' ? start.view!.filter : whole ? {} : { groups: pickedGroups.size ? [...pickedGroups] : ['__none__'] };
+  // Nothing picked asks nothing: the dialog says to pick a range instead (an empty list is not a filter).
+  const unpicked = target === 'groups' && !pickedGroups.size;
+  const filter: ResultRequest['filter'] = target === 'units' ? { ids: start.unitIds } : target === 'view' ? start.view!.filter : whole || unpicked ? {} : { groups: [...pickedGroups] };
 
   // Until someone ticks a status, what goes in follows the target.
   const [edited, setEdited] = useState<Set<string> | null>(null);
-  const started = useMemo(() => startStatuses(target, statuses ?? [], target === 'view' ? { statuses: start.view?.filter.statuses } : undefined), [target, statuses, start.view]);
+  const started = useMemo(() => startStatuses(target, statuses ?? [], target === 'view' ? start.view?.filter : undefined), [target, statuses, start.view]);
   const checked = edited ?? started;
   const [rest, setRest] = useState<ResultRest>(() => rememberedRest(projectId));
   const request: ResultRequest = { filter, statuses: [...checked].sort(), rest };
-  const ready = Boolean(statuses && groups.data);
+  const ready = Boolean(statuses && groups.data) && !unpicked;
 
   const plan = useQuery({ ...resultPlan(projectId, request), enabled: ready });
   const check = useQuery({ ...resultCheck(projectId, request), enabled: ready });
-  const data = plan.data;
+  const data = unpicked ? undefined : plan.data;
   const stale = plan.isPlaceholderData;
   const save = useMutation({
     mutationFn: () => downloadResults(projectId, request),
@@ -63,7 +65,7 @@ function ExportBody({ projectId, start }: { projectId: string; start: ExportStar
     // Said in the dialog, which stays open.
     onError: () => undefined,
   });
-  const blocked = target === 'groups' && !pickedGroups.size ? '내보낼 범위를 고르세요.' : !data ? '줄 수를 세는 중입니다.' : stale ? '바꾼 범위로 다시 세는 중입니다.' : !data.total ? '이 범위에는 대사가 없습니다.' : !data.translated ? '들어갈 번역이 없습니다. 넣을 번역을 고르세요.' : false;
+  const blocked = unpicked ? '내보낼 범위를 고르세요.' : !data ? '줄 수를 세는 중입니다.' : stale ? '바꾼 범위로 다시 세는 중입니다.' : !data.total ? '이 범위에는 대사가 없습니다.' : !data.translated ? '들어갈 번역이 없습니다. 넣을 번역을 고르세요.' : false;
   const shownStatuses = (statuses ?? []).filter((status) => (data?.statuses[status.id] ?? 0) > 0);
   const restTotal = data?.rest.total ?? 0;
 

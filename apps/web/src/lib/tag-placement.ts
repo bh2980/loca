@@ -1,4 +1,4 @@
-import { mentions } from '@tw/shared';
+import { mentions } from '@loca/shared';
 import { numberTokens, tokenUnits, type TokenKind } from './tokens';
 
 /** One token to insert into the translation, at a position of the text as it is now. */

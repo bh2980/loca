@@ -1,2 +1,2 @@
-import { readingRouteQuerySchema, type ReadingRouteQuery } from '@tw/shared';
-export { readingRouteQuerySchema as readingRouteQuery, type ReadingRouteQuery };
+import { readingRouteQuerySchema } from '@loca/shared';
+export { readingRouteQuerySchema as readingRouteQuery };

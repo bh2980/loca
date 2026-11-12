@@ -1,5 +1,6 @@
 import { and, eq } from 'drizzle-orm';
-import { expandCalls, type WorkflowDefinition } from '@tw/shared';
+import { badRequest } from '../refusal.ts';
+import { expandCalls, type WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
@@ -11,5 +12,14 @@ import * as s from '../db/schema.ts';
  */
 export function expandedDefinition(db: Db, projectId: string, definition: WorkflowDefinition, workflowId?: string | null): WorkflowDefinition {
   if (!definition.nodes.some((node) => node.type === 'call')) return definition;
-  return expandCalls(definition, (id) => db.select({ name: s.workflows.name, definition: s.workflows.definition }).from(s.workflows).where(and(eq(s.workflows.id, id), eq(s.workflows.projectId, projectId))).get(), { workflowId: workflowId ?? undefined });
+  return expandCalls(
+    definition,
+    (id) => {
+      const called = db.select({ name: s.workflows.name, definition: s.workflows.definition }).from(s.workflows).where(and(eq(s.workflows.id, id), eq(s.workflows.projectId, projectId))).get();
+      const unreadable = called && s.definitionProblem(called.definition);
+      if (unreadable) badRequest(`부르는 워크플로 '${called.name}'의 저장된 정의를 읽을 수 없습니다: ${unreadable}`);
+      return called;
+    },
+    { workflowId: workflowId ?? undefined },
+  );
 }

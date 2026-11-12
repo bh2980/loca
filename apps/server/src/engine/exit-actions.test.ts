@@ -1,15 +1,17 @@
 import { describe, expect, it } from 'vitest';
 import { eq, sql } from 'drizzle-orm';
-import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitAction } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitAction } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
+import { eventsOf } from '../events.ts';
 import { importProject } from '../services/importer.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runProgress } from '../services/run-detail.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { HUMAN_OWNED_NOTE } from './apply-candidate.ts';
 import { applyExitActions, HUMAN_STATUS_NOTE } from './exit-actions.ts';
+import { subjectOf } from './subjects.ts';
 import { createRun } from './run-create.ts';
 import { Runner, type ModelPort } from './runner.ts';
 
@@ -25,7 +27,8 @@ function setup(lines = 2) {
   const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const initial = statuses.find((status) => status.kind === 'initial')!;
-  const confirmed = statuses.find((status) => status.kind === 'final')!;
+  // The status the test flows set. Not a final one: nothing here saves a translation, and a final status needs one.
+  const confirmed = statuses.find((status) => status.kind === 'normal' && !status.inReview)!;
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
   const urgent = db.insert(s.tags).values({ projectId, name: '긴급', color: '#ff0000', scope: ['lines'] }).returning().get();
   return { db, projectId, choice, initial, confirmed, review, urgent, issues: issueTagIds(db, projectId) };
@@ -36,11 +39,11 @@ const tag = (tagIds: string[], extra: Partial<Extract<ExitAction, { type: 'tag' 
 const untag = (tagIds: string[]): ExitAction => tag(tagIds, { action: 'remove' });
 const status = (statusId: string): ExitAction => ({ type: 'status', statusId });
 
-/** Nodes by id with edges "from.port -> to"; every flow has an entry and an end. */
+/** Nodes by id with edges "from.port -> to"; every flow has an entry, and "-> end" is an exit with nothing after it. */
 const flow = (nodes: Record<string, object>, edges: string[]) =>
   workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node })), { id: 'end', type: 'end', position: at }],
-    edges: edges.map((edge, index) => {
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, ...Object.entries(nodes).map(([id, node]) => ({ id, ...node }))],
+    edges: edges.filter((edge) => !edge.endsWith(' -> end')).map((edge, index) => {
       const [from, to] = edge.split(' -> ');
       const [source, sourceHandle = 'out'] = from!.split('.');
       return { id: String(index), source: source!, sourceHandle, target: to! };
@@ -124,14 +127,14 @@ describe('exit actions in a run', () => {
     expect(writes('a1')).toBe(2);
     expect(items[0]!.visits.c).toBe(3);
     // Only nodes are visited: the actions on the exit left no count of their own.
-    expect(Object.keys(items[0]!.visits).sort()).toEqual(['c', 'end', 'entry']);
+    expect(Object.keys(items[0]!.visits).sort()).toEqual(['c', 'entry']);
   });
 
   it('keep a person\'s status and translation in a status-filtered run, and report it; a run without the filter changes it', async () => {
     const ctx = setup(1);
     const { initial, confirmed, urgent } = ctx;
     const definition = flow({ c: cond(always, { true: [tag([urgent.id]), status(confirmed.id)] }) }, ['entry -> c', 'c.true -> end']);
-    const runId = start(ctx, definition, { statusIds: [initial.id] });
+    const runId = start(ctx, definition, { filter: { statusIds: [initial.id] } });
     // A person saved '내 번역' after the run started (#51).
     ctx.db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unitOf(ctx, 'a1').id)).run();
     const { items, runner } = await drain(ctx, runId);
@@ -190,8 +193,17 @@ describe('exit actions in a run', () => {
     const runId = start(ctx, flow({ c: cond(always, { true: [tag([urgent.id])] }) }, ['entry -> c', 'c.true -> end']));
     expect(ctx.db.select().from(s.runs).where(eq(s.runs.id, runId)).get()!.tags).toEqual([expect.objectContaining({ id: urgent.id, name: '긴급', color: '#ff0000' })]);
     ctx.db.delete(s.tags).where(eq(s.tags.id, urgent.id)).run();
+    const events = eventsOf(ctx.db);
+    events.flush();
+    const topics = new Set<string>();
+    const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));
+    events.on('change', listen);
     const { items } = await drain(ctx, runId);
+    events.flush();
+    events.off('change', listen);
     expect(items.map((item) => item.state)).toEqual(['done', 'done']);
+    // The tag list changed in the middle of a run: the tags table says so itself (no write site names 'statuses').
+    expect([...topics]).toEqual(expect.arrayContaining(['statuses', 'runs', 'units']));
     // The same tag (id, name, colour), once, on both lines.
     expect(ctx.db.select().from(s.tags).where(eq(s.tags.id, urgent.id)).all()).toEqual([expect.objectContaining({ name: '긴급', color: '#ff0000' })]);
     expect([tagNamesOf(ctx, 'a1'), tagNamesOf(ctx, 'a2')]).toEqual([['긴급'], ['긴급']]);
@@ -244,7 +256,7 @@ describe('exit actions in a run', () => {
     const { initial, confirmed } = ctx;
     // a1 (Alice) leaves by true, a2 and a3 (Bob) by false; a person saved a2 meanwhile.
     const definition = flow({ c: cond({ '==': [{ var: 'unit.speaker' }, 'Alice'] }, { true: [status(confirmed.id)], false: [status(confirmed.id)] }) }, ['entry -> c', 'c.true -> end', 'c.false -> end']);
-    const runId = start(ctx, definition, { statusIds: [initial.id] });
+    const runId = start(ctx, definition, { filter: { statusIds: [initial.id] } });
     ctx.db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unitOf(ctx, 'a2').id)).run();
     const { runner } = await drain(ctx, runId);
     const { exits } = runProgress(ctx.db, runner, ctx.projectId, [runId])[0]!;
@@ -258,9 +270,9 @@ describe('exit actions in a run', () => {
 /** applyExitActions on one line, as the runner calls it: the result of the AI node `ai` before the exit `ai:out`. */
 function applyTo(ctx: Ctx, actions: ExitAction[], output: Record<string, unknown> | undefined, key = 'a1') {
   const definition = flow({ ai: { type: 'ai', position: at, config: { model: ctx.choice, instructions: 'x' } } }, ['entry -> ai', 'ai -> end']);
-  const run = { id: 'r', projectId: ctx.projectId, subject: 'lines' as const, scope: {}, tags: [], definition };
+  const run = { id: 'r', projectId: ctx.projectId, scope: {}, tags: [], definition };
   const item = { subjectId: unitOf(ctx, key).id, data: { path: [{ nodeId: 'entry', port: 'out', at: 0 }], outputs: (output ? { ai: output } : {}) as Record<string, Record<string, unknown>> } };
-  return ctx.db.transaction((tx) => applyExitActions(tx, run, item, 'ai', 'out', actions));
+  return ctx.db.transaction((tx) => applyExitActions(tx, run, item, 'ai', 'out', actions, subjectOf('lines').exitActions));
 }
 const customTags = (ctx: Ctx) => ctx.db.select().from(s.tags).all().filter((entry) => !Object.values(ISSUE_KINDS).some((kind) => kind.name === entry.name));
 

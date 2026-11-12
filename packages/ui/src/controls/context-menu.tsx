@@ -2,20 +2,16 @@ import * as React from "react"
 import * as DropdownMenuPrimitive from "@radix-ui/react-dropdown-menu"
 import { Slot } from "@radix-ui/react-slot"
 import {
-  DropdownMenuCheckboxItem,
   DropdownMenuContent,
-  DropdownMenuGroup,
   DropdownMenuItem,
   DropdownMenuLabel,
-  DropdownMenuPortal,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
   DropdownMenuSeparator,
   DropdownMenuShortcut,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
 } from "./dropdown-menu"
+import { PointAnchor, type ScreenPoint } from "./point-anchor"
 
 interface ContextMenuState {
   open: boolean
@@ -57,22 +53,38 @@ function ContextMenu({
       <DropdownMenuPrimitive.Root open={open} onOpenChange={setOpen} modal={false}>
         {open && (
           <DropdownMenuPrimitive.Trigger asChild>
-            <span
-              aria-hidden
-              style={{
-                position: "fixed",
-                left: point.x,
-                top: point.y,
-                width: 1,
-                height: 1,
-                pointerEvents: "none",
-              }}
-            />
+            <PointAnchor at={point} />
           </DropdownMenuPrimitive.Trigger>
         )}
         {children}
       </DropdownMenuPrimitive.Root>
     </ContextMenuContext.Provider>
+  )
+}
+
+/**
+ * The same menu, opened by the screen at a point it holds: a canvas that draws its own nodes reports where it was
+ * right-clicked and on what, and the screen says what the menu shows. `at` null: closed. Its content is a
+ * `ContextMenuContent`.
+ */
+function PointMenu({
+  at,
+  onClose,
+  children,
+}: {
+  at: ScreenPoint | null | undefined
+  onClose: () => void
+  children: React.ReactNode
+}) {
+  return (
+    <DropdownMenuPrimitive.Root open={Boolean(at)} onOpenChange={(open) => !open && onClose()} modal={false}>
+      {at && (
+        <DropdownMenuPrimitive.Trigger asChild>
+          <PointAnchor at={at} />
+        </DropdownMenuPrimitive.Trigger>
+      )}
+      {at && children}
+    </DropdownMenuPrimitive.Root>
   )
 }
 
@@ -122,12 +134,7 @@ function ContextMenuContent({
   )
 }
 
-const ContextMenuGroup = DropdownMenuGroup
-const ContextMenuPortal = DropdownMenuPortal
 const ContextMenuItem = DropdownMenuItem
-const ContextMenuCheckboxItem = DropdownMenuCheckboxItem
-const ContextMenuRadioGroup = DropdownMenuRadioGroup
-const ContextMenuRadioItem = DropdownMenuRadioItem
 const ContextMenuLabel = DropdownMenuLabel
 const ContextMenuSeparator = DropdownMenuSeparator
 const ContextMenuShortcut = DropdownMenuShortcut
@@ -137,18 +144,14 @@ const ContextMenuSubTrigger = DropdownMenuSubTrigger
 
 export {
   ContextMenu,
+  PointMenu,
   ContextMenuTrigger,
   ContextMenuContent,
   ContextMenuItem,
-  ContextMenuCheckboxItem,
-  ContextMenuRadioItem,
   ContextMenuLabel,
   ContextMenuSeparator,
   ContextMenuShortcut,
-  ContextMenuGroup,
-  ContextMenuPortal,
   ContextMenuSub,
   ContextMenuSubContent,
   ContextMenuSubTrigger,
-  ContextMenuRadioGroup,
 }

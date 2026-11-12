@@ -1,147 +1,35 @@
-import { and, count, eq, inArray, like, or, sql } from 'drizzle-orm';
-import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, decidedBy, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
-import { tagsOf } from '../services/knowledge-tags.ts';
-import { fillTermUsage } from '../services/term-usage.ts';
-import { inChunks, inList } from '../db/chunk.ts';
+import { and, eq, inArray } from 'drizzle-orm';
+import { badRequest } from '../refusal.ts';
+import { isWholeScriptWorkflow, workflowInput, type AiNode, type RunLimits, type RunScope, type WorkflowDefinition } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
-import { events } from '../events.ts';
-import { excludedSql, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from '../services/line-marks.ts';
-import { resolveBudgets } from '../services/budgets.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
+import { resolveBudgets } from './node-budgets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { expandedDefinition } from './expand-calls.ts';
-import { planBatches } from './batches.ts';
-
-type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
+import { subjectBatch } from './batches.ts';
+import { subjectOf } from './subjects.ts';
 
 /*
- * Creating a run (#22): which lines it takes, how they are batched, and storing it — the part of a
- * run that happens before the Runner moves anything. Kept out of runner.ts so preflight can plan a
- * run without importing the scheduler (and the scheduler can use preflight's overhead estimate).
+ * Creating a run (#22): storing it with its items and their plan — the part of a run that happens
+ * before the Runner moves anything. Which items a scope names and how they are planned is the
+ * subject's (subjects.ts). Kept out of runner.ts so preflight can plan a run without importing the
+ * scheduler (and the scheduler can use preflight's overhead estimate).
  */
-
-/** The lines a scope names, before 번역 제외 is taken out. */
-function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
-  const statusIds = scope.statusIds ?? [];
-  const conditions = [eq(s.units.projectId, projectId)];
-  // Exactly the lines in those statuses, like the line list's filter.
-  if (statusIds.length) conditions.push(inArray(s.units.statusId, statusIds));
-  // A scope can name every line of a large project; long lists travel as one JSON parameter.
-  if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
-  if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
-  // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
-  for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
-  // A lines run only carries line marks (scopeMismatch refuses the others before a run or preview).
-  conditions.push(...markConditions(projectId, scope.marks as LineMark[] | undefined), ...lineFactConditions(projectId, scope));
-  // Who says it, to whom, what kind of line, what text: the line list's rules (services/script-query.ts findLines).
-  if (scope.speakers?.length) conditions.push(inList(s.units.speaker, scope.speakers));
-  if (scope.listeners?.length) {
-    const names = scope.listeners.filter((name) => name !== '-');
-    conditions.push(or(...(names.length ? [and(inList(s.units.listener, names), knownListenerSql)!] : []), ...(scope.listeners.includes('-') ? [unknownListenerSql(projectId)] : []))!);
-  }
-  if (scope.kinds?.length) conditions.push(inList(s.units.kind, scope.kinds));
-  if (scope.q?.trim()) conditions.push(like(s.units.source, `%${scope.q.trim()}%`));
-  return conditions;
-}
-
-/** Selects the lines a run starts with: what the scope names. 번역 제외 lines never enter a run, whatever the scope names. */
-export function selectRunUnits(db: Db, projectId: string, scope: s.RunScope): string[] {
-  return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, scope), translatableSql(projectId))).all().map((row) => row.id);
-}
 
 /**
- * The terms a run of a terms workflow starts with, most used first: the scope's termIds, narrowed by its
- * statuses, who decided them, an empty Korean form, marks (the glossary's rules: matchesMarks) and tags (all of them). Rejected terms are hidden like in the glossary: only a scope that asks for them
- * (statuses include rejected) takes them. Usage counts are filled first, so "most used" and the 미사용 mark are current.
+ * The request a run of the whole script would put `subjectId` (a line, or a term) in at `node`: the ids of
+ * that request's items, in request order. The run's own steps, not a copy of them (the subject's batchOf):
+ * the items such a run takes, its plan where the subject has one, and the node's packing. `definition` is a
+ * run's: calls expanded, budgets fixed. Null when such a run would not take the item. A run with a narrower
+ * scope, or one whose lines reach the node at different times, can pack differently.
  */
-export function selectRunTerms(db: Db, projectId: string, scope: s.RunScope): string[] {
-  fillTermUsage(db, projectId);
-  const named = scope.termIds?.length ? new Set(scope.termIds) : null;
-  const statuses = scope.statusIds ?? [];
-  const marks = (scope.marks ?? []) as AutoMark[];
-  const rows = withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all());
-  const tags = scope.tagIds?.length ? tagsOf(db, 'terms', rows.map((term) => term.id)) : null;
-  return rows
-    .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && (!scope.decidedBy || decidedBy(term, scope.decidedBy)) && (scope.emptyTarget === undefined || !term.target.trim() === scope.emptyTarget) && matchesMarks(termMarksOf(term), marks) && (!tags || scope.tagIds!.every((id) => tags.get(term.id)?.some((tag) => tag.id === id))))
-    .sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || a.source.localeCompare(b.source))
-    .map((term) => term.id);
+export function batchOf(db: Db, projectId: string, definition: WorkflowDefinition, node: AiNode, subjectId: string): string[] | null {
+  const subject = workflowInput(definition);
+  return subjectOf(subject).batchOf(db, projectId, definition, subjectBatch(subject, node), subjectId);
 }
 
-/** Lines the scope names that 번역 제외 keeps out of the run (the run dialog says how many). */
-export function excludedInScope(db: Db, projectId: string, scope: s.RunScope): number {
-  return db.select({ count: count() }).from(s.units).where(and(...scopeConditions(db, projectId, scope), excludedSql(projectId))).get()!.count;
-}
-
-/**
- * Direct transitions between scenes in the dialogue graph: an edge from a node of one group to a
- * node of another. Links through hubs (nodes outside every scene) are left out on purpose: a menu
- * or return point would otherwise make every scene "related" to every other.
- */
-export function sceneLinks(db: Db | Tx, lines: { groupId: string }[]) {
-  const groups = new Set(lines.map((line) => line.groupId));
-  const pairs = new Set<string>();
-  if (groups.size > 1) {
-    // The project's scene transitions in one pass, filtered here: a 2,000-scene IN list made the
-    // join slow (160 ms for a 50k-line run).
-    const projectId = db.select({ projectId: s.groups.projectId }).from(s.groups).where(eq(s.groups.id, groups.values().next().value!)).get()?.projectId;
-    const fromNode = alias(s.graphNodes, 'from_node');
-    const toNode = alias(s.graphNodes, 'to_node');
-    const rows = projectId
-      ? db
-          .selectDistinct({ from: fromNode.groupId, to: toNode.groupId })
-          .from(s.graphEdges)
-          .innerJoin(fromNode, eq(fromNode.id, s.graphEdges.fromId))
-          .innerJoin(toNode, eq(toNode.id, s.graphEdges.toId))
-          .where(and(eq(s.graphEdges.projectId, projectId), sql`${fromNode.groupId} <> ${toNode.groupId}`))
-          .all()
-      : [];
-    for (const row of rows) if (row.from && row.to && groups.has(row.from)) pairs.add(`${row.from}|${row.to}`);
-  }
-  return (a: string, b: string) => pairs.has(`${a}|${b}`);
-}
-
-/**
- * Lines by id for planning: a run over most of a project reads the project's lines once and keeps
- * the wanted ones (ids in chunks of 5,000 took 140 ms for 50k lines); a small run reads by id.
- */
-export function planLines(db: Db | Tx, unitIds: string[]) {
-  const columns = { id: s.units.id, groupId: s.units.groupId, seq: s.units.seq, kind: s.units.kind, speaker: s.units.speaker, tokens: sql<number>`(length(cast(${s.units.source} as blob)) + 3) / 4` };
-  if (unitIds.length < 2_000) return inChunks(unitIds, (ids) => db.select(columns).from(s.units).where(inArray(s.units.id, ids)).all());
-  const projectId = db.select({ projectId: s.units.projectId }).from(s.units).where(eq(s.units.id, unitIds[0])).get()?.projectId;
-  if (!projectId) return [];
-  const wanted = new Set(unitIds);
-  return db.select(columns).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((line) => wanted.has(line.id));
-}
-
-/**
- * The run plan: which lines travel together through every AI node. Planned once, when the run
- * starts, with the batch settings of the first AI node the lines reach (see planBatches): script
- * order, scenes kept whole, dialogue apart from documents and UI, unrelated scenes not mixed.
- * Every node then moves lines by these batches, so a scene that was translated together is
- * reviewed together. Returns unit id → batch number; empty when the workflow has no AI node.
- */
-export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: string[]) {
-  const entry = definition.nodes.find((node) => node.type === 'entry');
-  const seen = new Set<string>();
-  const queue = entry ? [entry.id] : [];
-  let first: AiNode | undefined;
-  while (queue.length && !first) {
-    const id = queue.shift()!;
-    if (seen.has(id)) continue;
-    seen.add(id);
-    const node = definition.nodes.find((candidate) => candidate.id === id);
-    if (node?.type === 'ai') first = node;
-    else for (const edge of definition.edges) if (edge.source === id) queue.push(edge.target);
-  }
-  if (!first) return new Map<string, number>();
-  const lines = planLines(db, unitIds);
-  const batches = planBatches(lines, batchConfigSchema.parse(first.config.batch ?? {}), sceneLinks(db, lines));
-  return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
-}
-
-type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: RunScope; limits?: RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
 
 /** The project's tags that the definition's exit actions name. */
 function exitTags(db: Db, projectId: string, definition: WorkflowDefinition): s.RunTag[] {
@@ -156,13 +44,13 @@ function runRows(db: Db, input: RunInput) {
   // "Auto" budgets are fixed here for the models this run calls: the plan and the runner use the same numbers.
   const definition = resolveBudgets(db, expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id));
   const entry = definition.nodes.find((node) => node.type === 'entry');
-  if (!entry) throw new Error('진입 노드가 없습니다.');
+  if (!entry) badRequest('진입 노드가 없습니다.');
   const subject = workflowInput(definition);
-  const unitIds = subject === 'terms' ? selectRunTerms(db, input.projectId, input.scope) : selectRunUnits(db, input.projectId, input.scope);
-  if (!unitIds.length) throw new Error(subject === 'terms' ? '조건에 맞는 용어가 없습니다.' : '조건에 맞는 대사가 없습니다.');
+  const adapter = subjectOf(subject);
+  const unitIds = adapter.select(db, input.projectId, input.scope);
+  if (!unitIds.length) badRequest(adapter.nothingInScope);
   const runId = crypto.randomUUID();
-  // Terms have no scenes to plan by: the runner batches them as they wait (count / one by one).
-  const plan = subject === 'terms' ? new Map<string, number>() : planRun(db, definition, unitIds);
+  const plan = adapter.plan(db, definition, unitIds);
   const run = {
     id: runId,
     projectId: input.projectId,
@@ -192,47 +80,64 @@ export function createRun(db: Db, input: RunInput) {
     tx.insert(s.runs).values(run).run();
     for (let index = 0; index < items.length; index += 400) tx.insert(s.runItems).values(items.slice(index, index + 400)).run();
   });
-  events.changed(input.projectId, 'runs');
   return { runId: run.id, total: run.total };
 }
 
 export const WHOLE_SCRIPT_BUSY = '대본 전체를 읽는 실행이 이미 진행 중입니다.';
 
-/** A run still filling its lines counts as running. */
-export const runActive = (run: { status: string; notice: string | null }) => run.status === 'running' || (run.status === 'paused' && run.notice === FILLING);
+/** The statuses of a run that is going: one still being stored (preparing) counts like one that runs. */
+export const ACTIVE_RUN_STATUSES = ['preparing', 'running'] as const satisfies readonly s.RunStatus[];
 
 /**
  * One whole-script run at a time per project, whoever starts it (run dialog, chat). `exceptRunId`:
  * the run being continued or resumed, which may go on itself.
  */
 export function refuseSecondWholeScript(db: Db, projectId: string, exceptRunId?: string) {
-  const runs = db.select({ id: s.runs.id, status: s.runs.status, notice: s.runs.notice, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ['running', 'paused']))).all();
-  if (runs.some((run) => run.id !== exceptRunId && runActive(run) && isWholeScriptWorkflow(run.definition))) throw new Error(WHOLE_SCRIPT_BUSY);
+  const runs = db.select({ id: s.runs.id, definition: s.runs.definition }).from(s.runs).where(and(eq(s.runs.projectId, projectId), inArray(s.runs.status, ACTIVE_RUN_STATUSES))).all();
+  if (runs.some((run) => run.id !== exceptRunId && isWholeScriptWorkflow(run.definition))) badRequest(WHOLE_SCRIPT_BUSY);
 }
 
 /** Lines stored per step when a run is created from the app or a chat. */
 const FILL_STEP = 2_000;
-export const FILLING = '대사를 넣는 중입니다.';
 
 /**
  * createRun for the app and chats: a 50k-line run is stored FILL_STEP lines at a time with the
  * event loop handed back in between (one transaction took about a second, holding up every
- * request). The run waits paused, saying so, until all its lines are in.
+ * request). The run is `preparing` until all its lines are in; cancelled meanwhile, it stops storing.
  */
 export async function createRunInSteps(db: Db, input: RunInput) {
   // Checked and inserted with no await in between, so two starts at once cannot both pass.
   if (isWholeScriptWorkflow(expandedDefinition(db, input.projectId, input.workflow.definition, input.workflow.id))) refuseSecondWholeScript(db, input.projectId);
   const { run, items } = runRows(db, input);
-  db.insert(s.runs).values({ ...run, status: 'paused', notice: FILLING }).run();
-  events.changed(input.projectId, 'runs');
+  db.insert(s.runs).values({ ...run, status: 'preparing' }).run();
+  const preparing = and(eq(s.runs.id, run.id), eq(s.runs.status, 'preparing'));
   for (let start = 0; start < items.length; start += FILL_STEP) {
     await new Promise((resolve) => setImmediate(resolve));
-    db.transaction((tx) => {
+    const stored = db.transaction((tx) => {
+      if (!tx.select({ id: s.runs.id }).from(s.runs).where(preparing).get()) return false;
       const part = items.slice(start, start + FILL_STEP);
       for (let index = 0; index < part.length; index += 400) tx.insert(s.runItems).values(part.slice(index, index + 400)).run();
+      return true;
+    });
+    if (!stored) break;
+  }
+  db.update(s.runs).set({ status: 'running' }).where(preparing).run();
+  return { runId: run.id, total: run.total };
+}
+
+export const UNPREPARED = '서버가 멈춰서 실행을 준비하다 말았습니다(대사를 다 넣지 못함). 새로 실행하세요.';
+
+/**
+ * Runs a server left `preparing` when it stopped: nothing will store the rest of their lines, so they can
+ * never start. At startup they are closed (cancelled, with their lines), saying what happened.
+ */
+export function closeUnpreparedRuns(db: Db) {
+  const left = db.select({ id: s.runs.id, projectId: s.runs.projectId }).from(s.runs).where(eq(s.runs.status, 'preparing')).all();
+  for (const run of left) {
+    db.transaction((tx) => {
+      tx.update(s.runs).set({ status: 'cancelled', notice: UNPREPARED, finishedAt: new Date() }).where(eq(s.runs.id, run.id)).run();
+      tx.update(s.runItems).set({ state: 'cancelled' }).where(and(eq(s.runItems.runId, run.id), inArray(s.runItems.state, ['queued', 'running']))).run();
     });
   }
-  db.update(s.runs).set({ status: 'running', notice: null }).where(and(eq(s.runs.id, run.id), eq(s.runs.status, 'paused'), eq(s.runs.notice, FILLING))).run();
-  events.changed(input.projectId, 'runs');
-  return { runId: run.id, total: run.total };
+  return left.length;
 }

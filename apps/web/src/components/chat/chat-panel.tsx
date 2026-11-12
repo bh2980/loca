@@ -4,36 +4,27 @@ import type { UIMessage } from 'ai';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, DockHeaderSlot, Inline, Notice, SectionHeading, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, DockHeaderSlot, Inline, Notice, SectionHeading, Spinner, Stack, Text, ConfirmDialog } from '@loca/ui';
 import { Elapsed } from '@/components/job-progress';
 import type { ModelValue } from '@/components/model-picker';
-import { client, unwrap } from '@/lib/api';
 import { usePendingAgentRequest } from '@/lib/agent';
-import { chatDock } from '@/lib/chat-dock';
+import { chatDock, rememberedChatSession, rememberChatSession } from '@/lib/chat-dock';
 import { sentTexts } from '@/lib/chat-input-history';
 import { removeOnce } from '@/lib/chat-queue';
-import { syncCards, withCard } from '@/lib/chat-run';
+import { syncCards } from '@/lib/chat-run-records';
 import { chatFor, dropChat } from '@/lib/chat-store';
+import type { AppCommand } from '@/lib/chat-triggers';
 import { q } from '@/lib/queries';
 import { ChatComposer, type ComposerHandle, type OutgoingMessage } from './chat-composer';
-import { ChatMessage, SteerBubble } from './chat-message';
+import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
 import { useUndo } from './proposal-card';
-import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode, type RunCard } from '@tw/shared';
-import type { ChatUsage } from './context-meter';
+import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode } from '@loca/shared';
+import type { ChatUsage } from './window-meter';
 import { useProposals } from '@/lib/proposals';
-import { changeChatSession, useChatSessions } from '@/lib/logs';
-import { sent } from '@/lib/collections';
+import { useChatSessions, createChat, deleteChat, changeChat, chatTurn } from '@/lib/chat-sessions';
 
-const SESSION_KEY = (projectId: string) => `tw.chat.session.${projectId}`;
-const readSession = (projectId: string) => {
-  try {
-    return sessionStorage.getItem(SESSION_KEY(projectId)) ?? localStorage.getItem(SESSION_KEY(projectId));
-  } catch {
-    return null;
-  }
-};
 
 /** How many of a conversation's newest messages are drawn at first; 이전 메시지 더 보기 draws as many again. */
 const MESSAGES_SHOWN = 100;
@@ -46,7 +37,7 @@ const MESSAGES_SHOWN = 100;
 export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projectId: string; active: boolean }) {
   const queryClient = useQueryClient();
   const sessions = useChatSessions(projectId);
-  const [sessionId, setSessionId] = useState<string | null>(() => readSession(projectId));
+  const [sessionId, setSessionId] = useState<string | null>(() => rememberedChatSession(projectId));
 
   // Fetch the conversation as soon as its id is known (from storage), not only after the
   // sessions list resolves: waiting for the list made the panel flash its spinner on every open.
@@ -66,38 +57,38 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
   useEffect(() => {
     if (sessions.data && sessionId && !sessions.data.some((session) => session.id === sessionId)) {
       // Deleted (here or elsewhere): forget it too, or every load asks for it again.
-      try {
-        sessionStorage.removeItem(SESSION_KEY(projectId));
-        localStorage.removeItem(SESSION_KEY(projectId));
-      } catch {
-        /* ignore */
-      }
+      rememberChatSession(projectId, null);
       setSessionId(null);
     }
     if (sessions.data && !sessionId && sessions.data[0]) setSessionId(sessions.data[0].id);
   }, [sessions.data, sessionId, projectId]);
   useEffect(() => {
-    try {
-      if (sessionId) {
-        sessionStorage.setItem(SESSION_KEY(projectId), sessionId);
-        localStorage.setItem(SESSION_KEY(projectId), sessionId);
-      }
-    } catch {
-      /* ignore */
-    }
+    if (sessionId) rememberChatSession(projectId, sessionId);
   }, [projectId, sessionId]);
 
   const create = useMutation({
     // The server starts it with the AI the latest conversation picked.
     // Done once the feed has brought the new conversation: picked before it is listed, the list would
     // unpick it, and a waiting AI-button request would start yet another one, again and again.
-    mutationFn: () => sent(projectId, client.projects[':projectId'].chat.$post({ param: { projectId }, json: {} })),
+    mutationFn: () => createChat(projectId),
     onSuccess: (session) => setSessionId(session.id),
   });
 
+  // /new is typed in the box: the new conversation's box takes the focus, so typing goes on.
+  const focusNext = useRef(false);
+  const startFromBox = () => {
+    focusNext.current = true;
+    create.mutate();
+  };
+  const takeFocus = useCallback(() => {
+    const wanted = focusNext.current;
+    focusNext.current = false;
+    return wanted;
+  }, []);
+
   const [deleting, setDeleting] = useState<{ id: string; title: string } | null>(null);
   const remove = useMutation({
-    mutationFn: (id: string) => sent(projectId, client.chat[':sessionId'].$delete({ param: { sessionId: id } })),
+    mutationFn: (id: string) => deleteChat(projectId, id),
     onSuccess: (_data, id) => {
       dropChat(id);
       if (id === sessionId) setSessionId(null);
@@ -134,23 +125,16 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
           <Plus />
         </Button>
       </DockHeaderSlot>
-      <AlertDialog open={Boolean(deleting)} onOpenChange={(open) => !open && setDeleting(null)}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>대화를 삭제할까요?</AlertDialogTitle>
-            <AlertDialogDescription>‘{deleting?.title}’의 메시지가 모두 지워집니다. 이 대화에서 이미 수락한 변경은 그대로 남습니다.</AlertDialogDescription>
-          </AlertDialogHeader>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => deleting && remove.mutate(deleting.id)}>
-              삭제
-            </AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={Boolean(deleting)}
+        onOpenChange={(open) => !open && setDeleting(null)}
+        title="대화를 삭제할까요?"
+        description={`‘${deleting?.title}’의 메시지가 모두 지워집니다. 이 대화에서 이미 수락한 변경은 그대로 남습니다.`}
+        onConfirm={() => deleting && remove.mutate(deleting.id)}
+      />
       {/* A connection picked without a model yet still counts, so the picker asks for the model. */}
       {current ? (
-        <Conversation key={current.id} active={active} projectId={projectId} sessionId={current.id} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
+        <Conversation key={current.id} active={active} projectId={projectId} sessionId={current.id} onNew={startFromBox} takeFocus={takeFocus} mode={current.permissionMode} model={current.connectionId ? { connectionId: current.connectionId, model: current.model ?? '', ...(current.effort && { effort: current.effort }) } : null} />
       ) : (
         <Stack grow align="center" justify="center" gap="normal" padding="spacious" textAlign="center" variant="body" tone="muted">
           <Button onClick={() => create.mutate()} disabled={create.isPending}>
@@ -162,7 +146,7 @@ export const ChatPanel = memo(function ChatPanel({ projectId, active }: { projec
   );
 });
 
-function Conversation({ active, projectId, sessionId, model, mode }: { active: boolean; projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode }) {
+function Conversation({ active, projectId, sessionId, model, mode, onNew, takeFocus }: { active: boolean; projectId: string; sessionId: string; model: ModelValue | null; mode: PermissionMode; onNew: () => void; takeFocus: () => boolean }) {
   const saved = useQuery(q.chatSession(sessionId));
   // A connection picked without a model yet: the picker shows it and asks for the model.
   const [picked, setPicked] = useState<ModelValue | null>(null);
@@ -176,21 +160,23 @@ function Conversation({ active, projectId, sessionId, model, mode }: { active: b
       turn={saved.data?.turn ?? null}
       usage={saved.data?.usage ?? null}
       compaction={saved.data?.compaction ?? null}
+      onNew={onNew}
+      takeFocus={takeFocus}
       pending={saved.data?.pendingSteers ?? []}
       model={picked ?? model}
       mode={mode}
-      onMode={(next) => void changeChatSession(projectId, sessionId, { permissionMode: next }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { permissionMode: next } })).catch(() => undefined)}
+      onMode={(next) => void changeChat(projectId, sessionId, { permissionMode: next }).catch(() => undefined)}
       onModel={async (next) => {
         // A connection chosen without a model yet waits here for one; a whole choice is saved (shown at once).
         if (!next.model) return setPicked(next);
         setPicked(null);
-        await changeChatSession(projectId, sessionId, { connectionId: next.connectionId, model: next.model, effort: next.effort ?? null }, () => client.chat[':sessionId'].$patch({ param: { sessionId }, json: { model: next } }));
+        await changeChat(projectId, sessionId, { model: next });
       }}
     />
   );
 }
 
-function ChatBody({ active, projectId, sessionId, initial, turn, usage, compaction, pending, model, onModel, mode, onMode }: {
+function ChatBody({ active, projectId, sessionId, initial, turn, usage, compaction, onNew, takeFocus, pending, model, onModel, mode, onMode }: {
   /** The panel is the dock's open tab: only then are the messages drawn. */
   active: boolean;
   projectId: string;
@@ -201,6 +187,10 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   usage: (ChatUsage & { images: 'yes' | 'no' | 'unknown' }) | null;
   /** Where the conversation's start was summarized, if it was. */
   compaction: { upTo: number; summary: string; at: number } | null;
+  /** /new: starts another conversation and opens it. */
+  onNew: () => void;
+  /** True once, when this conversation was started from the box (/new): its box takes the focus. */
+  takeFocus: () => boolean;
   /** Messages the server still holds for the conversation's agent (sent before a reload or a restart). */
   pending: string[];
   model: ModelValue | null;
@@ -208,23 +198,25 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   onMode: (mode: PermissionMode) => void;
   onModel: (next: ModelValue) => Promise<void>;
 }) {
-  const queryClient = useQueryClient();
   const ready = Boolean(model?.connectionId && model.model);
   const composer = useRef<ComposerHandle>(null);
+  useEffect(() => {
+    if (takeFocus()) composer.current?.focus();
+  }, [takeFocus]);
 
   // The conversation outlives this panel: closing it mid-reply keeps the reply coming in.
   const stored = chatFor(sessionId, initial);
   // A reply's chunks arrive far faster than anyone reads: the conversation is drawn at most this often.
-  const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolApprovalResponse, addToolOutput } = useChat({ chat: stored.chat, throttle: 50 });
+  const { messages, sendMessage, setMessages, regenerate, status, stop, error, addToolOutput } = useChat({ chat: stored.chat, throttle: 50 });
   // The turn runs on the server, not in this request: stopping ends both.
   const halt = () => {
     void stop();
-    // Said at once here; the server saves the same mark on the conversation (chat-turns markStopped).
+    // Said at once here; the server saves the same mark on the conversation (chat-turn-registry.ts markStopped).
     setMessages((current) => {
       const last = current.at(-1);
       return last ? [...current.slice(0, -1), { ...last, metadata: { ...((last.metadata as object | undefined) ?? {}), stopped: true } }] : current;
     });
-    void unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })).then(({ queued: back }) => {
+    void chatTurn(sessionId).stop().then(({ queued: back }) => {
       // Messages the turn had not taken yet go back to the input box.
       setQueued([]);
       if (back.length) composer.current?.mergeDraft(back);
@@ -266,8 +258,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
   const [queued, setQueued] = useState<string[]>(pending);
-  // A card the server made or answered joins the stored conversation at once; the sync above puts it on screen.
-  const putCard = useCallback((card: RunCard) => queryClient.setQueryData(q.chatSession(sessionId).queryKey, (session) => (session ? withCard(session, card) : session)), [queryClient, sessionId]);
   const waitingCard = useRef<RunCardControls | null>(null);
   const sentHere = useMemo(() => sentTexts(messages), [messages]);
   const busy = status === 'submitted' || status === 'streaming';
@@ -293,7 +283,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   useEffect(() => {
     const element = scroller.current;
     if (active && element && pinned.current) element.scrollTop = element.scrollHeight;
-  }, [messages, active]);
+  }, [messages, active, compaction?.at]);
   // Only the newest messages are drawn at first; drawing older ones above keeps what is on screen where it is.
   const [extra, setExtra] = useState(0);
   const firstShown = Math.max(0, messages.length - MESSAGES_SHOWN - extra);
@@ -309,6 +299,24 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     scrolledFrom.current = null;
   }, [extra]);
 
+  // /compact: the server answers once the summary is stored; 취소 closes the request, which stops the model call.
+  const compactRequest = useRef<AbortController | null>(null);
+  const compact = useMutation({
+    mutationFn: () => {
+      const controller = new AbortController();
+      compactRequest.current = controller;
+      return chatTurn(sessionId).compact(controller.signal);
+    },
+    onError: (cause) => {
+      if (!compactRequest.current?.signal.aborted) toast.error(cause instanceof Error ? cause.message : '대화를 압축하지 못했습니다.');
+    },
+  });
+  const runApp = (id: AppCommand['id']) => {
+    if (id === 'new') return onNew();
+    if (busy || elsewhere) return void toast.info('답변이 끝난 뒤에 압축할 수 있습니다.');
+    if (!compact.isPending) compact.mutate();
+  };
+
   const pin = useCallback(() => void (pinned.current = true), []);
   const send = (message: OutgoingMessage) => void sendMessage(message);
   const queue = (text: string) => {
@@ -319,11 +327,11 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
       toast.info('답이 막 끝나 전달하지 못했습니다. 입력창에 되돌려 두었습니다.');
     };
     // The turn may be ending: it refuses (409) and the text goes back to the box instead of being sent on its own.
-    client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => response.ok || giveBack(), giveBack);
+    void chatTurn(sessionId).steer(text).then((taken) => taken || giveBack());
   };
   // A queued message the turn has not taken yet: cancel it, or take it back into the box to edit.
   const takeBack = async (text: string, edit: boolean) => {
-    const { removed } = await unwrap(client.chat[':sessionId'].unsteer.$post({ param: { sessionId }, json: { text } })).catch(() => ({ removed: false }));
+    const { removed } = await chatTurn(sessionId).unsteer(text);
     if (!removed) return void toast.info('이미 에이전트에게 전달됐습니다.');
     setQueued((list) => removeOnce(list, text));
     if (edit) {
@@ -338,7 +346,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     setReplyUndoIds(ids);
     setUndoingReply(true);
   }, []);
-  const decideTool = useCallback((id: string, approved: boolean) => void addToolApprovalResponse({ id, approved }), [addToolApprovalResponse]);
   const toolOutput = useCallback((tool: string, toolCallId: string, output: unknown) => void addToolOutput({ tool: tool as never, toolCallId, output: output as never }), [addToolOutput]);
   // A queued message shows in the reply once the turn has handed it to the model.
   useEffect(() => {
@@ -398,20 +405,25 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
                 waitingCard={message.id === lastWaiting ? waitingCard : undefined}
                 proposalById={proposalById}
                 summary={marker?.index === firstShown + offset ? marker.summary : null}
-                onDecide={decideTool}
                 onToolOutput={toolOutput}
                 onReuse={reuse}
                 onUndo={undo}
-                onCard={putCard}
                 onCardAnswered={focusBox}
               />
             ))}
             {queued.map((text, index) => (
               <SteerBubble key={`queued-${index}`} text={text} waiting onEdit={() => void takeBack(text, true)} onCancel={() => void takeBack(text, false)} />
             ))}
+            {marker?.index === messages.length && <CompactionNotice summary={marker.summary} />}
             {busy && (
               <Inline as="p" gap="condensed" variant="body" tone="muted">
                 <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중…'}
+              </Inline>
+            )}
+            {compact.isPending && (
+              <Inline gap="condensed" variant="body" tone="muted">
+                <Spinner /> 대화를 요약하는 중…
+                <Button variant="ghost" size="inline" onClick={() => compactRequest.current?.abort()}>취소</Button>
               </Inline>
             )}
             {!busy && !error && lastMessage?.role === 'user' && <TurnState turn={turn} onStop={halt} onRetry={() => void regenerate()} canRetry={ready} />}
@@ -425,12 +437,15 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         )}
       </Box>
 
-      <AlertDialog open={undoingReply} onOpenChange={setUndoingReply}>
-        <AlertDialogContent>
-          <AlertDialogHeader><AlertDialogTitle>변경을 되돌릴까요?</AlertDialogTitle><AlertDialogDescription>이 답에서 반영된 변경 {replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.</AlertDialogDescription></AlertDialogHeader>
-          <AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction disabled={undoReply.isPending} onClick={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}>되돌리기</AlertDialogAction></AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={undoingReply}
+        onOpenChange={setUndoingReply}
+        title="변경을 되돌릴까요?"
+        description={`이 답에서 반영된 변경 ${replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.`}
+        confirmLabel="되돌리기"
+        pending={undoReply.isPending}
+        onConfirm={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}
+      />
 
       <ChatComposer
         handle={composer}
@@ -441,7 +456,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         onQueue={queue}
         onPin={pin}
         onStop={halt}
-        onCard={putCard}
+        onApp={runApp}
         ready={ready}
         busy={busy}
         elsewhere={elsewhere}

@@ -35,7 +35,7 @@ export function FlowRow({ who, what, editable, editing, tint, ...props }: Omit<R
 }
 
 /** What a pane shows of each line: both, or one of them alone. */
-export type FlowShow = "both" | "source" | "translation"
+type FlowShow = "both" | "source" | "translation"
 
 /**
  * A line's text in a `FlowRow`. Both: the source small and quiet above, the translation (what is being worked on) in body text with a

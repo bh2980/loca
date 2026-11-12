@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { toJSONSchema } from 'zod';
-import { workflowNodeSchema, type AiNode } from '@tw/shared';
-import type { BatchContext } from '../services/context.ts';
+import { workflowNodeSchema, type AiNode } from '@loca/shared';
+import type { BatchContext } from './ai-context.ts';
 import { FORMAT_CHOICE, FORMAT_JSON_BATCH, FORMAT_JSON_LINE, FORMAT_TEXT, INPUT_SCRIPT } from './format-sentences.ts';
 import { buildPrompt, formatSentences, isBatchScope, outputSchema, type PromptLine } from './prompts.ts';
 

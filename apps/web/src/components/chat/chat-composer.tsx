@@ -4,22 +4,24 @@ import { Link, useRouterState } from '@tanstack/react-router';
 import { ArrowUp, ImageOff, Plus, Square, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Box, Button, ComposerInput, ComposerMenu, FilePickButton, Icon, ImageChip, Inline, Stack, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { CHAT_IMAGES_MAX, imageDecision, IMAGE_UNSUPPORTED_NOTE, type ChatChip, type PermissionMode, type RunCard } from '@tw/shared';
+import { CHAT_IMAGES_MAX, imageDecision, IMAGE_UNSUPPORTED_NOTE, type ChatChip, type PermissionMode } from '@loca/shared';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
 import { NO_HISTORY, stepHistory, type HistoryState } from '@/lib/chat-input-history';
 import { mergeIntoDraft } from '@/lib/chat-queue';
-import { makeRunCard } from '@/lib/chat-run-api';
+import { makeRunCard } from '@/lib/chat-sessions';
 import type { chatFor } from '@/lib/chat-store';
+import type { AppCommand } from '@/lib/chat-triggers';
 import { keyLabel } from '@/lib/keys';
-import { useViewState, type ViewItem } from '@/lib/view-context';
+import { useViewState, type ViewItem } from '@/lib/reported-view';
 import { AttachChip } from './attach-chip';
-import { ContextMeter, type ChatUsage } from './context-meter';
+import { WindowMeter, type ChatUsage } from './window-meter';
 import { PermissionModePicker } from './permission-mode';
 import type { RunCardControls } from './run-card';
 import { useComposerMenu, type RunMode } from './use-composer-menu';
+import { draftText } from '@/lib/drafts';
 
 /** What the conversation asks of the box: text sent back to it, a message to send again, focus. */
 export interface ComposerHandle {
@@ -41,7 +43,7 @@ export interface OutgoingMessage {
  * The box under the conversation: the draft, its attachments, the @ and / lists and the send button. Everything a
  * keystroke changes lives here, so typing draws this and nothing of the conversation above it.
  */
-export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQueue, onPin, onStop, onCard, ready, busy, elsewhere, sent, waitingCard, cardWaiting, usage, model, onModel, mode, onMode }: {
+export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQueue, onPin, onStop, onApp, ready, busy, elsewhere, sent, waitingCard, cardWaiting, usage, model, onModel, mode, onMode }: {
   handle: Ref<ComposerHandle>;
   projectId: string;
   sessionId: string;
@@ -51,7 +53,8 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   onQueue: (text: string) => void;
   onPin: () => void;
   onStop: () => void;
-  onCard: (card: RunCard) => void;
+  /** /new and /compact, picked from the / list. */
+  onApp: (id: AppCommand['id']) => void;
   ready: boolean;
   /** A reply is coming in here. */
   busy: boolean;
@@ -86,7 +89,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
     stored.setView(frozenView.current ?? viewRef.current);
   });
 
-  const [input, setInput] = useState(() => chatDock.takePrefill(projectId) ?? sessionStorage.getItem(`tw.chat.draft.${sessionId}`) ?? '');
+  const [input, setInput] = useState(() => chatDock.takePrefill(projectId) ?? draftText(`chat.${sessionId}`).read() ?? '');
   // A page asked to start a request here (e.g. the graph's AI 간략 보기): it fills the box, the person finishes and sends it.
   useEffect(
     () =>
@@ -120,9 +123,9 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   const [run, setRun] = useState<RunMode | null>(null);
   const [slot, setSlot] = useState<number | null>(null);
   const makeCard = useMutation({
-    mutationFn: ({ workflowId, chips }: { workflowId: string; chips: ChatChip[] }) => makeRunCard(sessionId, workflowId, chips),
-    onSuccess: (card) => {
-      onCard(card);
+    mutationFn: ({ workflowId, chips }: { workflowId: string; chips: ChatChip[] }) => makeRunCard(projectId, sessionId, workflowId, chips),
+    // The card is a message of the conversation, which making it changed: it shows when the conversation is read again.
+    onSuccess: () => {
       setRun(null);
       putInput('', 0);
     },
@@ -142,7 +145,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
       setCaret(at);
     });
   };
-  const menu = useComposerMenu({ projectId, input, caret, put: putInput, box, onPage: reported, picked, setPicked, run, setRun, slot, setSlot });
+  const menu = useComposerMenu({ projectId, input, caret, put: putInput, box, onPage: reported, picked, setPicked, run, setRun, slot, setSlot, onApp });
   // The slot is the @ a prompt's {대상} was opened as: it ends when that @ is no longer there (the caret may jump while the text is replaced, so it is not tied to the list being open).
   useEffect(() => {
     if (slot !== null && input[slot] !== '@') setSlot(null);
@@ -153,8 +156,9 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
     if (!run.chips.length) return putInput('@', 1);
     makeCard.mutate({ workflowId: run.command.id, chips: run.chips });
   };
+  // What is typed and not sent is a draft like any other (lib/drafts.ts): it comes back with the conversation.
   useEffect(() => {
-    sessionStorage.setItem(`tw.chat.draft.${sessionId}`, input);
+    draftText(`chat.${sessionId}`).write(input || null);
   }, [sessionId, input]);
 
   useImperativeHandle(handle, () => ({
@@ -360,7 +364,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
         </Box>
         <PermissionModePicker compact value={mode} onChange={onMode} />
         <Inline marginLeft="auto" gap="tight">
-          <ContextMeter usage={usage} />
+          <WindowMeter usage={usage} />
           {(busy || elsewhere) && (
             <Tooltip>
               <TooltipTrigger asChild>

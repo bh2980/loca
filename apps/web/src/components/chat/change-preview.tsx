@@ -1,318 +1,102 @@
-import { AGENT_TOOLS, APP_DEFAULT_SECTION_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
+import { TOOL_SPECS, type ProposalDetail } from '@loca/shared';
 import { MarkChip } from '@/components/status';
-import { cardSummary } from '@/lib/chat-run';
-import { startCaps, type CapEdits } from '@/lib/run-limits';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
-export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(AGENT_TOOLS).map(([name, info]) => [name, info.label]));
+export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(TOOL_SPECS).map(([name, spec]) => [name, spec.label]));
 
-/** What the server knows about a proposal beyond its input (names for ids, old values): see services/proposal-details.ts. */
-export interface ProposalDetails {
-  items: { kind: string; action: '수정' | '추가'; label: string; changes: { field: string; before?: string; after: string }[] }[];
-  refs: Record<string, string>;
-}
-const KIND_NAME: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트' };
-
-/** Each saved item as who it is, then field by field what it was and what it becomes. */
-function KnowledgeChanges({ items }: { items: ProposalDetails['items'] }) {
-  return (
-    <Box as="ul" maxHeight="scroll" spaceY="condensed" overflow="auto">
-      {items.map((item, index) => (
-        <li key={index}>
-          <Text as="p" weight="medium">
-            {item.action} · {KIND_NAME[item.kind] ?? item.kind} · {item.label || '(이름 없음)'}
-          </Text>
-          {item.changes.length ? (
-            <Box as="dl" spaceY="tight">
-              {item.changes.map((change) => (
-                <Grid key={change.field} columns="field" gap="condensed">
-                  <Text as="dt" variant="caption" tone="muted">{change.field}</Text>
-                  <Box as="dd" minWidth={0}>
-                    {change.before !== undefined && <Text as="p" tone="muted" breakWords preserveLines>{change.before}</Text>}
-                    <Text as="p" breakWords preserveLines>{change.before !== undefined ? '→ ' : ''}{change.after}</Text>
-                  </Box>
-                </Grid>
-              ))}
-            </Box>
-          ) : (
-            <Text as="p" variant="caption" tone="muted">바뀌는 내용이 없습니다.</Text>
-          )}
-        </li>
-      ))}
-    </Box>
-  );
-}
-
-/** A readable preview of what an approval-gated tool would change. */
-export function ChangePreview({ name, input, pending = true, details, run }: { name: string; input: Record<string, unknown>; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean; details?: ProposalDetails | null; /** A proposed run: what it would take in and cost when it was proposed (the proposal's report). */ run?: { input: 'lines' | 'terms'; plan: RunCardPlan } }) {
-  // An id the project can name is shown as its name.
-  const named = (value: unknown) => (typeof value === 'string' ? (details?.refs[value] ?? value) : value);
-  const field = (label: string, value: unknown) =>
-    value === undefined || value === '' ? null : (
-      <Grid columns="field" gap="condensed">
-        <Text as="dt" variant="caption" tone="muted">{label}</Text>
-        <Text as="dd" minWidth={0} breakWords>{Array.isArray(value) ? value.map(named).join(', ') : String(named(value))}</Text>
-      </Grid>
-    );
-  if (details?.items.length && ['save_knowledge', 'save_character', 'save_relationship', 'save_speech_rule', 'save_event', 'save_document'].includes(name)) return <KnowledgeChanges items={details.items} />;
-  const markdown = (value: unknown) =>
-    typeof value === 'string' && value ? (
-      <Markdown framed>{value}</Markdown>
-    ) : null;
-  const action = input.id ? '수정' : '새로 만들기';
-  switch (name) {
-    case 'save_character':
+/** One detail, drawn by its kind (ProposalDetail, @loca/shared): the server's tool definition said what the change does. */
+function Detail({ detail, pending }: { detail: ProposalDetail; pending: boolean }) {
+  switch (detail.kind) {
+    case 'fields':
       return (
         <Box as="dl" spaceY="tight">
-          {field('작업', action)}
-          {field('이름', input.name)}
-          {field('별칭', input.aliases)}
-          {input.gender || input.ageBand ? field('성별·나이', personLabel(input as { gender?: Gender; ageBand?: AgeBand }) || '모름') : null}
-          {input.role ? field('역할', CHARACTER_ROLE_LABELS[input.role as CharacterRole]) : null}
-          {markdown(input.profile)}
-        </Box>
-      );
-    case 'save_relationship':
-      return <Box as="dl" spaceY="tight">{field('작업', action)}{field('관계', `${input.from} → ${input.to} (${input.kind})`)}{field('쌍방', input.mutual ? '예' : '아니오')}{field('설명', input.description)}</Box>;
-    case 'save_document':
-      return <Box as="dl" spaceY="tight">{field('작업', action)}{field('제목', input.title)}{field('종류', input.kind)}{field('문맥에 넣기', input.alwaysInclude ? '예' : '아니오')}{markdown(input.body)}</Box>;
-    case 'tag_items': {
-      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트' };
-      const names = (value: unknown) => ((value as string[] | undefined) ?? []).map((name) => `#${name.replace(/^#/, '')}`);
-      return (
-        <Box as="dl" spaceY="tight">
-          {field('대상', `${kinds[input.kind as string] ?? String(input.kind)} ${((input.ids as unknown[] | undefined) ?? []).length}개`)}
-          {field('붙이기', names(input.add))}
-          {field('떼기', names(input.remove))}
-        </Box>
-      );
-    }
-    case 'save_knowledge': {
-      const sections = [
-        ['characters', '인물', (item: Record<string, unknown>) => String(item.name ?? item.id ?? '')],
-        ['relationships', '관계', (item: Record<string, unknown>) => `${String(item.from ?? '?')} → ${String(item.to ?? '?')}${item.kind ? ` (${String(item.kind)})` : ''}`],
-        ['speechRules', '말투 규칙', (item: Record<string, unknown>) => (item.fromName ? `${String(item.fromName)} → ${String(item.toName ?? '?')}${item.level ? ` (${String(item.level)})` : ''}` : String(item.id ?? ''))],
-        ['events', '사건', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
-        ['documents', '노트', (item: Record<string, unknown>) => String(item.title ?? item.id ?? '')],
-      ] as const;
-      return (
-        <Box maxHeight="scroll" spaceY="condensed" overflow="auto">
-          {sections.map(([key, label, text]) => {
-            const items = (input[key] as Record<string, unknown>[] | undefined) ?? [];
-            return items.length ? (
-              <div key={key}>
-                <SectionHeading level="group">
-                  {label} {items.length}개
-                </SectionHeading>
-                <Box as="ul" spaceY="hair">
-                  {items.map((item, index) => (
-                    <li key={index}>
-                      {item.id ? '수정' : '추가'} · {text(item)}
-                    </li>
-                  ))}
-                </Box>
-              </div>
-            ) : null;
-          })}
-        </Box>
-      );
-    }
-    case 'delete_items': {
-      const kinds: Record<string, string> = { terms: '용어', characters: '인물', relationships: '관계', speechRules: '말투 규칙', events: '사건', documents: '노트', tags: '태그' };
-      const ids = (input.ids as string[] | undefined) ?? [];
-      return (
-        <Box as="dl" spaceY="tight">
-          {field('삭제', `${kinds[input.kind as string] ?? String(input.kind)} ${ids.length}개`)}
-          {field('이유', input.reason)}
-          {field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}
-          {pending && <Text as="p" tone="danger">수락하면 바로 지워지고 되돌릴 수 없습니다. 이 항목에 걸린 관계·태그 연결도 함께 지워집니다.</Text>}
-        </Box>
-      );
-    }
-    case 'pull_app_defaults': {
-      const sections = Array.isArray(input.sections) ? (input.sections as AppDefaultSection[]) : [];
-      return <Text as="p">홈 기본값에서 가져옴: {sections.map((section) => APP_DEFAULT_SECTION_LABELS[section] ?? section).join(', ')}. 상태·태그·저장한 지시는 없는 이름만 더하고, 워크플로는 새로 더합니다.</Text>;
-    }
-    case 'update_project_settings': {
-      const labels: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI' };
-      return (
-        <Box as="dl" spaceY="tight">
-          {Object.entries(input).map(([key, value]) => (
-            <Grid key={key} columns="field" gap="condensed">
-              <Text as="dt" variant="caption" tone="muted">{labels[key] ?? key}</Text>
-              <Text as="dd" minWidth={0} breakWords>{typeof value === 'string' ? value : <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{JSON.stringify(value, null, 2)}</Text>}</Text>
+          {detail.rows.map((row, index) => (
+            <Grid key={index} columns="field" gap="condensed">
+              <Text as="dt" variant="caption" tone="muted">{row.label}</Text>
+              <Text as="dd" minWidth={0} breakWords>{row.code ? <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{row.value}</Text> : row.value}</Text>
             </Grid>
           ))}
         </Box>
       );
-    }
-    case 'save_status': {
-      const places: Record<string, string> = { lines: '대사', knowledge: '자료', terms: '용어집' };
+    case 'changes':
       return (
-        <Box as="dl" spaceY="tight">
-          {field('만들기', input.type === 'tag' ? `태그 #${String(input.name)}` : `상태 ${String(input.name)}`)}
-          {input.type === 'tag' && field('붙는 곳', ((input.scope as string[] | undefined) ?? ['lines', 'knowledge', 'terms']).map((place) => places[place] ?? place))}
-          {input.type === 'tag' && field('설명', input.description)}
-        </Box>
-      );
-    }
-    case 'update_status':
-      return <Box as="dl" spaceY="tight">{field('상태', input.id)}{field('이름', input.name)}{field('종류', input.kind)}{field('색', input.color)}{field('검토', input.inReview === undefined ? undefined : input.inReview ? '검토 필요' : '검토 불필요')}</Box>;
-    case 'delete_status':
-      return <Box as="dl" spaceY="tight">{field('삭제할 상태', input.ids)}{field('대사를 옮길 상태', input.moveTo)}{pending && <Text as="p" tone="danger">대사의 상태가 바뀌고 상태를 삭제합니다.</Text>}</Box>;
-    case 'update_tag':
-      return <Box as="dl" spaceY="tight">{field('태그', input.id)}{field('이름', input.name)}{field('설명', input.description)}{field('색', input.color)}{field('붙는 곳', input.scope)}</Box>;
-    case 'delete_tag':
-      return <Box as="dl" spaceY="tight">{field('삭제할 태그', input.ids)}{pending && <Text as="p" tone="danger">항목에 붙은 태그도 함께 제거됩니다.</Text>}</Box>;
-    case 'delete_workflow':
-      return <Box as="dl" spaceY="tight">{field('삭제할 워크플로', input.id)}{pending && <Text as="p" tone="danger">워크플로와 실행 계획을 삭제합니다.</Text>}</Box>;
-    case 'create_group':
-      return <Box as="dl" spaceY="tight">{field('종류', { scene: '장면', document: '문서 묶음', ui: 'UI 묶음' }[input.kind as string])}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}<Text as="p" tone="muted">묶음만 추가합니다. 원문이나 그래프 연결은 만들지 않습니다.</Text></Box>;
-    case 'update_group':
-      return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('제목', input.title)}{field('키', input.key)}{field('설명', input.description)}{field('구역', input.section)}</Box>;
-    case 'delete_group':
-      return <Box as="dl" spaceY="tight">{field('삭제할 묶음', input.groupId)}{pending && <Text as="p" tone="danger">묶음과 안의 원문을 모두 삭제합니다.</Text>}</Box>;
-    case 'create_unit':
-      return <Box as="dl" spaceY="tight">{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}<Text as="p" tone="muted">새 원문 항목이며 번역 후보가 아닙니다.</Text></Box>;
-    case 'update_unit':
-      return <Box as="dl" spaceY="tight">{field('원문 항목', input.unitId)}{field('묶음', input.groupId)}{field('키', input.key)}{field('화자', input.speaker)}{field('청자', input.listener)}{field('원문', input.source)}</Box>;
-    case 'delete_units': {
-      const ids = (input.ids as unknown[] | undefined) ?? [];
-      return <Box as="dl" spaceY="tight">{field('삭제', `원문 대사 ${ids.length}개`)}{field('id', ids.slice(0, 10).join(', ') + (ids.length > 10 ? ` 외 ${ids.length - 10}개` : ''))}{pending && <Text as="p" tone="danger">원문 대사와 번역, 후보가 삭제됩니다. 되돌릴 수 없습니다.</Text>}</Box>;
-    }
-    case 'save_terms': {
-      const terms = (input.terms as { source: string; target: string; id?: string }[]) ?? [];
-      return (
-        <Box as="ul" maxHeight="scroll-sm" spaceY="hair" overflow="auto">
-          {terms.map((term, index) => (
+        <Box as="ul" maxHeight="scroll" spaceY="condensed" overflow="auto">
+          {detail.items.map((item, index) => (
             <li key={index}>
-              {term.id ? '수정' : '추가'} · <b>{term.source}</b> → {term.target || '(번역 없음)'}
+              <Text as="p" weight="medium">{item.title}</Text>
+              {item.changes.length ? (
+                <Box as="dl" spaceY="tight">
+                  {item.changes.map((change) => (
+                    <Grid key={change.field} columns="field" gap="condensed">
+                      <Text as="dt" variant="caption" tone="muted">{change.field}</Text>
+                      <Box as="dd" minWidth={0}>
+                        {change.before !== undefined && <Text as="p" tone="muted" breakWords preserveLines>{change.before}</Text>}
+                        <Text as="p" breakWords preserveLines>{change.before !== undefined ? '→ ' : ''}{change.after}</Text>
+                      </Box>
+                    </Grid>
+                  ))}
+                </Box>
+              ) : (
+                <Text as="p" variant="caption" tone="muted">바뀌는 내용이 없습니다.</Text>
+              )}
             </li>
           ))}
         </Box>
       );
-    }
-    case 'save_workflow': {
-      const definition = input.definition as { nodes?: { type: string; label?: string }[]; edges?: unknown[] } | undefined;
+    case 'list':
       return (
-        <Box as="dl" spaceY="tight">
-          {field('작업', action)}
-          {field('이름', input.name)}
-          {field('노드', definition?.nodes?.map((node) => node.label ?? node.type))}
-          {field('연결', definition?.edges?.length)}
+        <div>
+          {detail.title && <SectionHeading level="group">{detail.title}</SectionHeading>}
+          <Box as="ul" maxHeight="scroll-sm" spaceY="hair" overflow="auto">
+            {detail.items.map((item, index) => <li key={index}>{item}</li>)}
+          </Box>
+          {!!detail.more && <Text as="p" tone="muted">외 {detail.more.toLocaleString()}개</Text>}
+        </div>
+      );
+    case 'text':
+      return detail.format === 'markdown' ? <Markdown framed>{detail.text}</Markdown> : <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption" preserveLines>{detail.text}</Text>;
+    case 'marks':
+      return (
+        <Box as="dl">
+          <Grid columns="field" gap="condensed">
+            <Text as="dt" variant="caption" tone="muted">{detail.label}</Text>
+            <Inline as="dd" minWidth={0} wrap gap="tight">
+              {detail.marks.map((mark) => <MarkChip key={mark} mark={mark} />)}
+            </Inline>
+          </Grid>
         </Box>
       );
-    }
-    case 'propose_changes': {
-      const changes = (input.changes as { key: string; translation?: string; status?: string; addTags?: string[]; removeTags?: string[] }[] | undefined) ?? [];
-      // A large batch arrives as its first lines plus counts (see routes/proposals.ts).
-      const counts = input.counts as { lines: number; translations: number; statuses: number; tagged: number } | undefined;
-      const translations = counts?.translations ?? changes.filter((change) => change.translation !== undefined).length;
-      const statuses = counts?.statuses ?? changes.filter((change) => change.status).length;
-      const tagged = counts?.tagged ?? changes.filter((change) => change.addTags?.length || change.removeTags?.length).length;
+    case 'lines':
       return (
         <Box spaceY="condensed">
           <p>
-            대사 <b>{(counts?.lines ?? changes.length).toLocaleString()}</b>개 · 번역 {translations.toLocaleString()} · 상태 {statuses.toLocaleString()} · 태그 {tagged.toLocaleString()}
-            {counts && changes.length < counts.lines && <Text tone="muted"> · 처음 {changes.length}개만 표시</Text>}
+            대사 <b>{detail.total.toLocaleString()}</b>개 · 번역 {detail.translations.toLocaleString()} · 상태 {detail.statuses.toLocaleString()} · 태그 {detail.tagged.toLocaleString()}
+            {detail.shown.length < detail.total && <Text tone="muted"> · 처음 {detail.shown.length}개만 표시</Text>}
           </p>
           <Box as="ul" maxHeight="scroll" spaceY="tight" overflow="auto">
-            {changes.slice(0, 50).map((change) => (
-              <Box as="li" key={change.key} radius="base" border="all" paddingX="condensed" paddingY="tight">
-                <Text mono variant="caption" tone="muted">{change.key}</Text>
-                {change.translation !== undefined && <Text display="block">{change.translation}</Text>}
-                {(change.status || change.addTags?.length || change.removeTags?.length) && (
-                  <Text display="block" tone="muted">
-                    {[change.status && `→ ${change.status}`, ...(change.addTags ?? []).map((tag) => `+#${tag}`), ...(change.removeTags ?? []).map((tag) => `−#${tag}`)].filter(Boolean).join(' ')}
-                  </Text>
-                )}
+            {detail.shown.map((line) => (
+              <Box as="li" key={line.key} radius="base" border="all" paddingX="condensed" paddingY="tight">
+                <Text mono variant="caption" tone="muted">{line.key}</Text>
+                {line.translation !== undefined && <Text display="block">{line.translation}</Text>}
+                {line.change && <Text display="block" tone="muted">{line.change}</Text>}
               </Box>
             ))}
           </Box>
-          {changes.length > 50 && <Text as="p" tone="muted">외 {changes.length - 50}개</Text>}
-          {pending && <Text as="p" tone="muted">그사이 바뀐 대사는 덮어쓰지 않고 건너뜁니다.</Text>}
         </Box>
       );
-    }
-    case 'start_run': {
-      const list = (key: string) => (input[key] as string[] | undefined) ?? [];
-      // A long list reads as its first names and how many more.
-      const some = (key: string) => {
-        const names = list(key).map((value) => String(named(value)));
-        return names.length > 3 ? `${names.slice(0, 3).join(', ')} 외 ${names.length - 3}개` : names.join(', ');
-      };
-      const terms = run?.input === 'terms';
-      const marks = list('marks') as AutoMark[];
-      const narrowed = ['groupIds', 'unitIds', 'kinds', 'statuses', 'speakers', 'listeners', 'tagIds', 'termIds', 'marks'].some((key) => list(key).length > 0) || ['q', 'unfinished', 'decidedBy', 'noted', 'emptyTarget'].some((key) => input[key] !== undefined);
-      const summary = run && cardSummary(run.input, run.plan);
-      const models = Object.entries((input.models as Record<string, { connection?: string; model?: string }> | undefined) ?? {});
-      return (
-        <Box as="dl" spaceY="tight">
-          {field('워크플로', input.workflowId)}
-          {summary && field('대상', [summary.targets, `AI 요청 ${summary.requests}`, summary.time && `약 ${summary.time}`, summary.money].filter(Boolean).join(' · '))}
-          {summary && summary.excluded > 0 && field('빠지는 줄', `번역 제외 ${summary.excluded.toLocaleString()}줄`)}
-          {!narrowed && field('범위', terms ? '용어집 전체' : '프로젝트 전체')}
-          {field('장면', some('groupIds'))}
-          {list('unitIds').length > 0 && field('대사', `${list('unitIds').length.toLocaleString()}개`)}
-          {field('종류', list('kinds').map((kind) => TERM_LINE_KIND_LABELS[kind as TermLineKind] ?? kind).join(', '))}
-          {field('상태', some('statuses'))}
-          {field('화자', some('speakers'))}
-          {field('청자', list('listeners').map((listener) => (listener === '-' ? '청자 모름' : listener)).join(', '))}
-          {field('태그', some('tagIds'))}
-          {field('용어', some('termIds'))}
-          {marks.length > 0 && (
-            <Grid columns="field" gap="condensed">
-              <Text as="dt" variant="caption" tone="muted">표시</Text>
-              <Inline as="dd" minWidth={0} wrap gap="tight">
-                {marks.map((mark) => <MarkChip key={mark} mark={mark} />)}
-              </Inline>
-            </Grid>
-          )}
-          {field('원문', input.q)}
-          {input.unfinished !== undefined && field('진행', input.unfinished ? '최종 아님' : '최종')}
-          {input.decidedBy !== undefined && field('정한 쪽', input.decidedBy === 'ai' ? 'AI' : '사람')}
-          {input.noted !== undefined && field('메모', input.noted ? '있음' : '없음')}
-          {input.emptyTarget !== undefined && field('번역', input.emptyTarget ? '비어 있음' : '있음')}
-          {!terms && field('사람이 정한 것', input.changeHuman ? '상태·태그도 바꿈' : '그대로 두고 실행 상세에 남김')}
-          {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
-          {(run || input.limits !== undefined) && field('상한', startCaps(input.limits as CapEdits | undefined, run?.plan.suggestedLimits))}
-          {pending && <Text as="p" tone="muted">수락하면 바로 실행이 시작되고 AI 호출 비용이 듭니다.</Text>}
-        </Box>
-      );
-    }
-    case 'continue_run': {
-      const models = Object.entries((input.models as Record<string, { connection?: string; model?: string }> | undefined) ?? {});
-      const limits = input.limits as { maxCalls?: number | null; maxInputTokens?: number | null } | undefined;
-      const cap = (value: number | null | undefined, unit: string) => (value === undefined ? undefined : value === null ? '없앰' : `${value.toLocaleString()}${unit}`);
-      return (
-        <Box as="dl" spaceY="tight">
-          {field('실행', input.runId)}
-          {field('실패한 대사', input.retryFailed ? '실패한 단계부터 다시' : '그대로 두기')}
-          {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
-          {limits?.maxCalls !== undefined && field('호출 상한', cap(limits.maxCalls, '회'))}
-          {limits?.maxInputTokens !== undefined && field('입력 토큰 상한', cap(limits.maxInputTokens, ''))}
-          {pending && <Text as="p" tone="muted">수락하면 실행이 이어지고 AI 호출 비용이 듭니다.</Text>}
-        </Box>
-      );
-    }
-    case 'propose_translation':
-      return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('번역', input.text)}{field('메모', input.note)}</Box>;
-    case 'decide_suggestion':
-      return <Box as="dl" spaceY="tight">{field('대사', input.unitId)}{field('결정', input.decision === 'apply' ? '적용 (현재 번역으로)' : '거절 (이력에만 남김)')}</Box>;
-    case 'save_group_summary':
-      return <Box as="dl" spaceY="tight">{field('요약', input.description)}</Box>;
-    case 'edit_workflow_node': {
-      const value = input.field === 'expression' ? JSON.stringify(input.value, null, 2) : String(input.value ?? '');
-      return (
-        <Box as="dl" spaceY="tight">
-          {field('노드', input.nodeId)}
-          {field('항목', { instructions: '지시문', expression: '조건식', code: '스크립트 코드' }[input.field as string])}
-          {field('설명', input.description)}
-          <Text as="pre" maxHeight="scroll" overflow="auto" radius="md" border="all" background="sunken" padding="condensed" variant="caption" preserveLines>{value}</Text>
-        </Box>
-      );
-    }
-    default:
-      return <Text as="pre" maxHeight="scroll-sm" overflow="auto" variant="caption">{JSON.stringify(input, null, 2)}</Text>;
+    case 'note':
+      return detail.whilePending && !pending ? null : <Text as="p" tone={detail.tone}>{detail.text}</Text>;
   }
+}
+
+/**
+ * What a proposed change does, as its tool's definition on the server says it (the proposal's details): each detail
+ * is drawn by its kind, never by the tool's name, so a new tool needs nothing here.
+ */
+export function ChangePreview({ details, pending = true }: { details: readonly ProposalDetail[]; /** Still waiting for a decision: only then does it say what accepting will do. */ pending?: boolean }) {
+  return (
+    <Box spaceY="tight">
+      {details.map((detail, index) => <Detail key={index} detail={detail} pending={pending} />)}
+    </Box>
+  );
 }

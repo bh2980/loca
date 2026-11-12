@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { asc, eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from './index.ts';
 import * as s from './schema.ts';
 import { importProject } from '../services/importer.ts';

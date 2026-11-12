@@ -12,6 +12,9 @@ import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 export const IMPORT_FORMAT = 'loca/v1' as const;
 
 export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
+/** A group kind in a word, and as what such a group is called (a document line is one in-game document; its group bundles them, like UI strings). */
+export const GROUP_KIND_LABELS = { scene: '장면', document: '문서', ui: 'UI' } as const;
+export const SOURCE_GROUP_LABELS = { scene: '장면', ui: 'UI 묶음', document: '문서 묶음' } as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
 /** script: lines; choice: an option the player picks (its text is a line too); the rest carry no text. */
 export const GRAPH_NODE_KINDS = ['script', 'choice', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
@@ -270,7 +273,6 @@ export function importWarnings(file: ImportFile): { message: string; examples: s
   return warnings;
 }
 export type NodeType = z.infer<typeof nodeTypeSchema>;
-export type GraphNodeKind = (typeof GRAPH_NODE_KINDS)[number];
 export type ImportFileInput = z.input<typeof importFileSchema>;
 
 /**

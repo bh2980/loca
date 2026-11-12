@@ -53,7 +53,7 @@ loca results --section "Chapter 1" --include 검토 --rest omit -o "$W/ch1.json"
 ```
 번역이 들어가지 않은 줄에는 `fromSource: true`가 붙습니다. 형식 오류가 있어도 파일은 만들어지니 `--dry-run`의 경고를 사용자에게 알립니다.
 
-import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(사람이 확정한 청자), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로)를 넣을 수 있습니다. 번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
+import 파일의 줄에는 번역 말고도 `status`(상태 이름), `addTags`·`removeTags`(대사에 붙는 태그만), `listener`(그 줄의 청자. 사람이 제안을 수락하면 사람이 정한 것으로, 자동 검토·바로 반영 모드가 반영하면 AI가 정한 것으로 남고 사람이 정한 청자는 바꾸지 않음), `translate`(`exclude` 번역에서 뺌 · `include` 번역함 · `null` 규칙대로), `memo`(그 줄의 메모. 앱에서 대사 옆에 보이고 `loca lines`의 `note`로 읽힘. `""`이면 지움)를 넣을 수 있습니다. `note`는 줄의 메모가 아니라 새 번역에 붙는 한마디입니다(이력에 남음). 번역이 없는 줄에 최종 상태를 주면 그 줄만 오류로 빠집니다. 번역 제외 줄은 내보내기에 나오지 않으니 번역할 필요가 없습니다.
 
 ## 대사 그래프의 한 흐름 따라 번역하기
 사람이 앱에서 떼어 둔 보기(또는 `loca views create --between <시작키> <끝키>`로 만든 보기, 경로 하나만이면 `--route <시작키> <끝키>`로 만든 경로 보기)를 범위로 씁니다.

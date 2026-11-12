@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { EyeOff, ListFilter } from 'lucide-react';
-import type { AutoMark } from '@tw/shared';
+import type { AutoMark } from '@loca/shared';
 import { Box, Command, CommandEmpty, CommandGroup, CommandInput, CommandItem, CommandList, FilterCheck, FilterHeaderButton, Icon, Popover, PopoverTrigger, TagChip, Text, PopoverContent, SegmentedControl } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 
@@ -131,7 +131,7 @@ export interface MarkGroup {
  * The option groups of every mark-and-tag filter (knowledge tables, glossary, script lines):
  * the automatic marks, then the tags, as chips.
  */
-export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags, hiddenTags, onTag, projectId, tagHeading = '태그' }: {
+export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags, hiddenTags, onTag, tagHeading = '태그' }: {
   marks: readonly AutoMark[];
   picked: readonly AutoMark[] | undefined;
   hidden?: readonly AutoMark[] | undefined;
@@ -141,7 +141,6 @@ export function markTagGroups({ marks, picked, hidden, onMark, tags, pickedTags,
   pickedTags: readonly string[] | undefined;
   hiddenTags?: readonly string[] | undefined;
   onTag: (tagId: string, mode: FilterPick) => void;
-  projectId?: string;
   tagHeading?: string;
 }): MarkGroup[] {
   const tagOptions = (list: typeof tags): MarkOption[] => list.map((tag) => ({ key: tag.id, label: <TagChip tag={tag} />, state: pickOf(pickedTags, hiddenTags, tag.id), onPick: (mode) => onTag(tag.id, mode) }));

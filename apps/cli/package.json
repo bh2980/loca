@@ -1,5 +1,5 @@
 {
-  "name": "@tw/cli",
+  "name": "@loca/cli",
   "private": true,
   "type": "module",
   "description": "loca — the game translation workbench from the terminal",
@@ -10,8 +10,8 @@
     "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
-    "@tw/server": "workspace:*",
-    "@tw/shared": "workspace:*",
+    "@loca/server": "workspace:*",
+    "@loca/shared": "workspace:*",
     "commander": "14.0.1",
     "hono": "^4.13.13",
     "tsx": "^4.23.15"

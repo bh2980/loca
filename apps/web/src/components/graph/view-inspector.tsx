@@ -1,15 +1,15 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQuery } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Sparkles, Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client } from '@/lib/api';
+import { Box, Button, Inspector, InspectorActionRow, InspectorHeader, InspectorList, Input, Skeleton, Text, ListItem, Section, Field, KeyValue, KeyValueRow, ConfirmDialog } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { chatDock } from '@/lib/chat-dock';
 import { dateTime } from '@/lib/datetime';
 import type { LayoutEdge } from './graph-canvas';
 import { PersonName } from '@/lib/person-colors';
-import { sent } from '@/lib/collections';
+import { useGraphNodes } from '@/lib/graph';
+import { createGraphView, changeGraphView, deleteGraphView } from '@/lib/graph-views';
 
 /** How many omitted nodes the pane reads lines for; the rest are counted. */
 const OMITTED_SHOWN = 40;
@@ -18,29 +18,23 @@ const OMITTED_SHOWN = 40;
 /** The chat input text for making a view again from its old request. */
 export const remakeViewPrompt = (label: string, request: string | null) => `보기 "${label}"를 다시 만들어줘.${request ? `\n이전 요청: ${request}` : ''}\n고칠 점: `;
 
-/** Stored-view changes made from the graph; each refreshes through the graph SSE topic. */
+/**
+ * Stored-view changes made from the graph. The list is a collection (a change is done once the feed brings the row);
+ * what a view holds is a question under the graph topic, which a view's change names, so it is asked again by itself.
+ */
 export function useViewActions(projectId: string) {
-  const queryClient = useQueryClient();
-  // The list is a collection (done once the feed brings the row); what a view holds is asked again.
-  const refresh = () => void queryClient.invalidateQueries({ queryKey: ['graph', projectId, 'views'] });
   const create = useMutation({
     // Nodes picked in the graph, or one reading route (the view holds that route's nodes).
-    mutationFn: (input: { label: string; nodeIds?: string[]; route?: { start: string; end: string; via?: string } }) => sent(projectId, client.projects[':projectId'].graph.views.$post({ param: { projectId }, json: input })),
-    onSuccess: refresh,
+    mutationFn: (input: { label: string; nodeIds?: string[]; route?: { start: string; end: string; via?: string } }) => createGraphView(projectId, input),
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 만들지 못했습니다.'),
   });
   const change = useMutation({
     // `via`: another branch at a route view's fork (its nodes become that route's).
-    mutationFn: (input: { id: string; label?: string; add?: string[]; remove?: string[]; via?: string }) => {
-      const { id, ...json } = input;
-      return sent(projectId, client.projects[':projectId'].graph.views[':id'].$patch({ param: { projectId, id }, json: { add: [], remove: [], ...json } }));
-    },
-    onSuccess: refresh,
+    mutationFn: ({ id, ...json }: { id: string; label?: string; add?: string[]; remove?: string[]; via?: string }) => changeGraphView(projectId, id, json),
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 바꾸지 못했습니다.'),
   });
   const remove = useMutation({
-    mutationFn: (id: string) => sent(projectId, client.projects[':projectId'].graph.views[':id'].$delete({ param: { projectId, id } })),
-    onSuccess: refresh,
+    mutationFn: (id: string) => deleteGraphView(projectId, id),
     onError: (error) => toast.error(error instanceof Error ? error.message : '보기를 지우지 못했습니다.'),
   });
   return { create, change, remove };
@@ -49,36 +43,22 @@ export function useViewActions(projectId: string) {
 /** Asks before a stored view is deleted (from the view list or from its pane); only the view goes, never the graph or the lines. */
 export function DeleteViewDialog({ projectId, view, onClose, onDeleted }: { projectId: string; view: { id: string; label: string } | null; onClose: () => void; onDeleted: (id: string) => void }) {
   const actions = useViewActions(projectId);
-  // The label stays while the dialog fades out after the view is gone.
-  const [shown, setShown] = useState(view);
-  useEffect(() => {
-    if (view) setShown(view);
-  }, [view]);
   return (
-    <AlertDialog open={view !== null} onOpenChange={(open) => !open && onClose()}>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>보기 "{shown?.label}"를 지울까요?</AlertDialogTitle>
-          <AlertDialogDescription>보기만 지워집니다. 원본 그래프와 대사는 그대로입니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction
-            onClick={() =>
-              view &&
-              actions.remove.mutate(view.id, {
-                onSuccess: () => {
-                  toast.success('보기를 지웠습니다.');
-                  onDeleted(view.id);
-                },
-              })
-            }
-          >
-            삭제
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      open={view !== null}
+      onOpenChange={(open) => !open && onClose()}
+      title={`보기 "${view?.label}"를 지울까요?`}
+      description="보기만 지워집니다. 원본 그래프와 대사는 그대로입니다."
+      onConfirm={() =>
+        view &&
+        actions.remove.mutate(view.id, {
+          onSuccess: () => {
+            toast.success('보기를 지웠습니다.');
+            onDeleted(view.id);
+          },
+        })
+      }
+    />
   );
 }
 
@@ -183,7 +163,7 @@ export function OmittedPane({ projectId, edge, sections, onOpenSource, onClose }
   const omitted = edge.omitted;
   const ids = omitted?.nodeIds ?? [];
   const shown = useMemo(() => ids.slice(0, OMITTED_SHOWN), [ids]);
-  const details = useQueries({ queries: shown.map((id) => q.graphNode(id, projectId)) });
+  const details = useGraphNodes(projectId, shown);
   const first = details[0]?.data;
   const section = first?.groupId ? sections.find((item) => item.groupIds.includes(first.groupId!))?.name : undefined;
   return (

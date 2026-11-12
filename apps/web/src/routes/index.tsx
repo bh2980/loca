@@ -25,7 +25,7 @@ function Home() {
         </Inline>
       </Stack>
 
-      {projects.isPending && (
+      {projects.isLoading && (
         <Grid columns="twoFromSm" gap="normal">
           <Skeleton shape="card" count={2} />
         </Grid>

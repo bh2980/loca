@@ -1,14 +1,16 @@
-import { useEffect, useMemo } from 'react';
+import { useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Trash2 } from 'lucide-react';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { Box, Button, DirtyBar, Inspector, InspectorHeader, InspectorResult, Input, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Text, Textarea, Section, Field, KeyValue, KeyValueRow, ConfirmDialog } from '@loca/ui';
 import { useDraft } from '@/lib/drafts';
 import { useLineDetail } from '@/lib/units';
 import { SOURCE_GROUP_LABEL, SOURCE_UNIT_LABEL } from '@/lib/labels';
-import { useGroup, useGroups } from '@/lib/groups';
+import { useGroup, useGroups, createGroup, saveGroup, deleteGroup } from '@/lib/groups';
 import type { LineDetail } from '@/lib/units';
+import { createLine, editLineSource, deleteLine } from '@/lib/line-writes';
+import { undoChange } from '@/lib/undo';
+import { useShortcuts } from '@/lib/shortcuts';
 
 export type SourceGroupKind = 'scene' | 'document' | 'ui';
 export type SourceEditorMode = 'create-group' | 'edit-group' | 'create-unit' | 'edit-unit';
@@ -52,32 +54,24 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   const form = JSON.parse(draft) as Form;
   const dirty = draft !== saved;
   const update = (name: keyof Form, value: string) => setDraft(JSON.stringify({ ...form, [name]: value }));
-  useEffect(() => {
-    if (!onBack) return;
-    // Esc goes back unless an open menu, select or dialog takes it first.
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape' || event.defaultPrevented || document.querySelector('[role="dialog"][data-state="open"], [role="alertdialog"], [role="listbox"], [role="menu"]')) return;
-      onBack();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onBack]);
+  // Esc goes back unless an open menu, select or dialog takes it first.
+  useShortcuts({ sourceBack: onBack && (() => onBack()) });
 
   const save = useMutation<SourceSaved, Error, string>({
     mutationFn: async (sent: string) => {
       const values = JSON.parse(sent) as Form;
       if (mode === 'create-group') {
-        const result = await unwrap(client.projects[':projectId'].groups.$post({ param: { projectId }, json: { kind: values.kind, title: values.title, ...(values.key.trim() && { key: values.key }), description: values.description, section: values.section.trim() || null } }));
+        const result = await createGroup(projectId, { kind: values.kind, title: values.title, ...(values.key.trim() && { key: values.key }), description: values.description, section: values.section.trim() || null });
         return { entity: 'group', id: result.id, groupId: result.id, kind: result.kind };
       }
       if (mode === 'edit-group') {
-        const result = await unwrap(client.projects[':projectId'].groups[':groupId'].$patch({ param: { projectId, groupId: groupId! }, json: { key: values.key.trim() || undefined, title: values.title, description: values.description, section: values.section.trim() || null } }));
+        const result = await saveGroup(projectId, groupId!, { key: values.key.trim() || undefined, title: values.title, description: values.description, section: values.section.trim() || null });
         return { entity: 'group', id: result.id, groupId: result.id, kind: result.kind };
       }
       const json = { groupId: values.groupId, ...(values.key.trim() && { key: values.key }), source: values.source, ...(values.kind === 'scene' && { speaker: values.speaker.trim() || null, listener: values.listener.trim() || null }) };
       const result = mode === 'create-unit'
-        ? await unwrap(client.projects[':projectId'].units.$post({ param: { projectId }, json }))
-        : await unwrap(client.projects[':projectId'].units[':unitId'].source.$patch({ param: { projectId, unitId: unitId! }, json }));
+        ? await createLine(projectId, json)
+        : await editLineSource(projectId, unitId!, json);
       return { entity: 'unit', id: result.id, groupId: result.groupId, kind: sourceKind(result.kind) };
     },
     onSuccess: async (result, sent) => {
@@ -90,16 +84,18 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
   });
   const remove = useMutation({
     mutationFn: () => editingGroup
-      ? unwrap(client.projects[':projectId'].groups[':groupId'].$delete({ param: { projectId, groupId: groupId! } }))
-      : unwrap(client.projects[':projectId'].units[':unitId'].$delete({ param: { projectId, unitId: unitId! } })),
-    onSuccess: async () => {
-      toast.success(editingGroup ? '묶음을 삭제했습니다.' : '원문을 삭제했습니다.');
+      ? deleteGroup(projectId, groupId!)
+      : deleteLine(projectId, unitId!),
+    onSuccess: async ({ token }) => {
+      // The delete answers with its undo record: 되돌리기 puts the lines back with their translations, tags and history.
+      const undo = () => void undoChange(projectId, token!).then(() => toast.success('삭제한 것을 되살렸습니다.'), (error: Error) => toast.error(error.message));
+      toast.success(editingGroup ? '묶음을 삭제했습니다.' : '원문을 삭제했습니다.', token ? { action: { label: '되돌리기', onClick: undo }, duration: 10000 } : undefined);
       (onDeleted ?? onClose)?.();
     },
     onError: (error) => toast.error(error.message),
   });
 
-  const loading = (editingGroup && group.isPending) || (editingUnit && unit.isPending);
+  const loading = (editingGroup && group.isLoading) || (editingUnit && unit.isPending);
   const invalidTarget = (editingGroup && !groupId) || (editingUnit && !unitId);
   // A group comes from the groups collection, which keeps trying until it loads; only a line's detail can fail.
   const loadError = invalidTarget || (editingUnit && unit.isError);
@@ -108,26 +104,21 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
     : `${SOURCE_UNIT_LABEL[form.kind]} ${editingUnit ? '편집' : '추가'}`;
   const isGroup = mode.endsWith('group');
   const canSave = !loading && !loadError && dirty && Boolean(form.title.trim() || !isGroup) && Boolean(form.source.trim() || isGroup) && (isGroup || Boolean(groups.data?.some((item) => item.id === form.groupId))) && !save.isPending;
-  const groupTitle = groups.data?.find((item) => item.id === form.groupId)?.title;
   const groupDeleteCopy = count === undefined ? '삭제할 원문 수를 확인하고 있습니다.' : count === 0 ? '비어 있는 묶음이 삭제됩니다.' : `이 묶음과 원문 ${count!.toLocaleString()}개, 번역·후보와 실행 기록의 해당 항목이 함께 삭제됩니다.`;
 
   const creating = mode === 'create-group' || mode === 'create-unit';
   const whyDisabled = isGroup ? '이름을 입력하면 추가할 수 있습니다.' : !form.groupId ? `${SOURCE_GROUP_LABEL[form.kind]}을(를) 고르고 원문을 입력하면 추가할 수 있습니다.` : '원문을 입력하면 추가할 수 있습니다.';
 
   return (
-    <Inspector footerStart={(editingGroup || editingUnit) ? (<><AlertDialog>
-            <AlertDialogTrigger asChild><Button type="button" variant="ghost" tone="danger"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button></AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>{editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}</AlertDialogTitle>
-                <AlertDialogDescription>{editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.'}</AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>취소</AlertDialogCancel>
-                <AlertDialogAction disabled={remove.isPending || (editingGroup && count === undefined)} onClick={() => remove.mutate()}>{remove.isPending ? '삭제 중…' : '삭제'}</AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog></>) : undefined}
+    <Inspector footerStart={(editingGroup || editingUnit) ? (<><ConfirmDialog
+            trigger={<Button type="button" variant="ghost" tone="danger"><Trash2 /> {editingGroup ? '묶음 삭제' : '원문 삭제'}</Button>}
+            title={editingGroup ? '묶음과 원문을 삭제할까요?' : '원문을 삭제할까요?'}
+            description={editingGroup ? groupDeleteCopy : '이 원문과 대표 번역, 번역 후보 및 실행 기록의 해당 항목이 삭제됩니다. 삭제한 뒤 알림의 되돌리기로 되살릴 수 있습니다.'}
+            confirmLabel={remove.isPending ? '삭제 중…' : '삭제'}
+            pending={remove.isPending}
+            disabled={editingGroup && count === undefined}
+            onConfirm={() => remove.mutate()}
+          /></>) : undefined}
       header={<InspectorHeader kind={isGroup ? SOURCE_GROUP_LABEL[form.kind] : SOURCE_UNIT_LABEL[form.kind]} name={heading} onClose={onClose} onBack={onBack} />}
       loading={loading}
       footer={creating
@@ -168,7 +159,7 @@ export function SourceEditor({ projectId, kind, groupId, unitId, mode, onClose, 
         <Section title="원문">
             <Box spaceY="normal">
               <Field label={SOURCE_GROUP_LABEL[form.kind]}>
-                {groups.isPending ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
+                {groups.isLoading ? <Text variant="caption" tone="muted">불러오는 중…</Text> : groups.data?.length ? (
                   <Select value={form.groupId} onValueChange={(value) => update('groupId', value)}><SelectTrigger width="full"><SelectValue placeholder={`${SOURCE_GROUP_LABEL[form.kind]} 선택`} /></SelectTrigger><SelectContent>{groups.data.map((item) => <SelectItem key={item.id} value={item.id}>{item.title}</SelectItem>)}</SelectContent></Select>
                 ) : (
                   <Box spaceY="condensed"><Text as="p" variant="body" tone="muted">이 종류의 묶음이 없습니다.</Text>{onCreateGroup && <Button type="button" variant="outline" onClick={onCreateGroup}>{SOURCE_GROUP_LABEL[form.kind]} 추가</Button>}</Box>

@@ -1,16 +1,16 @@
 import type { QueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { listenerLabel } from '@tw/shared';
-import { client, unwrap } from './api';
+import { listenerLabel } from '@loca/shared';
+import { applySameSource } from './line-writes';
 import { q } from './queries';
 
 /**
  * After a new translation is saved, other lines with the same source that are not final and say
  * something else are offered the same text (one click, never by itself). Who says it to whom is
  * named, as the speech level may rightly differ. The click writes all of them in one request
- * (POST /units/:unitId/same-source, one transaction); a line changed since it was shown is skipped.
+ * (applySameSource, one transaction); a line changed since it was shown is skipped.
  */
-export async function offerSameSource(queryClient: QueryClient, unitId: string, text: string) {
+export async function offerSameSource(queryClient: QueryClient, projectId: string, unitId: string, text: string) {
   const same = await queryClient.fetchQuery({ ...q.sameSource(unitId), staleTime: 0 }).catch(() => []);
   const others = same.filter((line) => !line.final && (line.translation ?? '').trim() !== text.trim());
   if (!others.length) return;
@@ -22,8 +22,7 @@ export async function offerSameSource(queryClient: QueryClient, unitId: string, 
       label: '모두 이 번역으로',
       onClick: async () => {
         try {
-          const lines = others.map((line) => ({ unitId: line.id, base: line.translation ?? '' }));
-          const result = await unwrap(client.units[':unitId']['same-source'].$post({ param: { unitId }, json: { text, lines } }));
+          const result = await applySameSource(projectId, unitId, text, others.map((line) => ({ unitId: line.id, rev: line.rev })));
           if (result.skipped) toast.success(`같은 원문 ${result.applied}줄에 적용했습니다. ${result.skipped}줄은 그사이 바뀌어 건너뛰었습니다.`);
           else toast.success(`같은 원문 ${result.applied}줄에 적용했습니다.`);
         } catch (error) {

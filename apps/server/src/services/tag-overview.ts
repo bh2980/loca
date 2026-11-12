@@ -1,10 +1,10 @@
 import { and, count, eq } from 'drizzle-orm';
-import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, markName, TAG_SCOPE_LABELS, termMarksOf, withDuplicateTargets } from '@tw/shared';
+import { AUTO_MARK_IDS, AUTO_MARKS, type AutoMark, knowledgeMarksOf, LINE_MARK_IDS, markColor, markName, TAG_SCOPE_LABELS, termMarksOf, withDuplicateTargets } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { markConditions } from './line-marks.ts';
-import { projectTags } from './tag-scope.ts';
-import { fillTermUsage } from './term-usage.ts';
+import { markConditions } from '../domain/line-marks.ts';
+import { projectTags } from '../domain/tag-scope.ts';
+import { fillTermUsage } from '../domain/term-usage.ts';
 
 /** How many knowledge items and glossary terms carry each automatic mark (read off the items, as the lists do). */
 function itemMarkCounts(db: Db, projectId: string) {

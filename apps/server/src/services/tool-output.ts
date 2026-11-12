@@ -1,8 +1,7 @@
 /**
  * Chat tools can return far more than a model should read in one step (a 50k-line game's term
- * list, every check finding). Every chat path (API, CLI) sends a tool result through
- * `fitResult`, so the model always learns that it got part of it and how to get the rest, instead
- * of each path cutting the text silently at its own length.
+ * list, every check finding). A tool result meant for a model goes through `fitResult` (callTool,
+ * tool-run.ts), so the model always learns that it got part of it and how to get the rest.
  */
 export const TOOL_RESULT_CHARS = 30_000;
 
@@ -47,14 +46,3 @@ export function fitResult(result: unknown, limit = TOOL_RESULT_CHARS): unknown {
 
 /** A tool result as text for a chat that takes text (CLI). */
 export const fitText = (result: unknown, limit = TOOL_RESULT_CHARS) => JSON.stringify(fitResult(result, limit));
-
-/** The API chat's tools with every result passed through `fitResult` (the SDK hands results to the model as they are). */
-export function withFittedResults<T extends Record<string, { execute?: (...args: never[]) => unknown }>>(tools: T): T {
-  return Object.fromEntries(
-    Object.entries(tools).map(([name, tool]) => {
-      const execute = tool.execute;
-      if (!execute) return [name, tool];
-      return [name, { ...tool, execute: async (...args: never[]) => fitResult(await execute(...args)) }];
-    }),
-  ) as T;
-}

@@ -1,10 +1,10 @@
 import { useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { q } from '@/lib/queries';
-import { useGraphViews } from '@/lib/logs';
-import { DeleteViewDialog } from './view-inspector';
-import { ChevronDown, MousePointerClick, Route as RouteIcon, Trash2 } from 'lucide-react';
-import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, ListRow, MenuLabel, MenuRowAction, MenuRowMeta, MenuSearchField, Stack, Text, ViewSwitch } from '@loca/ui';
+import { useGraphViews } from '@/lib/graph-views';
+import { DeleteViewDialog, useViewActions } from './view-inspector';
+import { ChevronDown, MousePointerClick, Pencil, Route as RouteIcon, Trash2 } from 'lucide-react';
+import { Button, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, Inline, ListRow, MenuLabel, MenuRenameRow, MenuRowAction, MenuRowMeta, MenuSearchField, Stack, Text, ViewSwitch } from '@loca/ui';
 
 export interface MenuView { id: string; label: string; origin: string; nodes: number; route?: unknown }
 
@@ -21,9 +21,9 @@ const SEARCH_FROM = 8;
 /**
  * Which part of the dialogue graph is shown: all of it, a section, or a stored view; and where a new
  * view is made (from a route, or from nodes picked on the canvas). A stored view's row has its own
- * delete button, shown on hover or focus.
+ * rename and delete buttons, shown on hover or focus; it is renamed in place.
  */
-export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelete, picked = 0, onNewRoute, onNewNodes }: {
+export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onRename, onDelete, picked = 0, onNewRoute, onNewNodes }: {
   sections: { name: string; nodes: number }[];
   views: MenuView[];
   /** `view:<id>`, a section name, or nothing for the whole graph. */
@@ -31,6 +31,7 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
   /** The name of the opened view when it is not among `views` yet. */
   openedLabel: string | undefined;
   onPick: (value: string) => void;
+  onRename: (view: { id: string; label: string }) => void;
   onDelete: (view: { id: string; label: string }) => void;
   /** How many nodes are picked already: 노드 골라서 만들기 starts from them. */
   picked?: number;
@@ -52,6 +53,13 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
     setOpen(false);
     onPick(value);
   };
+  const [renaming, setRenaming] = useState<{ id: string; label: string } | null>(null);
+  const commitRename = () => {
+    if (!renaming) return;
+    const label = renaming.label.trim();
+    if (label && label !== views.find((view) => view.id === renaming.id)?.label) onRename({ id: renaming.id, label });
+    setRenaming(null);
+  };
   // While the search box has focus the menu must not move focus to the row under the pointer.
   const keepSearchFocus = (event: { preventDefault: () => void }) => {
     if (document.activeElement === searchBox.current) event.preventDefault();
@@ -62,7 +70,10 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setSearch('');
+        if (!next) {
+          setSearch('');
+          setRenaming(null);
+        }
       }}
     >
       <DropdownMenuTrigger asChild>
@@ -101,7 +112,9 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
           <>
             <DropdownMenuSeparator />
             <MenuLabel>저장된 보기</MenuLabel>
-            {shownViews.map((view) => (
+            {shownViews.map((view) => renaming?.id === view.id ? (
+              <MenuRenameRow key={view.id} value={renaming.label} label="보기 이름" maxLength={80} onChange={(label) => setRenaming({ id: view.id, label })} onCommit={commitRename} onCancel={() => setRenaming(null)} />
+            ) : (
               <ListRow as="menuitem" key={view.id} selected={chosen === `view:${view.id}`} onSelect={() => pick(`view:${view.id}`)} onPointerMove={keepSearchFocus}>
                 {Boolean(view.route) && <Icon icon={RouteIcon} size="xs" tone="muted" aria-label="경로 보기" />}
                 <Text minWidth={0} grow truncate>
@@ -110,18 +123,21 @@ export function ViewMenu({ sections, views, chosen, openedLabel, onPick, onDelet
                 </Text>
                 <MenuRowMeta
                   action={
-                    <MenuRowAction
-                      danger
-                      aria-label={`보기 ${view.label} 삭제`}
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        setOpen(false);
-                        onDelete({ id: view.id, label: view.label });
-                      }}
-                      // The menu selects its row on pointer up too; the delete button is not that row.
-                    >
-                      <Trash2 />
-                    </MenuRowAction>
+                    <Inline gap="hair">
+                      <MenuRowAction aria-label={`보기 ${view.label} 이름 바꾸기`} onClick={() => setRenaming({ id: view.id, label: view.label })}>
+                        <Pencil />
+                      </MenuRowAction>
+                      <MenuRowAction
+                        danger
+                        aria-label={`보기 ${view.label} 삭제`}
+                        onClick={() => {
+                          setOpen(false);
+                          onDelete({ id: view.id, label: view.label });
+                        }}
+                      >
+                        <Trash2 />
+                      </MenuRowAction>
+                    </Inline>
                   }
                 >
                   {view.nodes.toLocaleString()}개
@@ -183,9 +199,10 @@ export function GraphViewMenu({ projectId, direction, chosen, openedLabel, onPic
   const sections = useQuery(q.graphSections(projectId, direction)).data ?? [];
   const views = useGraphViews(projectId).data ?? [];
   const [deleting, setDeleting] = useState<{ id: string; label: string } | null>(null);
+  const actions = useViewActions(projectId);
   return (
     <>
-      <ViewMenu sections={sections} views={views} chosen={chosen} openedLabel={openedLabel} onPick={onPick} onDelete={setDeleting} onNewRoute={onNewRoute} />
+      <ViewMenu sections={sections} views={views} chosen={chosen} openedLabel={openedLabel} onPick={onPick} onRename={(view) => actions.change.mutate(view)} onDelete={setDeleting} onNewRoute={onNewRoute} />
       <DeleteViewDialog projectId={projectId} view={deleting} onClose={() => setDeleting(null)} onDeleted={(id) => { setDeleting(null); onDeleted(id); }} />
     </>
   );

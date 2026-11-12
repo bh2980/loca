@@ -3,8 +3,8 @@
  * fields, and the exit's pane (opened by a line or a chip on the canvas: ?exit=node:exit) with where its lines go.
  */
 import { ArrowDown, ArrowUp, Plus, Trash2, Unlink } from 'lucide-react';
-import { useState } from 'react';
-import { ISSUE_KIND_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, exitActionIssues, exitActions, exitResultSteps, nodeName, nodeOutputFields, nodePorts, withExitActions, type ExitAction, type TagExitAction, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { useState, type ReactNode } from 'react';
+import { ISSUE_KIND_LABELS, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, exitActionIssues, exitActions, exitResultSteps, nodeName, nodeOutputFields, nodePorts, withExitActions, type ExitAction, type TagExitAction, type WorkflowDefinition, type WorkflowNode, INPUT_TYPES } from '@loca/shared';
 import { Box, Button, ExpandableRow, Field, Grid, Inline, Input, Inspector, InspectorHeader, InspectorResult, PickedTags, Section, SelectField, SelectItem, Stack, StatusIcon, Text } from '@loca/ui';
 import { exitActionText, resultStepNames, type MarkNames } from '@/components/workflow/exit-marks';
 import { refsInput, type NodeRefs } from '@/components/workflow/node-config/shared';
@@ -17,6 +17,17 @@ const NEW_ACTIONS: { label: string; make: () => ExitAction }[] = [
 
 const namesOf = (refs: NodeRefs): MarkNames => ({ tags: new Map(refs.tags.map((tag) => [tag.id, tag])), statuses: new Map(refs.statuses.map((status) => [status.id, status])) });
 
+/** The statuses an exit can set, by where the input's statuses come from (INPUT_TYPES[input].statuses). */
+const STATUS_OPTIONS: Record<(typeof INPUT_TYPES)[keyof typeof INPUT_TYPES]['statuses'], (refs: NodeRefs) => ReactNode> = {
+  knowledge: () => KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>),
+  project: (refs) =>
+    refs.statuses.map((status) => (
+      <SelectItem key={status.id} value={status.id}>
+        <StatusIcon status={status} /> {status.name}
+      </SelectItem>
+    )),
+};
+
 /** A status action's one field: the status (a term's: 후보·확정·버림). */
 function StatusFields({ action, refs, onChange }: { action: Extract<ExitAction, { type: 'status' }>; refs: NodeRefs; onChange: (action: ExitAction) => void }) {
   const picked = refs.statuses.find((status) => status.id === action.statusId);
@@ -24,13 +35,7 @@ function StatusFields({ action, refs, onChange }: { action: Extract<ExitAction, 
     <Field label="바꿀 상태" description={picked?.humanOnly ? '워크플로가 지정하지 않는 상태 → 실행하면 검토함으로 갑니다.' : '이 출구로 나가는 대사의 상태를 바꿉니다. 사람이 정한 대사는 상태로 고른 실행에서 바꾸지 않습니다.'}>
       <SelectField value={action.statusId || 'none'} onValueChange={(statusId) => onChange({ ...action, statusId: statusId === 'none' ? '' : statusId })}>
         <SelectItem value="none">고르세요</SelectItem>
-        {refsInput(refs) === 'terms'
-          ? KNOWLEDGE_STATUSES.map((status) => <SelectItem key={status} value={status}>{KNOWLEDGE_STATUS_LABELS[status]}</SelectItem>)
-          : refs.statuses.map((status) => (
-              <SelectItem key={status.id} value={status.id}>
-                <StatusIcon status={status} /> {status.name}
-              </SelectItem>
-            ))}
+        {STATUS_OPTIONS[INPUT_TYPES[refsInput(refs)].statuses](refs)}
       </SelectField>
     </Field>
   );

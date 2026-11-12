@@ -1,56 +1,45 @@
-import { and, eq, inArray, or } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import type { Db } from '../db/index.ts';
-import { inChunks } from '../db/chunk.ts';
+import { eachChunk, inChunks } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { aliasNote } from './terms.ts';
+import { aliasNote } from '../domain/terms.ts';
+import { recorder, type UndoRecorder, type UndoTable } from './undo-records.ts';
+
+type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
 
 /**
- * Deleting project items, for the app's delete buttons and the agent's delete_items (#45): one
- * place, so both refuse the same things. Rows that point at a deleted item (a character's
- * relationships, a tag's links) go with it through the database's cascades.
+ * Deleting project items, for the app's delete buttons, its graphs and the agent's delete_items (#45): one
+ * place, so all refuse the same things and all are undone the same way. Rows that point at a deleted item
+ * (a character's relationships, a tag's links) go with it through the database's cascades, and are recorded
+ * with it (undo-records.ts) so the undo brings them back too.
  */
 export const DELETABLE = {
-  characters: { table: s.characters, what: '인물', topic: 'knowledge' },
-  relationships: { table: s.relationships, what: '관계', topic: 'knowledge' },
-  speechRules: { table: s.speechRules, what: '말투 규칙', topic: 'knowledge' },
-  events: { table: s.storyEvents, what: '사건', topic: 'knowledge' },
-  eventLinks: { table: s.eventLinks, what: '사건 연결', topic: 'knowledge' },
-  documents: { table: s.documents, what: '노트', topic: 'knowledge' },
-  terms: { table: s.terms, what: '용어', topic: 'terms' },
-  tags: { table: s.tags, what: '태그', topic: 'statuses' },
+  characters: { table: s.characters, what: '인물' },
+  relationships: { table: s.relationships, what: '관계' },
+  speechRules: { table: s.speechRules, what: '말투 규칙' },
+  events: { table: s.storyEvents, what: '사건' },
+  eventLinks: { table: s.eventLinks, what: '사건 연결' },
+  documents: { table: s.documents, what: '노트' },
+  terms: { table: s.terms, what: '용어' },
+  tags: { table: s.tags, what: '태그' },
 } as const;
 export type DeletableKind = keyof typeof DELETABLE;
 export const DELETABLE_KINDS = Object.keys(DELETABLE) as [DeletableKind, ...DeletableKind[]];
 
 /** Which of the ids exist in the project. */
-export function deletable(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
+export function deletable(db: Pick<Db, 'select'>, projectId: string, kind: DeletableKind, ids: string[]) {
   const { table } = DELETABLE[kind];
   const rows = inChunks(ids, (slice) => db.select({ id: table.id }).from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all());
   const found = new Set(rows.map((row) => row.id));
   return { ids: ids.filter((id) => found.has(id)), missing: ids.filter((id) => !found.has(id)) };
 }
 
-/** What a delete removed, kept for a while so ⌘/Ctrl+Z can put it back (this server process only). */
-interface Removed {
-  projectId: string;
-  parts: { kind: DeletableKind; rows: Record<string, unknown>[] }[];
-  tags: (typeof s.knowledgeTags.$inferSelect)[];
-  unitTags: (typeof s.unitTags.$inferSelect)[];
-  at: number;
-}
-const removed = new Map<string, Removed>();
-type DeleteDb = Db | Parameters<Parameters<Db['transaction']>[0]>[0];
-
-const KEEP_MS = 60 * 60 * 1000;
-const KEEP_MAX = 200;
-
 /**
  * A character's name terms nobody has touched: the candidates saving it wrote (addNameTerms: its name
  * and aliases, note "인물 이름" / "X의 별칭"), still without a translation and with that note, whose
  * spelling no remaining character has. They go with the character (and come back with it).
  */
-function untouchedNameTerms(db: DeleteDb, projectId: string, characterIds: string[]) {
+function untouchedNameTerms(db: Pick<Db, 'select'>, projectId: string, characterIds: string[]) {
   if (!characterIds.length) return [];
   const all = db.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
   const gone = new Set(characterIds);
@@ -71,69 +60,71 @@ function untouchedNameTerms(db: DeleteDb, projectId: string, characterIds: strin
     .filter((term) => notes.get(term.source.trim().toLowerCase())?.has(term.note.trim()));
 }
 
-/** Rows of `ids` and what goes with them: a character's relationships and untouched name terms, an event's lines. */
-function rowsOf(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
+/** The SQL table of each kind, and the tables whose rows go with one of its rows through the database's cascades (by these columns). */
+const STORED: Record<DeletableKind, { table: UndoTable; cascades?: { table: UndoTable; columns: string[]; kind?: DeletableKind }[] }> = {
+  characters: { table: 'characters', cascades: [{ table: 'relationships', columns: ['from_id', 'to_id'], kind: 'relationships' }] },
+  relationships: { table: 'relationships' },
+  speechRules: { table: 'speech_rules' },
+  events: { table: 'story_events', cascades: [{ table: 'event_links', columns: ['from_id', 'to_id'], kind: 'eventLinks' }] },
+  eventLinks: { table: 'event_links' },
+  documents: { table: 'documents' },
+  terms: { table: 'terms' },
+  tags: { table: 'tags', cascades: [{ table: 'unit_tags', columns: ['tag_id'] }, { table: 'knowledge_tags', columns: ['tag_id'] }] },
+};
+/** The kinds whose items carry tags (knowledge_tags.kind). */
+const TAGGED: readonly DeletableKind[] = ['characters', 'relationships', 'speechRules', 'events', 'documents', 'terms'];
+
+/**
+ * Inside the delete's transaction: removes the items of one kind with everything that goes with them, each recorded
+ * first so the undo brings it back: a character's relationships and its untouched name terms, an event's lines, the
+ * tags on any of them, a term's run items, a tag's links. Returns how many items went (those that went with them too).
+ */
+function removeItems(tx: Tx, record: UndoRecorder, projectId: string, kind: DeletableKind, ids: string[]): number {
+  if (!ids.length) return 0;
   const { table } = DELETABLE[kind];
-  const parts = [{ kind, rows: inChunks(ids, (slice) => db.select().from(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).all()) as Record<string, unknown>[] }];
-  if (kind === 'characters')
-    parts.push({ kind: 'relationships', rows: inChunks(ids, (slice) => db.select().from(s.relationships).where(and(eq(s.relationships.projectId, projectId), or(inArray(s.relationships.fromId, slice), inArray(s.relationships.toId, slice)))).all()) as Record<string, unknown>[] });
-  if (kind === 'characters') parts.push({ kind: 'terms', rows: untouchedNameTerms(db, projectId, ids) as Record<string, unknown>[] });
-  if (kind === 'events')
-    parts.push({ kind: 'eventLinks', rows: inChunks(ids, (slice) => db.select().from(s.eventLinks).where(and(eq(s.eventLinks.projectId, projectId), or(inArray(s.eventLinks.fromId, slice), inArray(s.eventLinks.toId, slice)))).all()) as Record<string, unknown>[] });
-  return parts;
+  const stored = STORED[kind];
+  let removed = ids.length;
+  // A deleted character's untouched name candidates go with it (untouchedNameTerms).
+  if (kind === 'characters') removed += removeItems(tx, record, projectId, 'terms', untouchedNameTerms(tx, projectId, ids).map((term) => term.id));
+  record.removed(stored.table, 'id', ids);
+  // The tags on the items (taken off by triggers when their item is deleted).
+  if (TAGGED.includes(kind)) record.removed('knowledge_tags', 'item_id', ids, { kind });
+  for (const cascade of stored.cascades ?? []) {
+    const within = sql.join(cascade.columns.map((column) => sql`${sql.identifier(column)} in (select value from json_each(${JSON.stringify(ids)}))`), sql` or `);
+    for (const column of cascade.columns) record.removed(cascade.table, column, ids);
+    if (!cascade.kind) continue;
+    // Items of another kind that go with these (a character's relationships): counted, and their tags go too.
+    const going = tx.all<{ id: string }>(sql`select id from ${sql.identifier(cascade.table)} where ${within}`).map((row) => row.id);
+    removed += going.length;
+    if (TAGGED.includes(cascade.kind)) record.removed('knowledge_tags', 'item_id', going, { kind: cascade.kind });
+  }
+  // A term's run items name it without a foreign key (run_items.subject_id): they go with it.
+  if (kind === 'terms') {
+    record.removed('run_items', 'subject_id', ids);
+    eachChunk(ids, (slice) => tx.delete(s.runItems).where(inArray(s.runItems.subjectId, slice)).run());
+  }
+  eachChunk(ids, (slice) => tx.delete(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run());
+  return removed;
 }
 
 /**
- * Deletes items of several kinds at once (a graph's selection: people, relationships, speech rules)
- * and keeps what went (with the cascade) under one token for restoreItems.
+ * Deletes items of several kinds at once (a graph's selection: people, relationships, speech rules), the one delete
+ * of project items for every surface. Ids the project does not have are left out and named (`missing`). Answers with
+ * the id of the undo record (`token`, null when nothing went): undoRecorded puts everything back, dependents and all.
  */
-export function deleteItemsKept(db: DeleteDb, projectId: string, groups: { kind: DeletableKind; ids: string[] }[]) {
-  const parts = groups.flatMap(({ kind, ids }) => rowsOf(db, projectId, kind, deletable(db, projectId, kind, ids).ids));
-  const tags = parts.flatMap(({ kind, rows }) => inChunks(rows.map((row) => row.id as string), (ids) =>
-    db.select().from(s.knowledgeTags).where(kind === 'tags'
-      ? inArray(s.knowledgeTags.tagId, ids)
-      : and(eq(s.knowledgeTags.kind, kind as typeof s.knowledgeTags.$inferSelect.kind), inArray(s.knowledgeTags.itemId, ids))).all()));
-  const unitTags = parts.filter((part) => part.kind === 'tags').flatMap(({ rows }) => inChunks(rows.map((row) => row.id as string), (ids) => db.select().from(s.unitTags).where(inArray(s.unitTags.tagId, ids)).all()));
-  db.transaction((tx) => { for (const { kind, ids } of groups) deleteItems(tx, projectId, kind, ids); });
-  const token = crypto.randomUUID();
-  removed.set(token, { projectId, parts, tags, unitTags, at: Date.now() });
-  for (const [key, entry] of removed) if (removed.size > KEEP_MAX || Date.now() - entry.at > KEEP_MS) removed.delete(key);
-  return { ok: true as const, token, deleted: parts.reduce((sum, part) => sum + part.rows.length, 0) };
-}
-
-/** Puts back what the delete with this token removed (same ids), once. False when it is no longer kept or the project differs. */
-export function restoreItems(db: DeleteDb, projectId: string, token: string): boolean {
-  const entry = removed.get(token);
-  if (!entry || entry.projectId !== projectId) return false;
-  // People before the relationships that point at them, events before their lines.
-  const order: DeletableKind[] = ['characters', 'relationships', 'speechRules', 'events', 'eventLinks', 'documents', 'terms', 'tags'];
-  db.transaction((tx) => {
-    for (const kind of order)
-      for (const part of entry.parts.filter((candidate) => candidate.kind === kind))
-        for (const row of part.rows) tx.insert(DELETABLE[kind].table).values(row as never).onConflictDoNothing().run();
-    for (const row of entry.tags) tx.insert(s.knowledgeTags).values(row).onConflictDoNothing().run();
-    for (const row of entry.unitTags) tx.insert(s.unitTags).values(row).onConflictDoNothing().run();
+export function deleteItemGroups(db: Db, projectId: string, groups: { kind: DeletableKind; ids: string[] }[]) {
+  return db.transaction((tx) => {
+    const record = recorder(tx, projectId);
+    let deleted = 0;
+    const missing: string[] = [];
+    for (const { kind, ids } of groups) {
+      const known = deletable(tx, projectId, kind, ids);
+      missing.push(...known.missing);
+      deleted += removeItems(tx, record, projectId, kind, known.ids);
+    }
+    return { ok: true as const, deleted, missing, token: record.save(groups[0]?.kind ?? 'characters') };
   });
-  removed.delete(token);
-  for (const topic of new Set(entry.parts.map((part) => DELETABLE[part.kind].topic))) events.changed(projectId, topic);
-  return true;
 }
 
-export function deleteItems(db: DeleteDb, projectId: string, kind: DeletableKind, ids: string[]) {
-  const { table, topic } = DELETABLE[kind];
-  const { ids: gone, missing } = deletable(db, projectId, kind, ids);
-  // A deleted character's untouched name candidates go with it (untouchedNameTerms).
-  const nameTerms = kind === 'characters' ? untouchedNameTerms(db, projectId, gone).map((term) => term.id) : [];
-  if (nameTerms.length) deleteItems(db, projectId, 'terms', nameTerms);
-  if (gone.length) {
-    db.transaction((tx) => {
-      for (const slice of inChunks(gone, (part) => [part])) {
-        // A term's run items name it without a foreign key (run_items.subject_id): they go with it.
-        if (kind === 'terms') tx.delete(s.runItems).where(inArray(s.runItems.subjectId, slice)).run();
-        tx.delete(table).where(and(eq(table.projectId, projectId), inArray(table.id, slice))).run();
-      }
-    });
-    events.changed(projectId, topic, ...(kind === 'tags' ? (['units', 'workflows'] as const) : []));
-  }
-  return { ok: true as const, deleted: gone.length, missing };
-}
+/** Deletes items of one kind (see deleteItemGroups). */
+export const deleteItems = (db: Db, projectId: string, kind: DeletableKind, ids: string[]) => deleteItemGroups(db, projectId, [{ kind, ids }]);

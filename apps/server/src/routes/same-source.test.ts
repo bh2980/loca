@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
-import type { Env } from '../context.ts';
+import { importFileSchema } from '@loca/shared';
+import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
@@ -13,7 +13,7 @@ function setup() {
   const sources = ['Run!', 'run', 'Run.', 'Walk'];
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: sources.map((source, n) => ({ key: `u${n}`, group: 'g', source })) });
   const { projectId } = importProject(db, file, null as never);
-  const app = new Hono<Env>()
+  const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);
       await next();
@@ -29,7 +29,7 @@ describe('same-source apply in one request (#49)', () => {
   it('writes every same-source line in one go, as a person’s save', async () => {
     const { db, units, post, text } = setup();
     const [first, second, third] = units;
-    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [{ unitId: second!.id, base: '' }, { unitId: third!.id, base: '' }] });
+    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [second!, third!].map((line) => ({ unitId: line.id, rev: line.updatedAt.getTime() })) });
     expect(await response.json()).toMatchObject({ ok: true, applied: 2, skipped: 0 });
     expect([text(second!.id), text(third!.id)]).toEqual(['달려!', '달려!']);
     const row = db.select({ statusBy: s.units.statusBy }).from(s.units).where(eq(s.units.id, second!.id)).get();
@@ -40,7 +40,7 @@ describe('same-source apply in one request (#49)', () => {
     const { units, post, text } = setup();
     const [first, second, third, other] = units;
     await post(`/units/${second!.id}/save`, { text: '뛰어' });
-    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [{ unitId: second!.id, base: '' }, { unitId: third!.id, base: '' }, { unitId: other!.id, base: '' }] });
+    const response = await post(`/units/${first!.id}/same-source`, { text: '달려!', lines: [second!, third!, other!].map((line) => ({ unitId: line.id, rev: line.updatedAt.getTime() })) });
     expect(await response.json()).toMatchObject({ applied: 1, skipped: 2 });
     expect([text(second!.id), text(third!.id), text(other!.id)]).toEqual(['뛰어', '달려!', null]);
   });

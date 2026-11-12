@@ -1,17 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { eq } from 'drizzle-orm';
-import * as ai from '@tw/ai';
-import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@tw/shared';
+import * as ai from '@loca/ai';
+import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
-import { snapshotWorkflowModels } from '../services/routes.ts';
-import { memoryStore } from '../services/secrets.ts';
+import { snapshotWorkflowModels } from '../domain/model-target.ts';
+import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
+import { continueRun } from '../services/run-continue.ts';
 import { withoutTerms } from './test-workflows.ts';
 import { createRun } from './run-create.ts';
-import { issueTagIds } from '../services/issue-tags.ts';
+import { issueTagIds } from '../domain/issue-tags.ts';
 
 /**
  * What a failure does is visible in the workflow: the AI node's retry rules (settings.retries, or its own)
@@ -19,7 +20,7 @@ import { issueTagIds } from '../services/issue-tags.ts';
  * another connection or requeued by the runner on its own.
  */
 
-const CUT_OFF = () => new ai.ModelError('cli', 'Your previous response was cut off because it exceeded the output token limit', false);
+const CUT_OFF = () => new ai.ModelError('cut-off', '응답이 길이 제한에 걸려 잘렸습니다.', false);
 const RATE_LIMIT = () => new ai.ModelError('rate-limit', 'slow down');
 const NETWORK = () => new ai.ModelError('network', 'connection reset');
 
@@ -76,10 +77,10 @@ function model(fail: (n: number, lines: string[]) => Error | null) {
     ask: async () => {
       throw new Error('unused');
     },
-    generate: async (route, request) => {
+    generate: async (target, request) => {
       const lines = promptEntries(request.prompt) as { id: string; source: string }[];
       if (request.system.includes('Review each')) return { object: { results: lines.map((line) => ({ id: line.id, passed: true, issues: [] })) }, usage: {} } as never;
-      requests.push({ lines: lines.map((line) => line.source), model: route.model });
+      requests.push({ lines: lines.map((line) => line.source), model: target.model });
       const error = fail(requests.length, lines.map((line) => line.source));
       if (error) throw error;
       return { object: { results: lines.map((line) => ({ id: line.id, text: `[ko] ${line.source}` })) }, usage: {} } as never;
@@ -186,7 +187,7 @@ describe('a retry rule that waits', () => {
     expect(fake.sizes()).toEqual([4]);
     expect(runOf(db, runId).status).toBe('paused');
 
-    runner.resume(runId);
+    expect(continueRun(db, runId)).toMatchObject({ ok: true, resumed: true });
     await runner.drain();
     expect(fake.sizes()).toEqual([4, 4]);
     expect(runOf(db, runId).status).toBe('completed');
@@ -211,9 +212,7 @@ describe('a retry rule that waits', () => {
     const runner = new Runner(db, memoryStore(), fake.port);
     await runner.drain();
     runner.pause(runId);
-    const run = runOf(db, runId);
-    const result = runner.continue(runId, { definition: run.definition, models: run.models, changes: [], retryFailed: false });
-    expect(result.ok).toBe(true);
+    expect(continueRun(db, runId).ok).toBe(true);
     vi.setSystemTime(Date.now() + 61_000);
     await runner.drain();
     expect(runOf(db, runId).status).toBe('completed');
@@ -292,7 +291,7 @@ describe('a retry rule with another model', () => {
     const run = runOf(db, runId);
     const definition = { ...run.definition, settings: { ...run.definition.settings, retries: run.definition.settings.retries.map((rule, index) => (index === 1 ? { ...rule, wait: 0, model: { connectionId: choice.connectionId, model: 'm2', effort: 'low' } } : rule)) } };
     db.update(s.runs).set({ definition, models: snapshotWorkflowModels(db, definition) }).where(eq(s.runs.id, runId)).run();
-    expect(Object.values(runOf(db, runId).models).map((snapshot) => snapshot.route.model).sort()).toEqual(['m', 'm2']);
+    expect(Object.values(runOf(db, runId).models).map((snapshot) => snapshot.target.model).sort()).toEqual(['m', 'm2']);
 
     // L0-L3 are rate-limited (→ m2, as they were), L4-L7 are cut off (→ halved, on m).
     const fake = model((n, lines) => (n === 1 ? RATE_LIMIT() : lines.length === 4 && lines[0] === 'S0 L4' ? CUT_OFF() : null));

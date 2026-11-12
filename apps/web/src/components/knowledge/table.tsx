@@ -3,13 +3,13 @@ import { useParams } from '@tanstack/react-router';
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import type { InferResponseType } from 'hono/client';
-import { AUTO_MARKS, markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy } from '@tw/shared';
-import { DataTable, type ColumnDef, type FilterChip, AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, parseMarks } from '@loca/shared';
+import { type ColumnDef, type FilterChip, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text, Tooltip, TooltipContent, TooltipTrigger, ConfirmDialog } from '@loca/ui';
 import { MarkChip } from '@/components/status';
+import { param } from '@/lib/search';
 import { useMarkStyles } from '@/lib/queries';
 import { HeaderFilter, MarkFilter, markTagGroups, togglePick, type FilterOption, type FilterPick } from '@/components/header-filter';
-import type { client } from '@/lib/api';
+import type { FeedRow } from '@/lib/collections';
 
 export const KINDS = { documents: '노트', characters: '인물', relationships: '관계', events: '사건', speechRules: '말투 규칙' } as const;
 export type Kind = keyof typeof KINDS;
@@ -41,14 +41,8 @@ export interface TagInfo {
 /** A knowledge row as the shared table and editor see it: the common fields, the rest by name. */
 export type Row = Draft & Record<string, unknown>;
 
-type KnowledgeApi = (typeof client.projects)[':projectId'];
-type CharactersList = InferResponseType<KnowledgeApi['characters']['$get'], 200>;
-/** Each kind's rows as its list endpoint returns them. */
-export type DocumentRow = InferResponseType<KnowledgeApi['documents']['$get'], 200>[number];
-export type CharacterRow = CharactersList['characters'][number];
-export type RelationshipRow = CharactersList['relationships'][number];
-export type EventRow = InferResponseType<KnowledgeApi['events']['$get'], 200>[number];
-export type SpeechRuleRow = InferResponseType<KnowledgeApi['speech-rules']['$get'], 200>[number];
+export type RelationshipRow = FeedRow['relationships'];
+export type SpeechRuleRow = FeedRow['speechRules'];
 
 /** The value each field type edits: what its input shows and what it writes back. */
 interface FieldValues {
@@ -143,10 +137,28 @@ export const candidateRow = (row: Draft) => (row.status === 'candidate' ? ('tent
 export type SourceFilter = KnowledgeSource | undefined;
 /** The 상태 filter (the `status` URL param): rejected items are never listed, so only these two. */
 export type StatusFilter = 'candidate' | 'confirmed' | undefined;
-export const parseStatusFilter = (raw: unknown): StatusFilter => (raw === 'candidate' || raw === 'confirmed' ? raw : undefined);
 export const statusOptions: FilterOption[] = (['candidate', 'confirmed'] as const).map((value) => ({ value, label: KNOWLEDGE_STATUS_LABELS[value] }));
-/** The `decidedBy` URL param (정한 쪽). */
-export const parseDecidedBy = (raw: unknown): DecidedBy | undefined => DECIDED_BY.find((by) => by === raw);
+/**
+ * The URL params of the filters the knowledge and glossary tables share, declared once for both routes; `marks` are the
+ * automatic marks the screen's items can carry.
+ */
+export const itemFilterParams = (marks: readonly AutoMark[]) => ({
+  /** 출처 filter: who wrote it (작품 분석, AI, 대본에서 찾음, 가져오기, 사람). */
+  source: param.oneOf(KNOWLEDGE_SOURCES),
+  /** 상태 filter: 후보 or 확정. */
+  status: param.oneOf(['candidate', 'confirmed']),
+  /** 정한 쪽: confirmed by AI (✦) or by a person. */
+  decidedBy: param.oneOf(DECIDED_BY),
+  /** Automatic marks: items carrying all of them. */
+  marks: param.read((raw): AutoMark[] | undefined => parseMarks(raw, marks)),
+  /** 태그 filter: project tag ids; items carrying all of them. */
+  tags: param.ids,
+  /** 숨기기: items carrying any of these marks or tags are left out. */
+  hideMarks: param.read((raw): AutoMark[] | undefined => parseMarks(raw, marks)),
+  hideTags: param.ids,
+  /** Only these items (a run's scope, from the run dialog's readiness list); a removable chip, combined with the other filters. */
+  ids: param.ids,
+});
 /** The 상태 header's choices: 후보, 확정, and a confirmed one by who decided it (the separate decidedBy param). */
 const stateOptions: FilterOption[] = [...statusOptions, { value: 'ai', label: '확정 · AI가 정함 (✦)' }, { value: 'human', label: '확정 · 사람이 정함' }];
 const statePatch = (value: string | undefined) => (value === 'ai' || value === 'human' ? { status: undefined, decidedBy: value as DecidedBy } : { status: value as StatusFilter, decidedBy: undefined });
@@ -337,46 +349,14 @@ export function BulkDecide({ picked, actionable, confirmable = actionable, pendi
   );
 }
 
-/** The table of one knowledge kind (documents, people, events) with 출처 and 태그 columns. */
-export function KnowledgeTable({ id, spec, rows, loading, selected, onOpen, picked, onPick, bulk, empty, filters }: {
-  /** Keeps the column widths per kind (see DataTable). */
-  id?: string;
-  spec: KindSpec;
-  rows: Row[] | undefined;
-  loading: boolean;
-  selected?: string;
-  onOpen: (id: string) => void;
-  picked: ReadonlySet<string>;
-  onPick: (ids: string[], on: boolean) => void;
-  bulk: ReactNode;
-  empty: ReactNode;
-  filters: KnowledgeFilterState;
-}) {
-  const columns: ColumnDef<Row, unknown>[] = [
-    ...spec.columns.map((column, index): ColumnDef<Row, unknown> => ({ id: column.head, header: column.head, meta: { width: column.width, weight: column.weight, tabular: column.tabular, hideable: index === 0 ? false : undefined }, cell: ({ row }) => (index === 0 ? <AiNamed row={row.original}>{column.cell(row.original)}</AiNamed> : column.cell(row.original)) })),
-    ...metaColumns<Row>((row) => row, filters),
-  ];
-  return <DataTable id={id} columns={columns} rows={rows} loading={loading} rowId={(row) => row.id} selected={selected} onRowClick={(row) => onOpen(row.id)} rowState={candidateRow} picked={picked} onPick={onPick} bulk={bulk} empty={empty} />;
-}
-
 function DiscardButton({ count, onConfirm, disabled }: { count: number; onConfirm: () => void; disabled?: boolean }) {
   return (
-    <AlertDialog>
-      <AlertDialogTrigger asChild>
-        <Button variant="ghost" tone="danger" disabled={disabled}>
-          <Trash2 /> 버리기
-        </Button>
-      </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{count}개를 버릴까요?</AlertDialogTitle>
-          <AlertDialogDescription>사람이 아직 정하지 않은 항목(후보, AI가 확정한 것)만 버립니다. 버린 항목은 다시 분석해도 다시 제안되지 않습니다.</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>취소</AlertDialogCancel>
-          <AlertDialogAction onClick={onConfirm}>버리기</AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
-    </AlertDialog>
+    <ConfirmDialog
+      trigger={<Button variant="ghost" tone="danger" disabled={disabled}><Trash2 /> 버리기</Button>}
+      title={`${count}개를 버릴까요?`}
+      description="사람이 아직 정하지 않은 항목(후보, AI가 확정한 것)만 버립니다. 버린 항목은 다시 분석해도 다시 제안되지 않습니다."
+      confirmLabel="버리기"
+      onConfirm={onConfirm}
+    />
   );
 }

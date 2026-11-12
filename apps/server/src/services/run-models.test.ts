@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, withRunModels, type AiNode } from '@tw/shared';
+import { importFileSchema, withRunModels, type AiNode } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
@@ -55,8 +55,8 @@ describe("a run's own models", () => {
     const result = (await start.run({ workflowId: workflow.id, models: { '*': { connection: other.id, model: 'other-model' } } })) as { ok: boolean; runId?: string };
     expect(result.ok).toBe(true);
     const run = db.select().from(s.runs).where(eq(s.runs.id, result.runId!)).get()!;
-    expect(Object.values(run.models).map((snapshot) => snapshot.route.model)).toEqual(expect.arrayContaining(['other-model']));
-    expect(Object.values(run.models).map((snapshot) => snapshot.route.model)).not.toContain('own-model');
+    expect(Object.values(run.models).map((snapshot) => snapshot.target.model)).toEqual(expect.arrayContaining(['other-model']));
+    expect(Object.values(run.models).map((snapshot) => snapshot.target.model)).not.toContain('own-model');
     expect(db.select().from(s.workflows).where(eq(s.workflows.id, workflow.id)).get()!.definition.nodes.find((node) => node.type === 'ai')).toMatchObject({ config: { model: { model: 'own-model' } } });
   });
 });

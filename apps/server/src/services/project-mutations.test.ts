@@ -1,11 +1,13 @@
 import { and, eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema, translationTemplate } from '@tw/shared';
+import { importFileSchema, translationTemplate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { createStatus, createTag, deleteStatuses, orderTags, projectTags, TaxonomyMutationError, updateStatus } from './project-taxonomy.ts';
-import { deleteWorkflow, saveWorkflow, WorkflowMutationError } from './workflow-mutations.ts';
+import { createStatus, createTag, deleteStatuses, orderTags, projectTags, updateStatus } from './project-taxonomy.ts';
+import { deleteWorkflow, saveWorkflow } from './workflow-mutations.ts';
+import { Refusal } from '../refusal.ts';
+import { FINAL_NEEDS_TEXT } from '../domain/line-save.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -25,10 +27,15 @@ describe('shared project mutations', () => {
     const { db, projectId, unit, initial, final } = setup();
     createStatus(db, projectId, { name: 'Second initial', kind: 'initial' });
 
-    expect(() => updateStatus(db, projectId, initial.id, { kind: 'final' })).toThrow(TaxonomyMutationError);
-    expect(() => deleteStatuses(db, projectId, [initial.id], final.id)).toThrow(TaxonomyMutationError);
+    expect(() => updateStatus(db, projectId, initial.id, { kind: 'final' })).toThrow(Refusal);
+    // The move out of a deleted status is the one status writer's: its rule, in its words, and nothing is deleted.
+    expect(() => deleteStatuses(db, projectId, [initial.id], final.id)).toThrow(FINAL_NEEDS_TEXT);
     expect(db.select().from(s.statuses).where(eq(s.statuses.id, initial.id)).get()).toBeDefined();
     expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.statusId).toBe(initial.id);
+    // Blank is the same test on both sides: a translation of only whitespace is none.
+    db.update(s.units).set({ translation: ' \n\t' }).where(eq(s.units.id, unit.id)).run();
+    expect(() => updateStatus(db, projectId, initial.id, { kind: 'final' })).toThrow('번역이 비어 있는 대사 1개');
+    expect(() => deleteStatuses(db, projectId, [initial.id], final.id)).toThrow(FINAL_NEEDS_TEXT);
 
     db.update(s.units).set({ translation: '번역' }).where(eq(s.units.id, unit.id)).run();
     expect(updateStatus(db, projectId, initial.id, { kind: 'final' }).kind).toBe('final');
@@ -49,8 +56,10 @@ describe('shared project mutations', () => {
     db.update(s.units).set({ statusId: a.id }).where(eq(s.units.id, unit.id)).run();
     expect(() => deleteStatuses(db, projectId, [initial.id, extra.id], a.id)).toThrow('처음 상태는 하나 이상 있어야 합니다.');
     expect(() => deleteStatuses(db, projectId, [a.id, b.id], a.id)).toThrow('삭제할 상태로는 옮길 수 없습니다.');
+    db.update(s.units).set({ statusBy: 'ai', statusRunId: null }).where(eq(s.units.id, unit.id)).run();
     expect(deleteStatuses(db, projectId, [a.id, b.id, extra.id], initial.id)).toMatchObject({ ok: true, deleted: 3 });
-    expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()?.statusId).toBe(initial.id);
+    // The line's new status is the mover's (a person here), as for any status change.
+    expect(db.select().from(s.units).where(eq(s.units.id, unit.id)).get()).toMatchObject({ statusId: initial.id, statusBy: 'human' });
   });
 
   it('lists a person\'s tags in the order they set, new ones last', () => {
@@ -72,8 +81,8 @@ describe('shared project mutations', () => {
       definition: workflow.definition, scope: {}, status: 'paused', total: 1,
     }).run();
 
-    expect(() => saveWorkflow(db, projectId, { id: workflow.id, name: 'W2', description: '', definition })).toThrow(WorkflowMutationError);
-    expect(() => deleteWorkflow(db, projectId, workflow.id)).toThrow(WorkflowMutationError);
+    expect(() => saveWorkflow(db, projectId, { id: workflow.id, name: 'W2', description: '', definition })).toThrow(Refusal);
+    expect(() => deleteWorkflow(db, projectId, workflow.id)).toThrow(Refusal);
     db.update(s.runs).set({ status: 'completed' }).where(eq(s.runs.workflowId, workflow.id)).run();
     expect(saveWorkflow(db, projectId, { id: workflow.id, name: 'W2', description: '', definition }).name).toBe('W2');
     expect(deleteWorkflow(db, projectId, workflow.id)).toEqual({ ok: true });

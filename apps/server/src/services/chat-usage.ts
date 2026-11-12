@@ -1,5 +1,5 @@
 import { and, desc, eq, isNotNull, like, sql } from 'drizzle-orm';
-import { imageDecision, limitsFor } from '@tw/shared';
+import { imageDecision, limitsFor } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 

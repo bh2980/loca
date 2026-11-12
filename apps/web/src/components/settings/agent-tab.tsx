@@ -1,5 +1,5 @@
 import { toast } from 'sonner';
-import { AGENT_ACTIONS, AGENT_RESOURCES, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@tw/shared';
+import { AGENT_ACTIONS, AGENT_RESOURCES, effectiveAgentPermissions, PERMISSION_MODE_INFO, type AgentAction, type AgentPermissions, type AgentResource, type AgentSettings, type PermissionMode } from '@loca/shared';
 import { PermissionModePicker } from '@/components/chat/permission-mode';
 import { Box, Button, PermissionMatrix, Text, Section, Inline } from '@loca/ui';
 import { ModelPicker } from '@/components/model-picker';
@@ -26,7 +26,7 @@ export function AgentTab({ target }: { target: SettingsTarget }) {
   const defaultMode: PermissionMode = settings.defaultPermissionMode;
 
   const saveSettings = (next: AgentSettings, nextPermissions: AgentPermissions = effectiveAgentPermissions(settings)) => {
-    save.mutate({ ...next, disabledTools: [], permissions: nextPermissions });
+    save.mutate({ ...next, permissions: nextPermissions });
   };
   const setPermission = (resource: AgentResource, action: AgentAction, allowed: boolean) => {
     const nextPermissions: AgentPermissions = {

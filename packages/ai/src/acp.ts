@@ -5,10 +5,10 @@ import path from 'node:path';
 import { Readable, Writable } from 'node:stream';
 import { fileURLToPath } from 'node:url';
 import * as acp from '@agentclientprotocol/sdk';
-import type { ConnectionKind } from '@tw/shared';
+import type { CliKind } from '@loca/shared';
 import { cliCommand, cliMissing, CODEX_UNUSED_FEATURES } from './cli.ts';
-import { ModelError, SERVER_DOWN, TOO_LONG } from './errors.ts';
-import type { HostedServer } from './mcp-host.ts';
+import { failureInText, ModelError } from './errors.ts';
+import { hostedToolNames, type HostedServer } from './mcp-host.ts';
 import { adapterExecutable, cliSpawn, resolveCli, type SpawnDeps } from './spawn.ts';
 import type { Usage } from './types.ts';
 
@@ -27,9 +27,6 @@ import type { Usage } from './types.ts';
  * | opencode    | `opencode acp`                                           | the command                         |
  * | antigravity | @simonepri/refined-antigravity-acp (Google's agy_acp_server) | — (finds the ACP server itself) |
  */
-export type AcpKind = Extract<ConnectionKind, 'codex' | 'claude' | 'grok' | 'antigravity' | 'opencode'>;
-export const ACP_KINDS: AcpKind[] = ['codex', 'claude', 'grok', 'antigravity', 'opencode'];
-export const isAcpKind = (kind: string): kind is AcpKind => (ACP_KINDS as string[]).includes(kind);
 
 const packageFile = (specifier: string) => fileURLToPath(import.meta.resolve(specifier));
 
@@ -52,7 +49,7 @@ function codexConfig() {
 
 /** The process to start for a kind: a bundled adapter run with this Node, or the CLI's own ACP mode. */
 export function agentCommand(
-  kind: AcpKind,
+  kind: CliKind,
   executable?: string,
   host: { platform?: NodeJS.Platform; env?: NodeJS.ProcessEnv; deps?: SpawnDeps } = {},
 ): { file: string; args: string[]; env: NodeJS.ProcessEnv; windowsVerbatimArguments?: boolean } {
@@ -105,7 +102,6 @@ export interface SessionListener {
   update: (update: acp.SessionUpdate) => void;
 }
 
-const QUOTA = /quota|RESOURCE_EXHAUSTED|rate.?limit|usage limit|too many requests|\b429\b/i;
 const AUTH = /auth(entication)? required|not (logged|signed) in|login required|unauthori[sz]ed|\b401\b/i;
 
 /** An ACP or process failure as a ModelError, with the CLI's last words when it died, the login methods it offers and the command that was run. */
@@ -115,9 +111,8 @@ export function acpError(error: unknown, stderr = '', extra: { command?: string 
   const data = typeof error === 'object' && error && 'data' in error ? JSON.stringify((error as { data: unknown }).data ?? '') : '';
   const detail = [raw, data && data !== '""' ? data : '', stderr.trim().split('\n').slice(-3).join(' ')].filter(Boolean).join(' · ').slice(0, 400);
   const tail = extra.command ? ` (실행: ${extra.command})` : '';
-  if (QUOTA.test(detail)) return new ModelError('rate-limit', `CLI 사용량 한도에 도달했습니다. ${detail}`);
-  if (SERVER_DOWN.test(detail)) return new ModelError('network', `AI 서비스 서버 오류입니다. ${detail}${tail}`);
-  if (TOO_LONG.test(detail)) return new ModelError('too-long', `요청이 모델의 문맥 창보다 깁니다. ${detail}`.slice(0, 400), false);
+  const named = failureInText(detail, detail, { tail });
+  if (named) return named;
   // Only what the CLI says: a bare JSON-RPC -32000 is any server error.
   if (AUTH.test(detail)) return new ModelError('auth', `CLI에 로그인이 필요합니다. 연결 설정의 '로그인 창 열기'로 로그인하세요. ${detail}`, false);
   return new ModelError('cli', `CLI가 실패했습니다: ${detail}${tail}`, false);
@@ -152,7 +147,7 @@ export function readUsage(response: Pick<acp.PromptResponse, 'usage' | '_meta'>)
 }
 
 /** Options the kind needs on every session: Claude without its own tools and settings; the system prompt where `_meta` carries it. */
-function sessionMeta(kind: AcpKind, system: string): Record<string, unknown> | undefined {
+function sessionMeta(kind: CliKind, system: string): Record<string, unknown> | undefined {
   // None of the user's own MCP servers, plugins, hooks, CLAUDE.md or settings ride along (they
   // cost about 100k tokens a request). Not --safe-mode: it turns our MCP server off too.
   if (kind === 'claude') return { claudeCode: { options: { tools: [], settingSources: [], strictMcpConfig: true, extraArgs: { 'no-chrome': null } } } };
@@ -161,16 +156,58 @@ function sessionMeta(kind: AcpKind, system: string): Record<string, unknown> | u
   return undefined;
 }
 
-const OUR_TOOL = /(?:^|[^\w-])(?:mcp__)?loca(?:__|\.|\b)|"server":\s*"loca"/;
+/** What a CLI says about a tool call: in a `tool_call` update, and again (or only its id) when it asks permission for it. */
+export interface ToolCallFacts {
+  title?: string | null;
+  /** Not in the protocol; some CLIs put the tool's own name here. */
+  name?: unknown;
+  rawInput?: unknown;
+  _meta?: unknown;
+}
+
+const record = (value: unknown): Record<string, unknown> | null => (value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null);
+
+/** The ways a CLI writes "tool T of MCP server S" as one id: Claude and Grok (mcp__S__T, S__T), Codex's announced calls (mcp.S.T, S.T), opencode (S_T). */
+const idPrefixes = (server: string) => [`mcp__${server}__`, `${server}__`, `mcp.${server}.`, `${server}.`, `${server}_`];
+
+/**
+ * Which tool of ours (an MCP server we gave the session, and a tool it serves) a tool call is, or null.
+ * Read only from the fields where a CLI states an MCP tool's identity as structure, each as a whole value:
+ * - Claude Code: `_meta.claudeCode.toolName`, mcp__<server>__<tool>, which the adapter sets from the tool that runs;
+ * - Codex: `rawInput` = { server, tool, arguments }, which its adapter builds for an MCP call;
+ * - the others: the tool's id as the whole `name` or `title` (see idPrefixes).
+ * Never from text that only mentions a name: a shell command, a file path or a description can say anything
+ * (`{"command":"loca import out.jsonl"}`, a file under a folder called loca-…).
+ */
+export function ourTool(kind: CliKind, call: ToolCallFacts, servers: readonly { name: string; tools: readonly string[] }[]): { server: string; tool: string } | null {
+  const ids: unknown[] = [];
+  if (kind === 'claude') ids.push(record(record(call._meta)?.claudeCode)?.toolName);
+  // Claude has none of its own tools here (sessionMeta: tools []), so a tool id as the title can only be an MCP tool's.
+  if (kind !== 'codex') ids.push(call.name, call.title);
+  const input = kind === 'codex' ? record(call.rawInput) : null;
+  for (const server of servers) {
+    if (input && input.server === server.name && typeof input.tool === 'string' && server.tools.includes(input.tool)) return { server: server.name, tool: input.tool };
+    for (const id of ids) {
+      if (typeof id !== 'string') continue;
+      const prefix = idPrefixes(server.name).find((candidate) => id.startsWith(candidate) && server.tools.includes(id.slice(candidate.length)));
+      if (prefix) return { server: server.name, tool: id.slice(prefix.length) };
+    }
+  }
+  return null;
+}
 
 /** The read-only mode a CLI has (Claude has no tools of its own here, so it keeps its default). */
-const SAFE_MODE: Partial<Record<AcpKind, string>> = { codex: 'read-only', opencode: 'plan' };
+const SAFE_MODE: Partial<Record<CliKind, string>> = { codex: 'read-only', opencode: 'plan' };
 
 /** One running agent process and its sessions. */
 export class AcpAgent {
   private readonly listeners = new Map<string, SessionListener>();
   /** Sessions this process has open (created, resumed or loaded here), with when each last ran. */
   readonly sessions = new Map<string, number>();
+  /** The MCP servers each open session was given: the only tools it may run. */
+  private readonly servers = new Map<string, HostedServer[]>();
+  /** Tool calls the agent announced, by id: a permission request may name its call only by that id (Codex). */
+  private readonly announced = new Map<string, ToolCallFacts>();
   /** Each open session's config options and the model and effort it was set to. */
   private readonly settings = new Map<string, { options: acp.SessionConfigOption[]; model?: string; effort?: string }>();
   private stderr = '';
@@ -179,7 +216,7 @@ export class AcpAgent {
   lastUsed = Date.now();
   readonly exited: Promise<void>;
 
-  readonly kind: AcpKind;
+  readonly kind: CliKind;
   readonly init: acp.InitializeResponse;
   /** The login methods the agent offers; a session that fails with a login error answers with the first (see withLogin). */
   readonly authMethods: AuthMethodInfo[];
@@ -187,7 +224,7 @@ export class AcpAgent {
   private readonly child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>;
   private readonly connection: acp.ClientSideConnection;
 
-  private constructor(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string) {
+  private constructor(kind: CliKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, connection: acp.ClientSideConnection, init: acp.InitializeResponse, command?: string) {
     this.kind = kind;
     this.command = command;
     this.authMethods = (init.authMethods ?? []).map((method) => ({ id: method.id, name: method.name || method.id, ...(method.description && { description: method.description }) }));
@@ -198,7 +235,7 @@ export class AcpAgent {
     this.exited = new Promise((resolve) => child.once('exit', () => resolve()));
   }
 
-  static async start(kind: AcpKind, executable: string | undefined): Promise<AcpAgent> {
+  static async start(kind: CliKind, executable: string | undefined): Promise<AcpAgent> {
     const command = agentCommand(kind, executable);
     const child = spawn(command.file, command.args, { env: { ...process.env, ...command.env }, stdio: ['pipe', 'pipe', 'pipe'], windowsHide: true, ...(command.windowsVerbatimArguments && { windowsVerbatimArguments: true }) });
     const spawned = new Promise<void>((resolve, reject) => {
@@ -210,11 +247,12 @@ export class AcpAgent {
   }
 
   /** An agent on an existing stream; `child` is its process, or a stand-in with `once('exit')`, `kill` and no stderr (tests). */
-  static async over(kind: AcpKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string): Promise<AcpAgent> {
+  static async over(kind: CliKind, child: Pick<ChildProcess, 'once' | 'kill' | 'stderr'>, stream: acp.Stream, command?: string): Promise<AcpAgent> {
     let self: AcpAgent | undefined;
     const connection = new acp.ClientSideConnection(
       () => ({
         sessionUpdate: async (notification) => {
+          self?.remember(notification.update);
           self?.listeners.get(notification.sessionId)?.update(notification.update);
         },
         // Only our own MCP tools run; the CLI's shell, file and web tools are refused.
@@ -259,10 +297,20 @@ export class AcpAgent {
     return !this.exitError;
   }
 
+  /** Keeps what the agent said about a tool call until it ends, for a permission request that refers to it by id. */
+  private remember(update: acp.SessionUpdate) {
+    if (update.sessionUpdate !== 'tool_call' && update.sessionUpdate !== 'tool_call_update') return;
+    if (update.status === 'completed' || update.status === 'failed') this.announced.delete(update.toolCallId);
+    else this.announced.set(update.toolCallId, { ...this.announced.get(update.toolCallId), ...Object.fromEntries(Object.entries(update).filter(([, value]) => value !== undefined && value !== null)) });
+    // A call whose end never came (a stopped turn) is dropped once many newer ones have been announced.
+    if (this.announced.size > 500) this.announced.delete(this.announced.keys().next().value!);
+  }
+
+  /** Allows a tool call only when it is a tool of an MCP server this session was given (ourTool); everything else a CLI can do is refused. */
   private permit(request: acp.RequestPermissionRequest): acp.RequestPermissionOutcome {
-    const call = request.toolCall;
-    // Each CLI names an MCP tool its own way: mcp__loca__x (Claude), loca__x (Grok), loca.x, "server":"loca".
-    const ours = OUR_TOOL.test(`${call.title ?? ''} ${(call as { name?: string }).name ?? ''} ${JSON.stringify(call.rawInput ?? {})} ${JSON.stringify(call._meta ?? {})}`);
+    const servers = (this.servers.get(request.sessionId) ?? []).map((server) => ({ name: server.name, tools: hostedToolNames(server) }));
+    const announced = this.announced.get(request.toolCall.toolCallId);
+    const ours = Boolean(ourTool(this.kind, request.toolCall, servers) ?? (announced && ourTool(this.kind, announced, servers)));
     const option = request.options.find((candidate) => candidate.kind === (ours ? 'allow_once' : 'reject_once')) ?? request.options.find((candidate) => candidate.kind.startsWith(ours ? 'allow' : 'reject'));
     return option ? { outcome: 'selected', optionId: option.optionId } : { outcome: 'cancelled' };
   }
@@ -294,6 +342,7 @@ export class AcpAgent {
       this.connection.newSession({ cwd: input.cwd, mcpServers: input.mcpServers, ...(field && { systemPrompt: field }), _meta: sessionMeta(this.kind, input.system) ?? null }),
     );
     this.sessions.set(response.sessionId, Date.now());
+    this.servers.set(response.sessionId, input.mcpServers);
     this.settings.set(response.sessionId, { options: response.configOptions ?? [] });
     return { sessionId: response.sessionId, configOptions: response.configOptions ?? [], inMessage };
   }
@@ -306,6 +355,7 @@ export class AcpAgent {
       if (this.capabilities().sessionCapabilities?.resume) {
         const response = await this.withLogin(() => this.connection.resumeSession(common));
         this.sessions.set(input.sessionId, Date.now());
+        this.servers.set(input.sessionId, input.mcpServers);
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
       }
@@ -313,6 +363,7 @@ export class AcpAgent {
         // Loading replays the history as updates; nobody listens to them yet.
         const response = await this.withLogin(() => this.connection.loadSession(common));
         this.sessions.set(input.sessionId, Date.now());
+        this.servers.set(input.sessionId, input.mcpServers);
         this.settings.set(input.sessionId, { options: response.configOptions ?? [] });
         return { configOptions: response.configOptions ?? [] };
       }
@@ -409,7 +460,7 @@ export class AcpAgent {
       if (timedOut === 'idle') throw new ModelError('timeout', `CLI가 ${Math.round((options.idleMs ?? 0) / 1000)}초 동안 아무 응답도 없어 중단했습니다.`, undefined, usage);
       if (timedOut === 'total') throw new ModelError('timeout', 'CLI 응답 시간이 초과되었습니다.', undefined, usage);
       if (response.stopReason === 'cancelled' && options.signal?.aborted) throw new ModelError('cancelled', '중단했습니다.', false, usage);
-      if (response.stopReason === 'refusal') throw new ModelError('cli', '모델이 응답을 거절했습니다.', false, usage);
+      if (response.stopReason === 'refusal') throw new ModelError('refused', '모델이 응답을 거절했습니다.', false, usage);
       return { stopReason: response.stopReason, usage };
     } finally {
       clearTimeout(idle);
@@ -431,6 +482,7 @@ export class AcpAgent {
     if (!this.sessions.has(sessionId) || this.listeners.has(sessionId)) return;
     if (!this.capabilities().sessionCapabilities?.close) return;
     this.sessions.delete(sessionId);
+    this.servers.delete(sessionId);
     this.settings.delete(sessionId);
     await this.connection.closeSession({ sessionId }).catch(() => {});
   }
@@ -485,17 +537,17 @@ const PER_PROCESS = 8;
 /** A process with nothing running for this long is stopped. */
 const IDLE_STOP_MS = 10 * 60_000;
 
-let starter: (kind: AcpKind, executable: string | undefined) => Promise<AcpAgent> = (kind, executable) => AcpAgent.start(kind, executable);
+let starter: (kind: CliKind, executable: string | undefined) => Promise<AcpAgent> = (kind, executable) => AcpAgent.start(kind, executable);
 /** Tests start agents in process. */
 export function setAgentStarter(start: typeof starter | null) {
   starter = start ?? ((kind, executable) => AcpAgent.start(kind, executable));
   pool.clear();
 }
 
-const poolKey = (kind: AcpKind, executable?: string) => `${kind}\u0000${executable?.trim() ?? ''}`;
+const poolKey = (kind: CliKind, executable?: string) => `${kind}\u0000${executable?.trim() ?? ''}`;
 
 /** A process for a new session: an idle one first, else a new one. */
-export async function agentFor(kind: AcpKind, executable?: string): Promise<AcpAgent> {
+export async function agentFor(kind: CliKind, executable?: string): Promise<AcpAgent> {
   const key = poolKey(kind, executable);
   const entries = pool.get(key) ?? [];
   pool.set(key, entries);
@@ -520,7 +572,7 @@ const LOGIN_CHECK_MS = 60_000;
  * session (answering a login question as the chat does) and close it. No prompt, no model call. A
  * login error is 'signed-out'; any other failure throws with its real message. The process always stops.
  */
-export async function checkCliLogin(kind: AcpKind, executable?: string): Promise<'signed-in' | 'signed-out'> {
+export async function checkCliLogin(kind: CliKind, executable?: string): Promise<'signed-in' | 'signed-out'> {
   let timer: NodeJS.Timeout | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new ModelError('timeout', `CLI가 ${LOGIN_CHECK_MS / 1000}초 안에 세션을 열지 못했습니다.`, false)), LOGIN_CHECK_MS);
@@ -549,7 +601,7 @@ export async function checkCliLogin(kind: AcpKind, executable?: string): Promise
 }
 
 /** The process that has a session open, if any is still running. */
-export async function agentWith(kind: AcpKind, executable: string | undefined, sessionId: string): Promise<AcpAgent | null> {
+export async function agentWith(kind: CliKind, executable: string | undefined, sessionId: string): Promise<AcpAgent | null> {
   for (const entry of pool.get(poolKey(kind, executable)) ?? []) {
     const agent = await entry.catch(() => null);
     if (agent?.alive && agent.sessions.has(sessionId)) return agent;

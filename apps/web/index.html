@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>loca</title>
     <script>
-      /* Theme before first paint (lib/theme.ts owns the key): no white flash in the dark theme. */
+      /* Theme before first paint (lib/theme.ts owns the key; lib/storage.ts keeps values as JSON): no white flash in the dark theme. */
       try {
-        var t = localStorage.getItem('tw.theme');
+        var t = JSON.parse(localStorage.getItem('loca.theme') || 'null');
         if (t === 'dark' || (t !== 'light' && matchMedia('(prefers-color-scheme: dark)').matches)) document.documentElement.classList.add('dark');
       } catch (e) {}
     </script>

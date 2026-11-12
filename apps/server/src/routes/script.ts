@@ -1,22 +1,21 @@
 import { Hono } from 'hono';
 import { and, eq, inArray } from 'drizzle-orm';
 import { z } from 'zod';
-import { batchChangeSchema, lineFilterSchema, resultRequestSchema } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { batchChangeSchema, lineFilterSchema, resultRequestSchema } from '@loca/shared';
+import { badRequest, found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
-import { proposeChange } from '../services/change-gate.ts';
-import { undoProposals } from '../services/proposals.ts';
+import { proposeChange, undoChanges } from '../services/change-gate.ts';
 import { resultCheck, resultFile, resultPlan } from '../services/results.ts';
 import { runErrors } from '../services/run-errors.ts';
 import { agentCatalog, jsonSchemaOf } from '../services/agent-catalog.ts';
-import { previewContext } from '../services/context-preview.ts';
+import { previewContext } from '../services/request-preview.ts';
 import { checkBatch, refusalText } from '../services/proposal-check.ts';
-import { fitResult } from '../services/tool-output.ts';
-import { viewFlow } from '../services/view-flow.ts';
+import { callTool, describeTool } from '../services/tool-run.ts';
+import { viewFlow } from '../domain/view-flow.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { inChunks } from '../db/chunk.ts';
 import { speakerRows } from '../services/project-rows.ts';
-import { checkScript, exportLines, findLines, firstAppearance, lineContext, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
+import { checkScript, exportLines, findLines, firstAppearance, lineAround, runStats, sceneStats, scenesWith } from '../services/script-query.ts';
 
 /**
  * The script API behind the `loca` CLI. Reading answers directly; writing (import, change tools)
@@ -33,8 +32,8 @@ export const scriptRoutes = new Hono<Env>()
   .post('/projects/:projectId/scenes/with', validate('json', z.object({ speakers: z.array(z.string().min(1)).min(1) })), (c) =>
     c.json(scenesWith(c.var.deps.db, c.req.param('projectId'), c.req.valid('json').speakers)),
   )
-  .get('/projects/:projectId/lines/:key/context', validate('query', z.object({ around: z.coerce.number().int().min(0).max(50).default(5) })), (c) =>
-    c.json(found(lineContext(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query').around), '대사')),
+  .get('/projects/:projectId/lines/:key/around', validate('query', z.object({ around: z.coerce.number().int().min(0).max(50).default(5) })), (c) =>
+    c.json(found(lineAround(c.var.deps.db, c.req.param('projectId'), c.req.param('key'), c.req.valid('query').around), '대사')),
   )
   /** What an AI node would send for this line (no model call). */
   .get('/projects/:projectId/lines/:key/ai-context', validate('query', z.object({ workflowId: z.string().optional(), nodeId: z.string().optional() })), (c) =>
@@ -76,18 +75,17 @@ export const scriptRoutes = new Hono<Env>()
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const { dryRun, ...raw } = c.req.valid('json');
-    const { batch, unchanged, report: checked } = await checkBatch(db, projectId, raw);
-    if (!batch.changes.length && !checked.errors.length) return c.json({ total: raw.changes.length, unchanged: unchanged.length, changes: 0, conflicts: [], errors: [], warnings: [], proposalId: null });
-    const report = { ...checked, total: raw.changes.length, unchanged: unchanged.length };
-    if (dryRun) return c.json({ ...report, proposalId: null });
-    if (!agentCatalog(db, projectId).some((tool) => tool.name === 'propose_changes')) badRequest('에이전트 설정에서 ‘여러 대사 한꺼번에 변경’이 꺼져 있습니다.');
-    if (batch.changes.length === report.errors.length + report.conflicts.length) return c.json({ ...report, proposalId: null });
-    // Through the same gate as every change tool, so the terminal permission mode decides it. The gate checks the
-    // batch again and leaves out the same rows, which it records: auto review asks when any were left out.
+    if (dryRun) {
+      const { unchanged, report } = await checkBatch(db, projectId, raw);
+      return c.json({ ...report, total: raw.changes.length, unchanged: unchanged.length, proposalId: null });
+    }
+    // Through the same gate as every change tool, so the terminal permission mode decides it. The gate's check
+    // of the batch is the one check: it leaves out the rows that cannot change and auto review asks when it did.
     const gate = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: 'propose_changes', input: raw, terminal: true });
-    if (!gate.ok && /바꿀 수 있는 줄이 없습니다|바뀌는 내용이 없습니다/.test(gate.error)) return c.json({ ...report, proposalId: null });
-    if (!gate.ok) badRequest(refusalText(gate));
-    return c.json({ ...report, proposalId: gate.proposalId, applied: gate.applied, status: gate.status, review: gate.review ?? null });
+    // Nothing to change is an answer, not a failure: the report says why.
+    if (!gate.ok && gate.empty && gate.batch) return c.json({ ...gate.batch, proposalId: null });
+    if (!gate.ok || !gate.batch) return badRequest(gate.ok ? '일괄 변경을 검사하지 못했습니다.' : refusalText(gate));
+    return c.json({ ...gate.batch, proposalId: gate.proposalId, applied: gate.applied, status: gate.status, review: gate.review ?? null });
   })
   /** A saved view's lines along its flow (viewFlow): each node's lines, and the ways in and out that stay inside the view, by line key. */
   .get('/projects/:projectId/views/:ref/flow', (c) => {
@@ -135,28 +133,25 @@ export const scriptRoutes = new Hono<Env>()
     const run = found(db.select({ id: s.runs.id, subject: s.runs.subject, definition: s.runs.definition, workflow: s.runs.workflowName }).from(s.runs).where(and(eq(s.runs.id, c.req.param('runId')), eq(s.runs.projectId, c.req.param('projectId')))).get(), '실행');
     return c.json({ workflow: run.workflow, subject: run.subject, items: runErrors(db, run).map(({ unitId, key }) => ({ unitId, key })) });
   })
-  /** Undo changes the terminal permission mode applied (not ones a person accepted), newest first. */
+  /** Undo changes the terminal permission mode applied (not ones a person accepted), newest first; the terminal mode decides the undo too. */
   .post('/projects/:projectId/proposals/undo', validate('json', z.object({ ids: z.array(z.string()).min(1).max(500) })), async (c) =>
-    c.json(await undoProposals(c.var.deps.db, { terminal: c.req.param('projectId') }, c.req.valid('json').ids)),
+    c.json(await undoChanges(c.var.deps.db, { terminal: c.req.param('projectId') }, c.req.valid('json').ids)),
   )
   /** Every agent tool, for `loca tools` / `loca call`. Change tools return a proposal instead of running. */
   .get('/projects/:projectId/tools', (c) =>
-    c.json(agentCatalog(c.var.deps.db, c.req.param('projectId')).map((tool) => ({ name: tool.name, description: tool.description, changes: tool.changes, input: jsonSchemaOf(tool.schema) }))),
+    c.json(agentCatalog(c.var.deps.db, c.req.param('projectId')).map((tool) => ({ name: tool.name, description: describeTool(tool, 'terminal'), changes: tool.changes, input: jsonSchemaOf(tool.schema) }))),
   )
+  /** One tool call from the terminal (callTool): a change answers with its proposal, anything else with its whole result. */
   .post('/projects/:projectId/tools/:name', validate('json', z.record(z.string(), z.unknown())), async (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
     const tool = agentCatalog(db, projectId).find((candidate) => candidate.name === c.req.param('name'));
-    if (!tool) badRequest(`없거나 꺼진 도구입니다: ${c.req.param('name')}`);
-    const input = c.req.valid('json');
-    const parsed = tool.schema.safeParse(input);
-    if (!parsed.success) badRequest(`입력이 맞지 않습니다: ${parsed.error.issues.map((issue) => `${issue.path.join('.')} ${issue.message}`).join('; ')}`);
-    if (tool.changes) {
-      const gate = await proposeChange(db, { projectId, sessionId: null, source: 'cli', tool: tool.name, input: parsed.data as Record<string, unknown>, terminal: true });
-      if (!gate.ok) badRequest(refusalText(gate));
-      return c.json({ proposed: true, proposalId: gate.proposalId, applied: gate.applied, status: gate.status, result: gate.result ?? null, review: gate.review ?? null, message: gate.text, report: gate.report });
-    }
-    return c.json({ proposed: false, result: fitResult(await tool.run(parsed.data)) });
+    if (!tool) return badRequest(`없거나 꺼진 도구입니다: ${c.req.param('name')}`);
+    const outcome = await callTool(db, { projectId, surface: 'terminal', sessionId: null }, tool, c.req.valid('json'));
+    if (outcome.kind === 'invalid') return badRequest(outcome.error);
+    if (outcome.kind === 'refused') return badRequest(refusalText(outcome));
+    if (outcome.kind === 'proposal') return c.json({ proposed: true as const, proposalId: outcome.proposalId, applied: outcome.applied, status: outcome.status, result: outcome.result ?? null, review: outcome.review ?? null, message: outcome.text, report: outcome.report });
+    return c.json({ proposed: false as const, result: outcome.result });
   })
   /** Projects by name, so the CLI can take `--project <name>`. */
   .get('/cli/projects', (c) => {

@@ -1,4 +1,4 @@
-import type { ChatChip } from '@tw/shared';
+import type { ChatChip } from '@loca/shared';
 
 const json = (ids: string[]) => JSON.stringify(ids);
 const query = (search: Record<string, string | boolean>) => Object.entries(search).map(([key, value]) => `${key}=${encodeURIComponent(String(value))}`).join('&');

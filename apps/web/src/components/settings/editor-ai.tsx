@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, DEFAULT_EDITOR_AI, type EditorAi, type EditorButton } from '@tw/shared';
+import { AI_PROMPTS, COMPLETE_SYSTEM, CONTEXT_FIELDS, type EditorAi, type EditorButton } from '@loca/shared';
 import { ModelPicker } from '@/components/model-picker';
 import { Box, Button, Checkbox, Group, ExpandableRow, Field, HelpTip, Inline, SaveStatusLine, Stack, Switch, Text, Textarea, Input, Section } from '@loca/ui';
 import { targetScope, type SettingsTarget } from '@/lib/settings-target';
@@ -156,7 +156,7 @@ export function EditorAiSection({ target }: { target: SettingsTarget }) {
           <Field.Group nested>
             <Field>
               <Field.Label>모델</Field.Label>
-              <ModelPicker target={target} value={complete.model} onChange={(model) => setComplete({ model })} kinds={['openai']} />
+              <ModelPicker target={target} value={complete.model} onChange={(model) => setComplete({ model })} need={['complete']} />
               <Field.Description>API 연결만 됩니다.</Field.Description>
             </Field>
             <Field>

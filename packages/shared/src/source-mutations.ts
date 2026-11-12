@@ -18,4 +18,3 @@ export const createUnitSchema = z.object({
   listener: person.optional(),
 }).strict();
 export const updateUnitSchema = createUnitSchema.partial().strict();
-export const deleteUnitsSchema = z.object({ unitIds: z.array(z.string().min(1)).min(1).max(10000) }).strict();

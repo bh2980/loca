@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@tw/shared';
-import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { APP_DEFAULT_SECTION_LABELS, APP_DEFAULT_SECTIONS, type AppDefaultSection } from '@loca/shared';
+import { Box, Button, Checkbox, Field, Inline, Section, Spinner, Stack, Text, ConfirmDialog } from '@loca/ui';
 import { useWorkflows } from '@/lib/workflows';
+import { pullDefaults, pushDefaults } from '@/lib/project';
 
 type Direction = 'pull' | 'push';
 
@@ -53,8 +53,8 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
   const run = useMutation({
     mutationFn: (direction: Direction) =>
       direction === 'pull'
-        ? unwrap(client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections: checked } }))
-        : unwrap(client.projects[':projectId'].defaults.push.$post({ param: { projectId }, json: { sections: checked, workflowIds: needsWorkflows ? pickedWorkflows.map((workflow) => workflow.id) : [] } })),
+        ? pullDefaults(projectId, checked)
+        : pushDefaults(projectId, checked, needsWorkflows ? pickedWorkflows.map((workflow) => workflow.id) : []),
     onSuccess: (result, direction) => {
       const done = result as Partial<Record<AppDefaultSection, string>>;
       setReport({ direction, lines: checked.filter((section) => done[section] !== undefined).map((section) => [section, done[section]!]) });
@@ -108,7 +108,7 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
                 ))}
               </Stack>
             ) : (
-              <Text as="p" variant="caption" tone="muted">{workflows.isPending ? '불러오는 중…' : '이 프로젝트에 워크플로가 없습니다.'}</Text>
+              <Text as="p" variant="caption" tone="muted">{workflows.isLoading ? '불러오는 중…' : '이 프로젝트에 워크플로가 없습니다.'}</Text>
             )}
             <Text as="p" variant="caption" tone="muted">가져오기에는 고르지 않아도 됩니다. 홈에 저장할 때만 쓰입니다.</Text>
           </Box>
@@ -135,26 +135,23 @@ export function HomeDefaultsSection({ projectId }: { projectId: string }) {
         )}
       </Box>
 
-      <AlertDialog open={dialog.open} onOpenChange={(open) => setDialog((current) => ({ ...current, open }))}>
-        <AlertDialogContent>
-          <AlertDialogHeader>
-            <AlertDialogTitle>{confirming === 'pull' ? '홈 기본값을 가져올까요?' : '홈 기본값으로 저장할까요?'}</AlertDialogTitle>
-            <AlertDialogDescription>{confirming === 'pull' ? '이 프로젝트에 다음처럼 적용됩니다.' : '홈의 새 프로젝트 기본값이 다음처럼 바뀝니다. 이미 있는 다른 프로젝트는 그대로입니다.'}</AlertDialogDescription>
-          </AlertDialogHeader>
-          <Box as="ul" spaceY="condensed">
-            {checked.map((section) => (
-              <Box as="li" key={section}>
-                <Text as="p" variant="label">{APP_DEFAULT_SECTION_LABELS[section]}</Text>
-                <Text as="p" variant="caption" tone="muted">{effects[section]}</Text>
-              </Box>
-            ))}
-          </Box>
-          <AlertDialogFooter>
-            <AlertDialogCancel>취소</AlertDialogCancel>
-            <AlertDialogAction onClick={() => run.mutate(confirming)}>{confirming === 'pull' ? '가져오기' : '저장'}</AlertDialogAction>
-          </AlertDialogFooter>
-        </AlertDialogContent>
-      </AlertDialog>
+      <ConfirmDialog
+        open={dialog.open}
+        onOpenChange={(open) => setDialog((current) => ({ ...current, open }))}
+        title={confirming === 'pull' ? '홈 기본값을 가져올까요?' : '홈 기본값으로 저장할까요?'}
+        description={confirming === 'pull' ? '이 프로젝트에 다음처럼 적용됩니다.' : '홈의 새 프로젝트 기본값이 다음처럼 바뀝니다. 이미 있는 다른 프로젝트는 그대로입니다.'}
+        confirmLabel={confirming === 'pull' ? '가져오기' : '저장'}
+        onConfirm={() => run.mutate(confirming)}
+      >
+        <Box as="ul" spaceY="condensed">
+          {checked.map((section) => (
+            <Box as="li" key={section}>
+              <Text as="p" variant="label">{APP_DEFAULT_SECTION_LABELS[section]}</Text>
+              <Text as="p" variant="caption" tone="muted">{effects[section]}</Text>
+            </Box>
+          ))}
+        </Box>
+      </ConfirmDialog>
     </Section>
   );
 }

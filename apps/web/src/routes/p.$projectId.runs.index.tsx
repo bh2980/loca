@@ -6,18 +6,21 @@ import { useQuery } from '@tanstack/react-query';
 import { Page } from '@/components/page';
 import { InspectorHeader, Inspector, InspectorList, SplitPane, EmptyState, DataTable, type ColumnDef, RunStatusBadge, Box, Button, Inline, Progress, Spinner, Text, ExpandableRow, Skeleton, ContextMenuItem, ListItem, Section } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
+import { useListScreen } from '@/lib/list-screen';
 import { dateTime, clock } from '@/lib/datetime';
 import { useRuns } from '@/lib/runs';
-import { useJobCalls } from '@/lib/logs';
+import { useConnectionName } from '@/lib/app-data';
+import { useJobCalls } from '@/lib/ai-calls';
+import { INPUT_TYPES } from '@loca/shared';
+import { param, searchParams } from '@/lib/search';
 
-interface RunsSearch {
+const runsSearchParams = {
   /** The run or job whose AI requests the right-hand pane shows. */
-  job?: string;
-}
+  job: param.text,
+};
 
 export const Route = createFileRoute('/p/$projectId/runs/')({
-  validateSearch: (raw: Record<string, unknown>): RunsSearch => ({ job: typeof raw.job === 'string' && raw.job ? raw.job : undefined }),
+  validateSearch: searchParams(runsSearchParams),
   component: Runs,
 });
 
@@ -111,7 +114,6 @@ function Runs() {
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const runs = useRuns(projectId);
-  const select = (id?: string) => void navigate({ search: { job: id }, replace: true });
 
   const rows: Row[] | undefined =
     runs.data
@@ -122,8 +124,9 @@ function Runs() {
             title: run.workflowName,
             sub: '',
             status: run.status,
-            error: run.status === 'paused' ? run.notice : null,
-            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: run.subject === 'terms' ? '개' : '줄' },
+            // Why it paused, or why it was closed before it could start.
+            error: run.status === 'paused' || run.status === 'cancelled' ? run.notice : null,
+            progress: { done: (run.states.done ?? 0) + (run.states.failed ?? 0) + (run.states.cancelled ?? 0), total: run.total, unit: INPUT_TYPES[run.subject].unit },
             stats: run.calls,
             at: new Date(run.createdAt),
             workflowId: run.workflowId,
@@ -131,7 +134,7 @@ function Runs() {
         ].sort((a, b) => b.at.getTime() - a.at.getTime())
       : undefined;
   const selected = rows?.find((row) => row.id === search.job);
-  useReportView('runs-job', [selected && { kind: JOB_KIND[selected.kind], id: selected.id, label: selected.title }]);
+  const { open: select, toggle } = useListScreen({ search, navigate, selection: 'job', report: ['runs-job', [selected && { kind: JOB_KIND[selected.kind], id: selected.id, label: selected.title }]] });
 
   return (
     <Page title="실행 기록" flush>
@@ -146,7 +149,7 @@ function Runs() {
           rowId={(row) => row.id}
           loading={!rows}
           selected={search.job}
-          onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : select(row.id === search.job ? undefined : row.id))}
+          onRowClick={(row) => (row.kind === 'run' ? void navigate({ to: '/p/$projectId/runs/$runId', params: { projectId, runId: row.id } }) : toggle(row.id))}
           rowContextMenu={(row) => (
             <>
               <ContextMenuItem
@@ -190,6 +193,7 @@ function Runs() {
 /** The model requests of one job, newest first. */
 function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: string; kind: keyof typeof JOB_KIND; title: string; stats: Stats | null }; onClose: () => void }) {
   const calls = useJobCalls(projectId, job.id);
+  const connectionName = useConnectionName({ kind: 'project', projectId });
   return (
     <Inspector header={<InspectorHeader kind={JOB_KIND[job.kind]} name={job.title} status={<Text tabular>AI 호출 · 입력/출력 {tokens(job.stats)}</Text>} actions={
         <>
@@ -222,7 +226,7 @@ function JobCalls({ projectId, job, onClose }: { projectId: string; job: { id: s
                 )}
               </Inline>
               <Text as="p" variant="caption" tone="muted" tabular>
-                {clock(call.startedAt)} · {call.connectionName ?? '연결 없음'} · {call.model}
+                {clock(call.startedAt)} · {connectionName(call.connectionId, call.connectionKind) ?? '연결 없음'} · {call.model}
                 {call.inputTokens != null && ` · 입력 ${call.inputTokens.toLocaleString()}${call.cachedInputTokens ? `(캐시 ${call.cachedInputTokens.toLocaleString()})` : ''} / 출력 ${(call.outputTokens ?? 0).toLocaleString()}`}
               </Text>
               {call.error && <Text as="p" variant="caption" breakWords tone="danger">{call.error}</Text>}

@@ -1,19 +1,23 @@
-import { useState, type ReactNode } from 'react';
-import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import { useState, useMemo } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { InferResponseType } from 'hono/client';
-import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type AiOutput, type BatchConfig } from '@tw/shared';
+import { AI_OUTPUTS, CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, INPUT_TYPES, JSON_FIELD_TYPE_LABELS, type AiNode, type Subject, bySubject } from '@loca/shared';
 import { Box, Button, Dialog, DialogContent, DialogHeader, DialogTitle, Inline, RequestDetails, RequestPart as Part, Combobox, Skeleton, Text, Section } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
+import { client } from '@/lib/api';
 import { useTerms } from '@/lib/terms';
+import { requestPreview } from '@/lib/workflows';
+import { useLinePage } from '@/lib/units';
 
 type Request = InferResponseType<(typeof client.workflows)[':id']['nodes'][':nodeId']['request']['$get'], 200>;
 
-/** The request one AI node sends (no model call): the prompt itself first, then what it is made of. */
+/** The request one AI node sends in a run of the whole script (no model call; the server builds it as the run does): the prompt itself first, then what it is made of. */
 export function PromptView({ request, title }: { request: Request; title: string }) {
   const [large, setLarge] = useState(false);
   const unit = INPUT_TYPES[request.subject].unit;
   const text = `${request.system}\n\n${request.prompt}`;
   const byKind = CONTEXT_PRIORITY.map((kind) => ({ kind, items: request.context.filter((item) => item.kind === kind && item.included) })).filter((group) => group.items.length);
+  // What cannot be shown outside a run is said, not approximated: a node that reads an earlier node's result, an item no run takes.
+  if (request.unavailable) return <Text as="p" variant="body" tone="muted">{request.unavailable}</Text>;
   if (!request.sample) return <Text as="p" variant="body" tone="muted">보낼 항목이 없습니다.</Text>;
   return (
     <Box spaceY="condensed">
@@ -82,28 +86,22 @@ export function PromptView({ request, title }: { request: Request; title: string
 
 /** The request of one saved AI node that holds `sample` (a line key, or a term id; none = the first item). */
 export function useRequestPreview(workflowId: string | undefined, nodeId: string | undefined, sample: string | undefined) {
-  return useQuery({
-    queryKey: ['workflows', 'request-preview', workflowId, nodeId, sample ?? ''],
-    queryFn: () => unwrap(client.workflows[':id'].nodes[':nodeId'].request.$get({ param: { id: workflowId!, nodeId: nodeId! }, query: sample ? { sample } : {} })),
-    enabled: Boolean(workflowId && nodeId),
-    placeholderData: keepPreviousData,
-  });
+  return useQuery({ ...requestPreview(workflowId ?? '', nodeId ?? '', sample), enabled: Boolean(workflowId && nodeId) });
 }
 
 /** Which item the preview is built for: lines searched by source, translation or key on the server, terms from the glossary. */
-function SamplePicker({ projectId, subject, value, label, onPick }: { projectId: string; subject: 'lines' | 'terms'; value?: string; label?: string; onPick: (value: string) => void }) {
+function SamplePicker({ projectId, subject, value, label, onPick }: { projectId: string; subject: Subject; value?: string; label?: string; onPick: (value: string) => void }) {
   const [query, setQuery] = useState('');
-  const lines = useQuery({
-    queryKey: ['units', 'sample-search', projectId, query],
-    queryFn: () => unwrap(client.projects[':projectId'].lines.find.$post({ param: { projectId }, json: { offset: 0, limit: 30, ...(query.trim() && { q: query.trim() }) } })),
-    enabled: subject === 'lines',
-    placeholderData: keepPreviousData,
-  });
-  const terms = useTerms(projectId, { enabled: subject === 'terms' });
-  const options =
-    subject === 'lines'
-      ? (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` }))
-      : (terms.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ value: term.id, label: term.target ? `${term.source} → ${term.target}` : term.source, searchText: `${term.source} ${term.target}` }));
+  // Each input's items come from their own place: lines searched on the server (by source, translation or key), terms from the glossary this browser holds.
+  const source = bySubject(subject, { lines: { search: true, placeholder: '대사 고르기' }, terms: { search: false, placeholder: '용어 고르기' } });
+  // Which lines match is the line list's own question (ids); the lines themselves are the browser's rows.
+  const sampleFilter = useMemo(() => ({ limit: 30, ...(query.trim() && { q: query.trim() }) }), [query]);
+  const lines = useLinePage(projectId, sampleFilter, { enabled: source.search });
+  const terms = useTerms(projectId, { enabled: !source.search });
+  const options = bySubject<() => { value: string; label: string; searchText?: string }[]>(subject, {
+    lines: () => (lines.data?.rows ?? []).map((row) => ({ value: row.key, label: `${row.key} · ${row.speaker ? `${row.speaker}: ` : ''}${row.translation || row.source}` })),
+    terms: () => (terms.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ value: term.id, label: term.target ? `${term.source} → ${term.target}` : term.source, searchText: `${term.source} ${term.target}` })),
+  })();
   return (
     <Combobox
       ariaLabel="샘플"
@@ -111,9 +109,9 @@ function SamplePicker({ projectId, subject, value, label, onPick }: { projectId:
       selectedLabel={label}
       onValueChange={onPick}
       options={options}
-      placeholder={subject === 'lines' ? '대사 고르기' : '용어 고르기'}
-      searchPlaceholder={subject === 'lines' ? '원문·번역으로 찾기' : '원문·번역으로 찾기'}
-      {...(subject === 'lines' && { onSearch: setQuery })}
+      placeholder={source.placeholder}
+      searchPlaceholder="원문·번역으로 찾기"
+      {...(source.search && { onSearch: setQuery })}
     />
   );
 }

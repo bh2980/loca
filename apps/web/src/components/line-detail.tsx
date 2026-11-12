@@ -5,14 +5,14 @@ import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
-import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, isUnknownListener, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, TAG_SCOPES, type FormatRules, type SpeechLevel } from '@tw/shared';
+import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
 import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
-import { changeLines, patchedLine, useLineDetail } from '@/lib/units';
+import { useLineDetail } from '@/lib/units';
 import { AiContextPanel } from '@/components/ai-context';
 import { TranslationEditor } from '@/components/translation-editor';
 import { AiSuggestion, suggestionFrom } from '@/components/ai-suggestion';
 import { wordDiff } from '@/lib/diff';
-import { useSaveLine } from '@/lib/line-save';
+import { useSaveLine, patchLine, patchPickedLines } from '@/lib/line-writes';
 import { useUsedTerms } from '@/components/script/line-row';
 import { LineNote } from '@/components/script/line-note';
 import { TokenText } from '@/components/editor/source-text';
@@ -20,11 +20,10 @@ import { replaceLineText } from '@/components/editor/translation-input';
 import { ListenerPicker } from '@/components/script/listener-picker';
 import { SpeakerCard } from '@/components/script/speaker-card';
 import { SourceEditor } from '@/components/script/source-editor';
-import { apiFetch, client } from '@/lib/api';
 import { useDraft } from '@/lib/drafts';
 import { lineTags, q } from '@/lib/queries';
-import { useReportView } from '@/lib/view-context';
-import { editorChecks, tokenPatternOf } from '@/lib/line-context';
+import { useReportView } from '@/lib/reported-view';
+import { editorChecks, tokenPatternOf } from '@/lib/source-parts';
 import { byDay, dayLabel, hourMinute } from '@/lib/datetime';
 import { useInspectorTab } from '@/lib/inspector-tab';
 import { usePersonColors } from '@/lib/person-colors';
@@ -33,6 +32,7 @@ import { useGroup } from '@/lib/groups';
 import { useProject } from '@/lib/project';
 import { useProfile } from '@/lib/app-data';
 import type { LineDetail as LineDetailData } from '@/lib/units';
+import { assistLine } from '@/lib/editor-ai';
 
 /** Who left a text that no run left, on the history's timeline: a mark and a name. */
 const ORIGIN: Record<'ai' | 'human' | 'import' | 'tool', { actor: HistoryActor; mark: string; name: string }> = {
@@ -52,7 +52,7 @@ type LineRecord = LineDetailData;
 /**
  * The selected line, deep, in three tabs. 대사: an AI 제안 waiting on it, translations of similar lines (TM), who speaks how
  * and the checks. 이력: the line's texts and the runs that touched it, as a timeline. AI 프롬프트: the AI's prompt context.
- * The tab opens as the URL names it, else as the last line was left (useInspectorTab).
+ * The tab opens as the URL names it (useInspectorTab).
  */
 export function LineDetail({
   projectId,
@@ -85,12 +85,11 @@ export function LineDetail({
   const taxonomy = useTaxonomy(projectId);
   const project = useProject(projectId);
   const people = useCharacters(projectId);
-  const colorOf = usePersonColors(projectId);
   const group = useGroup(projectId, unit.data?.group.id);
-  const [draft, setDraft, , base] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
+  const [draft, setDraft] = useDraft(`line:${unitId}`, unit.data?.translation ?? '');
   const [noting, setNoting] = useState(false);
   const [editingSource, setEditingSource] = useState(false);
-  const [tab, setTab] = useInspectorTab('line', LINE_TABS, urlTab, onTab);
+  const [tab, setTab] = useInspectorTab(LINE_TABS, urlTab, onTab);
   useReportView('line-detail', [
     unit.data && {
       kind: unit.data.kind === 'ui' ? 'UI 문자열' : unit.data.kind === 'document' ? '문서' : '대사',
@@ -101,11 +100,11 @@ export function LineDetail({
   ]);
 
   const patch = useMutation({
-    mutationFn: (json: { tagIds?: string[]; listener?: string | null; translate?: LineTranslate | null }) => changeLines(projectId, [unitId], patchedLine(json), () => client.units[':unitId'].$patch({ param: { unitId }, json })),
+    mutationFn: (json: { tagIds?: string[]; listener?: string | null; translate?: LineTranslate | null }) => patchLine(projectId, unitId, json),
     onError: (error) => toast.error(error.message),
   });
   const check = useMutation({
-    mutationFn: () => changeLines(projectId, [unitId], patchedLine({ checked: true }), () => client.projects[':projectId'].units.$patch({ param: { projectId }, json: { unitIds: [unitId], checked: true } })),
+    mutationFn: () => patchPickedLines(projectId, [unitId], { checked: true }),
     onError: (error) => toast.error(error.message),
   });
 
@@ -114,7 +113,6 @@ export function LineDetail({
   const status = taxonomy.statuses?.find((item) => item.id === statusId);
   const tags = lineTags(taxonomy.tags);
   const lastRun = line?.history[0];
-  const unknown = line ? isUnknownListener(line, project.data?.formatRules ?? undefined) : true;
   const cast = (people.data ?? []).filter((person) => person.status === 'confirmed').map((person) => ({ name: person.name, player: person.player }));
   const hasDialogueContext = line?.kind === 'dialogue' && Boolean(line.speaker?.trim());
   // 번역 제외: what the project's rules say about this source, and what a person's choice does.
@@ -236,7 +234,7 @@ export function LineDetail({
     <>
       {editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={taxonomy.statuses ?? []} /></Section>}
       {/* The editor in this pane shows the AI 제안 and TM itself. */}
-      {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} base={base} onDraft={useText} />}
+      {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} onDraft={useText} />}
       {!editor && <SimilarSection projectId={projectId} unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
       {(line.speaker || line.speech) && <PeopleSection projectId={projectId} line={line} speakerPerson={speakerPerson} listening={listening} listenerPicker={listenerPicker} people={people.data ?? []} />}
       <Section title="검증" collapsible persistKey="line.checks">
@@ -318,9 +316,8 @@ function AssistButton({ projectId, unit, mode, children }: { projectId: string; 
   const hasModel = Boolean(useProject(projectId).data?.editorAi?.model.model);
   const assist = useMutation({
     mutationFn: async () => {
-      const response = await apiFetch(`/api/units/${unit.id}/assist`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ mode, draft: mode === 'refine' ? unit.translation ?? '' : '', suggest: true }) });
-      const body = (await response.json()) as { unchanged?: boolean; error?: string };
-      if (!response.ok) throw new Error(body.error ?? 'AI 응답을 받지 못했습니다.');
+      const { ok, body } = await assistLine(projectId, unit.id, { mode, draft: mode === 'refine' ? unit.translation ?? '' : '', suggest: true });
+      if (!ok) throw new Error(body.error ?? 'AI 응답을 받지 못했습니다.');
       return body;
     },
     onSuccess: (body) => body.unchanged && toast.info(mode === 'refine' ? '고칠 곳이 없습니다.' : '지금 번역과 같은 답이 왔습니다.'),
@@ -491,7 +488,7 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
   const kept = texts.filter((candidate) => candidate.state === 'history');
   const before = (candidate: Version) => kept.find((older) => time(older.createdAt) < time(candidate.createdAt) && !sameTranslation(older.text, candidate.text));
   const restore = (candidate: Version) =>
-    save.mutate({ unitId: unit.id, candidateId: candidate.id, candidateText: candidate.text, base: unit.translation }, {
+    save.mutate({ unitId: unit.id, candidateId: candidate.id, candidateText: candidate.text }, {
       onSuccess: () => toast.success(candidate.state === 'declined' ? 'AI 제안을 적용했습니다.' : '이 번역으로 되돌렸습니다.'),
       onError: (error) => toast.error(error.message),
     });

@@ -1,33 +1,37 @@
 import { memo, useEffect } from 'react';
 import { Handle, Position, useStore, useUpdateNodeInternals, type Node, type NodeProps } from '@xyflow/react';
-import { BookPlus, Braces, CircleDot, Code, Combine, Flag, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, ScanSearch, Workflow, Sparkles, SpellCheck, UserCheck } from 'lucide-react';
-import { functionGroup, nodeName, nodePorts, type WorkflowNode } from '@tw/shared';
+import { BookPlus, Braces, CircleDot, Code, Combine, GitFork, Globe, ListChecks, MessageCircleQuestion, NotebookPen, Save, ScanSearch, Workflow, Sparkles, SpellCheck, UserCheck } from 'lucide-react';
+import { byNodeType, nodeGroup, nodeName, nodePorts, type AiOutput, type FunctionName, type WorkflowNode } from '@loca/shared';
 import { FlowHandle, NodeCard, type CanvasDirection, type ExitTagItem, type FoldChipProps } from '@loca/ui';
 
 type Icon = typeof Sparkles;
 
-const FUNCTION_ICON: Record<string, Icon> = {
+/** Every function's icon, by its name in FUNCTIONS: one without an icon does not compile. */
+export const FUNCTION_ICON: Record<FunctionName, Icon> = {
   formatCheck: ListChecks,
   glossaryCheck: SpellCheck,
-  addTerms: BookPlus,
-  setListener: UserCheck,
-  applyKnowledge: NotebookPen,
-  http: Globe,
   script: Code,
+  http: Globe,
+  saveCandidate: Save,
+  setListener: UserCheck,
+  saveTerms: BookPlus,
+  saveCharacters: NotebookPen,
+  saveRelationships: NotebookPen,
+  saveSpeechRules: NotebookPen,
+  saveEvents: NotebookPen,
+  saveDocument: NotebookPen,
 };
-const AI_ICON: Record<string, Icon> = { text: Sparkles, verdict: ScanSearch, choice: MessageCircleQuestion, json: Braces };
+const AI_ICON: Record<AiOutput, Icon> = { text: Sparkles, verdict: ScanSearch, choice: MessageCircleQuestion, json: Braces };
 
-export function nodeIcon(node: WorkflowNode): Icon {
-  switch (node.type) {
-    case 'entry': return CircleDot;
-    case 'ai': return AI_ICON[node.config.output] ?? Sparkles;
-    case 'function': return FUNCTION_ICON[node.config.fn] ?? Code;
-    case 'condition': return GitFork;
-    case 'gather': return Combine;
-    case 'call': return Workflow;
-    case 'end': return Flag;
-  }
-}
+export const nodeIcon = (node: WorkflowNode): Icon =>
+  byNodeType(node, {
+    entry: () => CircleDot,
+    ai: ({ config }) => AI_ICON[config.output],
+    function: ({ config }) => FUNCTION_ICON[config.fn],
+    condition: () => GitFork,
+    gather: () => Combine,
+    call: () => Workflow,
+  });
 
 export const workflowPortTone = (port: string): 'neutral' | 'warning' | 'destructive' => port === 'error'
   ? 'destructive'
@@ -98,7 +102,7 @@ export const WorkflowNodeView = memo(function WorkflowNodeView({ id, data, selec
         : { top: `${((index + 0.5) / (ports.length || 1)) * 100}%` }}
     /></FlowHandle>,
   }));
-  const kind = node.type === 'function' ? functionGroup(node.config.fn) : node.type;
+  const kind = nodeGroup(node);
   // A save says its verb before the name.
   const verb = kind === 'apply' ? '저장' : undefined;
   const cardIcon = <Icon />;

@@ -1,10 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, History, Pencil, Plus, Trash2, X } from 'lucide-react';
-import { Button, ListRow, MenuRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Inline, Icon, Input, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
-import { client } from '@/lib/api';
+import { History, Pencil, Plus, Trash2 } from 'lucide-react';
+import { Button, ListRow, MenuRenameRow, MenuRowAction, DropdownMenu, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger, Icon, Text, MenuSearchField, DropdownMenuContent, MenuLabel } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { changeChatSession } from '@/lib/logs';
+import { changeChat } from '@/lib/chat-sessions';
 
 export type SessionRow = { id: string; title: string; calls: number; tokens: number };
 
@@ -43,7 +42,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
   const rename = useMutation({
     // Shown at once, put back on failure.
-    mutationFn: ({ id, title }: { id: string; title: string }) => changeChatSession(projectId, id, { title }, () => client.chat[':sessionId'].$patch({ param: { sessionId: id }, json: { title } })),
+    mutationFn: ({ id, title }: { id: string; title: string }) => changeChat(projectId, id, { title }),
   });
   const commitRename = () => {
     if (!renaming) return;
@@ -102,26 +101,7 @@ export function ConversationMenu({ projectId, sessions, sessionId, currentTitle,
           <>
             {sessions?.map((session) =>
               renaming?.id === session.id ? (
-                <Inline key={session.id} gap="tight" paddingX="tight" paddingY="hair">
-                  <Input
-                    autoFocus
-                    value={renaming.title}
-                    aria-label="대화 이름"
-                    onChange={(event) => setRenaming({ id: session.id, title: event.target.value })}
-                    onKeyDown={(event) => {
-                      if (event.nativeEvent.isComposing) return event.stopPropagation();
-                      if (event.key === 'Enter') commitRename();
-                      if (event.key === 'Escape') setRenaming(null);
-                      event.stopPropagation();
-                    }}
-                  />
-                  <Button variant="ghost" size="icon-xs" aria-label="이름 저장" onClick={commitRename} disabled={!renaming.title.trim()}>
-                    <Check />
-                  </Button>
-                  <Button variant="ghost" size="icon-xs" aria-label="이름 바꾸기 취소" onClick={() => setRenaming(null)}>
-                    <X />
-                  </Button>
-                </Inline>
+                <MenuRenameRow key={session.id} value={renaming.title} label="대화 이름" onChange={(title) => setRenaming({ id: session.id, title })} onCommit={commitRename} onCancel={() => setRenaming(null)} />
               ) : (
                 <ListRow as="menuitem" key={session.id} selected={session.id === sessionId} onSelect={() => onPick(session.id)}>
                   <Text minWidth={0} grow truncate>{session.title}</Text>

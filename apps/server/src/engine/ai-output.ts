@@ -1,4 +1,4 @@
-import { OTHERS_LISTENER, type AiNode, type IssueKind, type ItemErrorKind, type JsonField } from '@tw/shared';
+import { OTHERS_LISTENER, type AiNode, type IssueKind, type ItemErrorKind, type JsonField } from '@loca/shared';
 import type { FunctionResult } from './functions/index.ts';
 import { answerSchema, type PromptLine } from './prompts.ts';
 

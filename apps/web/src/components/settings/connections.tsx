@@ -4,21 +4,23 @@ import { useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Controller, useForm, useWatch } from 'react-hook-form';
-import { Plus } from 'lucide-react';
+import { Plus, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { z } from 'zod';
 import {
   CONNECTION_KIND_INFO,
+  connectionCan,
   CONNECTION_KINDS,
   connectionInputSchema,
   type Capability,
   type ConnectionKind,
-} from '@tw/shared';
+} from '@loca/shared';
 import {
   Chip,
   Box,
   Button,
   type ColumnDef,
+  ConfirmDialog,
   DataTable,
   DirtyBar,
   EmptyState,
@@ -43,47 +45,47 @@ import {
 } from '@loca/ui';
 import { Page } from '@/components/page';
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
-import { DeleteButton } from '@/components/settings/delete-button';
 import { KeyPane, type KeyRow } from '@/components/settings/key-pane';
 import { ExecutableField } from '@/components/settings/executable-field';
-import { unwrap } from '@/lib/api';
-import { client } from '@/lib/api';
-import { connectionsApi, type ConnectionRow, type SettingsTarget } from '@/lib/settings-target';
-import { useReportView } from '@/lib/view-context';
+import { type ConnectionRow, type SettingsTarget, connectionWrites, testConnection } from '@/lib/settings-target';
+import { useListScreen } from '@/lib/list-screen';
+import { param, type SearchOf } from '@/lib/search';
 import { dateTime } from '@/lib/datetime';
-import { changeConnection, useConnections } from '@/lib/app-data';
-import { useConnectionTests } from '@/lib/logs';
+import { useConnections } from '@/lib/app-data';
+import { useConnectionTests } from '@/lib/ai-calls';
 
-const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', tool: '도구' };
+const CAPABILITY_LABEL: Record<Capability, string> = { generate: '생성', judge: '판정', chat: '채팅', complete: '자동완성', tool: '도구' };
 const LOGIN_LABEL: Record<string, string> = {
   'signed-in': '로그인됨',
   'signed-out': '로그인 필요',
 };
 const errorMessage = (error: unknown) => (error instanceof Error ? error.message : String(error));
 
-export type ConnectionsSearch = { conn?: string; key?: string };
+/** The open connection or API key (`new` while one is being added); both settings routes read these. */
+export const connectionsSearchParams = { conn: param.text, key: param.text };
+export type ConnectionsSearch = SearchOf<typeof connectionsSearchParams>;
 
 /**
  * The AI connections and API keys of one settings target (a project, or the home's defaults).
- * The selection lives in the route's URL: the route passes it in `search` and applies what `onSearch` asks for.
+ * The selection lives in the route's URL: the route passes its `search` and its `navigate`.
  */
-export function ConnectionsSettings({ target, search, onSearch, description }: { target: SettingsTarget; search: ConnectionsSearch; onSearch: (next: ConnectionsSearch) => void; description?: string }) {
+export function ConnectionsSettings({ target, search, navigate, description }: { target: SettingsTarget; search: ConnectionsSearch; navigate: (options: { search: (previous: ConnectionsSearch) => ConnectionsSearch; replace: boolean }) => unknown; description?: string }) {
   const connections = useConnections(target);
 
-  const openConn = (conn?: string) => onSearch({ conn });
-  const openKey = (key?: string) => onSearch({ key });
-  const close = () => onSearch({});
-
-  const aiRows = connections.data?.filter((c) => c.kind !== 'http');
-  const keyRows = connections.data?.filter((c) => c.kind === 'http') as KeyRow[] | undefined;
+  const aiRows = connections.data?.filter((c) => !connectionCan(c.kind, 'tool'));
+  const keyRows = connections.data?.filter((c) => connectionCan(c.kind, 'tool')) as KeyRow[] | undefined;
 
   const selectedConn = search.conn && search.conn !== 'new' ? connections.data?.find((c) => c.id === search.conn) : undefined;
   const selectedKey = search.key && search.key !== 'new' ? keyRows?.find((k) => k.id === search.key) : undefined;
 
-  useReportView('settings-connections', [
-    selectedConn && { kind: 'AI 연결', id: selectedConn.id, label: selectedConn.name },
-    selectedKey && { kind: 'API 키', id: selectedKey.id, label: selectedKey.name },
-  ]);
+  const { open, close, toggle } = useListScreen({
+    search,
+    navigate,
+    selection: ['conn', 'key'],
+    report: ['settings-connections', [selectedConn && { kind: 'AI 연결', id: selectedConn.id, label: selectedConn.name }, selectedKey && { kind: 'API 키', id: selectedKey.id, label: selectedKey.name }]],
+  });
+  const openConn = (conn: string) => open(conn, 'conn');
+  const openKey = (key: string) => open(key, 'key');
 
   const aiColumns: ColumnDef<ConnectionRow, unknown>[] = [
     { id: 'name', header: '이름', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium">{row.original.name}</Text> },
@@ -132,7 +134,7 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
                   rowId={(row) => row.id}
                   selected={selectedConn?.id}
                   empty={<EmptyState noun="AI 연결" />}
-                  onRowClick={(row) => openConn(row.id === search.conn ? undefined : row.id)}
+                  onRowClick={(row) => toggle(row.id, 'conn')}
                 />
               </Box>
             </Section>
@@ -153,7 +155,7 @@ export function ConnectionsSettings({ target, search, onSearch, description }: {
                   rowId={(row) => row.id}
                   selected={search.key}
                   empty={<EmptyState noun="API 키" />}
-                  onRowClick={(row) => openKey(row.id === search.key ? undefined : row.id)}
+                  onRowClick={(row) => toggle(row.id, 'key')}
                 />
               </Box>
             </Section>
@@ -191,16 +193,13 @@ function NewConnection({ target, onClose, onCreated }: { target: SettingsTarget;
   const create = useMutation({
     // Done once the feed has brought the new row, so the list and the pane it opens have it.
     mutationFn: (values: ConnectionFormOutput) =>
-      changeConnection(
-        target,
-        connectionsApi(target).create({
+      connectionWrites(target).create({
           kind: values.kind,
           name: values.name,
           baseUrl: info.transport === 'http' ? values.baseUrl : undefined,
           executable: info.transport === 'cli' ? values.executable || undefined : undefined,
           apiKey: info.transport === 'http' && values.apiKey ? values.apiKey : undefined,
         }),
-      ),
     onSuccess: (row) => {
       toast.success('연결을 추가했습니다.');
       onCreated?.(row.id);
@@ -269,10 +268,10 @@ function NewConnection({ target, onClose, onCreated }: { target: SettingsTarget;
 }
 
 function ConnectionPane({ target, connection, onClose }: { target: SettingsTarget; connection: ConnectionRow; onClose: () => void }) {
-  const api = connectionsApi(target);
+  const api = connectionWrites(target);
   const info = CONNECTION_KIND_INFO[connection.kind];
   const isHttp = info.transport === 'http';
-  const isTool = connection.kind === 'http';
+  const isTool = connectionCan(connection.kind, 'tool');
   const [apiKey, setApiKey] = useState('');
   const [probeResult, setProbeResult] = useState<{ ok: boolean; detail: string } | null>(null);
   const [login, setLogin] = useState<string | null>(null);
@@ -292,17 +291,14 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
 
   const save = useMutation({
     mutationFn: (values: z.output<typeof editSchema>) =>
-      changeConnection(
-        target,
-        api.patch(
-          connection.id,
-          onlyDirty({
-            name: values.name,
-            baseUrl: isHttp ? values.baseUrl : undefined,
-            executable: isHttp ? undefined : (values.executable ?? ''),
-            headerTemplate: connection.kind === 'http' ? (values.headerTemplate ?? '') : undefined,
-          }),
-        ),
+      api.patch(
+        connection.id,
+        onlyDirty({
+          name: values.name,
+          baseUrl: isHttp ? values.baseUrl : undefined,
+          executable: isHttp ? undefined : (values.executable ?? ''),
+          headerTemplate: isTool ? (values.headerTemplate ?? '') : undefined,
+        }),
       ),
     onSuccess: () => {
       toast.success('저장했습니다.');
@@ -310,7 +306,7 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const saveKey = useMutation({
-    mutationFn: () => changeConnection(target, api.putKey(connection.id, apiKey)),
+    mutationFn: () => api.putKey(connection.id, apiKey),
     onSuccess: () => {
       setApiKey('');
       toast.success('키를 저장했습니다.');
@@ -318,29 +314,29 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
     onError: (error) => toast.error(errorMessage(error)),
   });
   const deleteKey = useMutation({
-    mutationFn: () => changeConnection(target, api.deleteKey(connection.id)),
+    mutationFn: () => api.deleteKey(connection.id),
     onSuccess: () => {
       toast.success('키를 삭제했습니다.');
     },
     onError: (error) => toast.error(errorMessage(error)),
   });
   const remove = useMutation({
-    mutationFn: () => changeConnection(target, api.remove(connection.id)),
+    mutationFn: () => api.remove(connection.id),
     onSuccess: onClose,
     onError: (error) => toast.error(errorMessage(error)),
   });
   const probe = useMutation({
-    mutationFn: () => unwrap(api.probe(connection.id)),
+    mutationFn: () => api.probe(connection.id),
     onSuccess: setProbeResult,
     onError: (error) => setProbeResult({ ok: false, detail: errorMessage(error) }),
   });
   const loginStatus = useMutation({
-    mutationFn: () => unwrap(api.loginStatus(connection.id)),
+    mutationFn: () => api.loginStatus(connection.id),
     onSuccess: (result) => setLogin(result.status === 'error' ? result.detail : result.status),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const openLogin = useMutation({
-    mutationFn: () => unwrap(api.openLogin(connection.id)),
+    mutationFn: () => api.openLogin(connection.id),
     onSuccess: (result) => (result.ok ? toast.success(`${connection.kind === 'antigravity' ? 'agy를 열었습니다' : '로그인 창을 열었습니다'}: ${result.command}`) : toast.error(result.detail)),
     onError: (error) => toast.error(errorMessage(error)),
   });
@@ -362,10 +358,10 @@ function ConnectionPane({ target, connection, onClose }: { target: SettingsTarge
   };
 
   return (
-    <Inspector footerStart={<><DeleteButton
-          label={`연결 '${connection.name}'`}
+    <Inspector footerStart={<><ConfirmDialog
+          trigger={<Button type="button" variant="ghost" tone="danger" disabled={remove.isPending}><Trash2 /> 삭제</Button>}
+          title={`연결 '${connection.name}'을(를) 삭제할까요?`}
           description="워크플로 노드(재시도 규칙의 다른 모델 포함)·대화가 이 연결을 쓰고 있으면 삭제되지 않습니다. 저장된 API 키도 함께 삭제됩니다."
-          pending={remove.isPending}
           onConfirm={() => remove.mutate()}
         /></>}
       header={<InspectorHeader kind={isTool ? '도구' : 'AI 연결'} name={connection.name} status={info.label} onClose={onClose} />}
@@ -443,7 +439,7 @@ function ModelTest({ target, connectionId, need }: { target: SettingsTarget; con
   const choice = picked ?? { connectionId, model: '' };
   const [source, setSource] = useState('');
   const test = useMutation({
-    mutationFn: () => unwrap(client.connections[':id'].test.$post({ param: { id: connectionId }, json: { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' } })),
+    mutationFn: () => testConnection(connectionId, { model: choice.model, effort: choice.effort, source, targetLanguage: 'ko' }),
     onError: (error) => toast.error(errorMessage(error)),
   });
   const tests = useConnectionTests(connectionId);

@@ -1,23 +1,17 @@
 import { useSyncExternalStore } from 'react';
+import { stored, STORED } from './storage';
 
 /**
  * Light (A Slate) or dark (C Night) theme: the `dark` class on <html> (tokens in packages/ui tokens/theme.css).
- * The choice is per browser (localStorage), `system` follows the OS. index.html applies it before first
- * paint with the same key, so keep the two in step.
+ * The choice is per browser (STORED.theme, lib/storage.ts), `system` follows the OS. index.html applies it before
+ * first paint from the same key and encoding (`loca.theme`, a JSON string), so keep the two in step.
  */
 export type ThemeChoice = 'light' | 'dark' | 'system';
-const KEY = 'tw.theme';
+const slot = stored(STORED.theme);
 const media = () => window.matchMedia('(prefers-color-scheme: dark)');
-const listeners = new Set<() => void>();
 
-export function readTheme(): ThemeChoice {
-  try {
-    const value = localStorage.getItem(KEY);
-    return value === 'light' || value === 'dark' ? value : 'system';
-  } catch {
-    return 'system';
-  }
-}
+/** Nothing kept: the OS decides. */
+export const readTheme = (): ThemeChoice => slot.read() ?? 'system';
 
 function apply(choice: ThemeChoice) {
   const dark = choice === 'dark' || (choice === 'system' && media().matches);
@@ -25,34 +19,21 @@ function apply(choice: ThemeChoice) {
 }
 
 export function setTheme(choice: ThemeChoice) {
-  try {
-    if (choice === 'system') localStorage.removeItem(KEY);
-    else localStorage.setItem(KEY, choice);
-  } catch {
-    /* private mode: this page only */
-  }
+  slot.write(choice === 'system' ? null : choice);
   apply(choice);
-  for (const listener of listeners) listener();
 }
 
 function subscribe(listener: () => void) {
-  listeners.add(listener);
-  const onSystem = () => {
-    if (readTheme() === 'system') apply('system');
+  // The choice changed (here or in another tab), or the OS's did: the class follows, then the readers draw again.
+  const onChange = () => {
+    apply(readTheme());
     listener();
   };
-  const onStorage = (event: StorageEvent) => {
-    if (event.key === KEY) {
-      apply(readTheme());
-      listener();
-    }
-  };
-  media().addEventListener('change', onSystem);
-  window.addEventListener('storage', onStorage);
+  const stop = slot.subscribe(onChange);
+  media().addEventListener('change', onChange);
   return () => {
-    listeners.delete(listener);
-    media().removeEventListener('change', onSystem);
-    window.removeEventListener('storage', onStorage);
+    stop();
+    media().removeEventListener('change', onChange);
   };
 }
 

@@ -1,10 +1,10 @@
 import { expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
-import { fillTermUsage } from './term-usage.ts';
+import { fillTermUsage } from '../domain/term-usage.ts';
 
 it('invalidates counts and example keys on source changes, insertions and deletions, but not translation edits', () => {
   const db = openDatabase(':memory:');

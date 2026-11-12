@@ -1,13 +1,14 @@
 import { useMemo } from 'react';
-import { glossaryMatcher, type TermScope } from '@tw/shared';
-import { EditorSourceParagraph, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { splitTokens, useLineContext, type SourcePart } from '@/lib/line-context';
+import { glossaryMatcher, type TermScope } from '@loca/shared';
+import { Text, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
+import { splitTokens, useSourceParts, type SourcePart } from '@/lib/source-parts';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { useDraft } from '@/lib/drafts';
 import { placeTags } from '@/lib/tag-placement';
 import { insertIntoLine, insertUnitIntoLine } from './translation-input';
 import { TermPick } from './term-pick';
 import { keyLabel } from '@/lib/keys';
+import { tokenKey } from '@/lib/shortcuts';
 import { useTerms } from '@/lib/terms';
 
 /**
@@ -17,12 +18,12 @@ import { useTerms } from '@/lib/terms';
  */
 /** A chip's hint in the editor: missing from the translation, and its Alt+number shortcut. */
 const chipHint = (number: number | undefined, missing: readonly (number | undefined)[]) =>
-  [missing.includes(number) && '번역에 없음', number && number <= 9 && keyLabel(`Alt+${number}`)].filter(Boolean).join(' · ') || undefined;
+  [missing.includes(number) && '번역에 없음', number && tokenKey(number) && keyLabel(tokenKey(number)!)].filter(Boolean).join(' · ') || undefined;
 
 export function SourceText({ parts, units = [], unitId, missing = [] }: { parts: SourcePart[]; units?: TokenUnit[]; unitId?: string; missing?: number[] }) {
   const insert = (text: string) => unitId && insertIntoLine(unitId, text);
   return (
-    <EditorSourceParagraph>
+    <Text as="p" breakWords preserveLines>
       {parts.map((part, index) => {
         if (part.token !== undefined)
           return (
@@ -61,13 +62,13 @@ export function SourceText({ parts, units = [], unitId, missing = [] }: { parts:
           );
         return <span key={index}>{part.text}</span>;
       })}
-    </EditorSourceParagraph>
+    </Text>
   );
 }
 
 /** The source of the line being edited, with its tokens and terms (see SourceText); tokens the draft still lacks are ringed. */
 export function LineSourceText({ projectId, unitId, source, translation }: { projectId: string; unitId: string; source: string; translation?: string | null }) {
-  const line = useLineContext(projectId, source);
+  const line = useSourceParts(projectId, source);
   const [draft] = useDraft(`line:${unitId}`, translation ?? '');
   const missing = useMemo(() => {
     if (!draft.trim()) return [];

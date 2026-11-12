@@ -1,12 +1,11 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { agentCatalog } from './agent-catalog.ts';
+import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { importProject } from './importer.ts';
-import { prepareProposal } from './proposal-check.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -50,7 +49,7 @@ describe('proposal check', () => {
 
   it('turns down a batch with nothing it could change', async () => {
     const { db, projectId } = setup();
-    expect(await prepareProposal(db, projectId, 'propose_changes', { changes: [{ key: 'missing.1', translation: 'x' }] })).toEqual({ ok: false, error: expect.stringContaining('missing.1') });
+    expect(await prepareProposal(db, projectId, 'propose_changes', { changes: [{ key: 'missing.1', translation: 'x' }] })).toMatchObject({ ok: false, error: expect.stringContaining('missing.1'), empty: true, batch: { total: 1, errors: [{ key: 'missing.1' }] } });
   });
 
   it('applies the valid lines when accepted and skips the ones changed meanwhile', async () => {
@@ -64,6 +63,6 @@ describe('proposal check', () => {
   it('reports a failed update instead of claiming success', async () => {
     const { db, projectId } = setup();
     const tool = agentCatalog(db, projectId).find((candidate) => candidate.name === 'save_document')!;
-    expect(await tool.run({ id: 'nope', kind: 'note', title: 't', body: '' })).toEqual({ ok: false, error: expect.stringContaining('없는 노트') });
+    expect(await tool.run({ id: 'nope', kind: 'note', title: 't', body: '' })).toMatchObject({ ok: false, error: expect.stringContaining('없는 노트') });
   });
 });

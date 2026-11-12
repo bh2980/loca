@@ -3,8 +3,8 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
-import type { AppType } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest } from '@tw/shared';
+import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -31,7 +31,8 @@ const program = new Command('loca')
   그래프    loca views create --label "미라와 요나스" -s MIRA JONAS  (링크 출력)
   그 밖     loca tools · loca tools <이름> · loca call <이름> '{...}'
 
-바꾸는 명령(import, workflows save, runs start, 변경 도구)은 모두 제안이 되고, 앱에서 수락해야 반영됩니다.
+바꾸는 명령(import, workflows save, runs start, 변경 도구)은 프로젝트의 터미널 권한 모드(앱의 설정 › 채팅)를 따릅니다:
+매번 묻기면 제안이 되어 앱에서 수락해야 반영되고, 자동 검토·바로 반영이면 바로 반영됩니다(자동 검토가 넘긴 것은 제안으로 남음).
 loca proposals list --status pending 으로 대기 중인 제안을 봅니다.`,
   );
 
@@ -96,27 +97,39 @@ const short = (text: string | null | undefined, length = 80) => {
 const markText = (marks: readonly string[] | undefined) => (marks ?? []).map((mark) => `#${AUTO_MARKS[mark as AutoMark]?.name ?? mark}`).join(' ');
 const withMarks = (text: string, marks: readonly string[] | undefined, tags: readonly string[] = []) => [text, markText(marks), ...tags.map((tag) => `#${tag}`)].filter(Boolean).join('  ');
 
-/** A read-only agent tool (the same one the chat and `loca call` use). A tool-level error becomes a CliError. */
-async function readTool<T = Record<string, any>>(name: string, input: Record<string, unknown> = {}): Promise<T> {
-  const response = await unwrap(api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: input }));
-  if (response.proposed) throw new CliError(`${name}은(는) 변경 도구라 읽기 명령으로 부를 수 없습니다.`);
-  const result = (response as { result?: unknown }).result as { error?: string } | undefined;
-  if (result && typeof result === 'object' && typeof result.error === 'string') throw new CliError(result.error);
-  return result as T;
-}
 /** What became of a change: applied now (the terminal permission mode allowed it), failed while applying, or waiting for the person. */
 type Outcome = { proposalId: string; applied: boolean; status: string; result?: unknown; review?: string | null };
 
-/** A change tool, through the terminal permission mode. Prints what the check left out and returns the outcome. */
-async function proposeTool(name: string, input: Record<string, unknown>): Promise<Outcome> {
+/**
+ * One call of an agent tool (the same tools the chat uses). A change goes through the terminal permission
+ * mode and answers with what became of it (what the check left out is printed); anything else answers
+ * with its whole result.
+ */
+async function callTool(name: string, input: Record<string, unknown>): Promise<{ outcome: Outcome; message: string } | { result: unknown }> {
   const response = await unwrap(api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: input }));
-  if (!response.proposed) {
-    const result = (response as { result?: { error?: string } }).result;
-    throw new CliError(result?.error ?? `${name}은(는) 제안을 만들지 않았습니다.`);
-  }
-  logDropped((response as { report?: Report }).report);
-  const outcome = response as unknown as Outcome;
-  return { proposalId: outcome.proposalId, applied: outcome.applied, status: outcome.status, result: outcome.result, review: outcome.review };
+  if (!response.proposed) return { result: response.result };
+  logDropped(response.report);
+  return { outcome: { proposalId: response.proposalId, applied: response.applied, status: response.status, result: response.result, review: response.review }, message: response.message };
+}
+
+/** What a tool answers when it does not answer with an error. */
+type ToolResult<K extends keyof ToolResults> = Exclude<ToolResults[K], { error: string }>;
+
+/** A tool that reads, with the result the server's catalogue gives it. A tool-level error becomes a CliError. */
+async function readTool<K extends keyof ToolResults>(name: K, ...[input]: {} extends ToolInputs[K] ? [input?: ToolInputs[K]] : [input: ToolInputs[K]]): Promise<ToolResult<K>> {
+  const answer = await callTool(name, (input ?? {}) as Record<string, unknown>);
+  if ('outcome' in answer) throw new CliError(`${name}은(는) 변경 도구라 읽기 명령으로 부를 수 없습니다.`);
+  const result = answer.result as { error?: unknown } | null;
+  if (result && typeof result === 'object' && typeof result.error === 'string') throw new CliError(result.error);
+  return result as ToolResult<K>;
+}
+
+/** A change tool, through the terminal permission mode: what became of it. */
+async function proposeTool<K extends keyof ToolInputs>(name: K, input: ToolInputs[K]): Promise<Outcome> {
+  const answer = await callTool(name, input as Record<string, unknown>);
+  if ('outcome' in answer) return answer.outcome;
+  const result = answer.result as { error?: string } | null;
+  throw new CliError(result?.error ?? `${name}은(는) 제안을 만들지 않았습니다.`);
 }
 
 type Report = { dropped?: { key: string; reason: string }[]; warnings?: { key: string; issues: string[] }[] } | null | undefined;
@@ -127,7 +140,7 @@ const logDropped = (report: Report) => {
 };
 
 /** Where waiting proposals are decided. */
-const ACCEPT_HINT = 'loca 앱 채팅 패널의 ‘제안’에서 수락하면 반영됩니다';
+const ACCEPT_HINT = 'loca 앱 아래 상태 표시줄의 ‘알림’에서 수락하면 반영됩니다';
 const failure = (result: unknown) => (result && typeof result === 'object' && typeof (result as { error?: unknown }).error === 'string' ? (result as { error: string }).error : JSON.stringify(result));
 
 /** Says what became of a change; a change that failed while applying fails the command. */
@@ -172,36 +185,6 @@ async function resolveGroups(refs: string[] | undefined) {
   });
 }
 
-/** The groups of these sections (장·출처), by id, for run scopes that take groups; with `--group` too, both must hold. */
-async function sectionGroups(sections: string[] | undefined, groups: string[] | undefined) {
-  if (!sections?.length) return groups;
-  const all = await unwrap(api().projects[':projectId'].groups.$get({ param: { projectId: await projectId() }, query: {} }));
-  const inSections = all.filter((group) => group.section && sections.includes(group.section));
-  if (!inSections.length) throw new CliError(`구역을 찾지 못했습니다: ${sections.join(', ')} (loca stats sections로 확인)`);
-  const picked = groups?.length ? (await resolveGroups(groups))!.map((group) => group.id) : null;
-  const ids = inSections.map((group) => group.id).filter((id) => !picked || picked.includes(id));
-  if (!ids.length) throw new CliError('고른 장면·묶음이 그 구역에 없습니다.');
-  return ids;
-}
-
-/** Every line of a saved view (id and key), for run scopes that take lines. */
-async function viewLines(view: string) {
-  const rows: { id: string; key: string }[] = [];
-  for (let offset = 0; ; ) {
-    const page = await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { view, offset, limit: 1000 } }));
-    rows.push(...page.rows.map((row) => ({ id: row.id, key: row.key })));
-    offset += page.rows.length;
-    if (!page.rows.length || offset >= page.total) break;
-  }
-  if (!rows.length) throw new CliError(`보기에 대사가 없습니다: ${view}`);
-  return rows;
-}
-
-/** A tool result cut for length says so (fitResult); the command tells how to narrow it. */
-const warnTruncated = (result: { truncated?: { shown: number; total: number } }, hint: string) => {
-  if (result.truncated) log(`결과가 길어 ${result.truncated.shown}/${result.truncated.total}개만 받았습니다. ${hint}`);
-};
-
 /** A file's text, or stdin for "-"; a file that cannot be read is said plainly, not as a stack trace. */
 function readText(file: string): string {
   try {
@@ -227,7 +210,7 @@ function readJsonArg(value: string | undefined): unknown {
  * `check` once connected and again after each change to `topic` in this project, until it returns
  * a value. `timeout` is in minutes.
  */
-async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, timeout?: number): Promise<T> {
+async function waitFor<T>(topic: Topic, check: () => Promise<T | undefined>, timeout?: number): Promise<T> {
   const id = await projectId();
   const controller = new AbortController();
   const timer = timeout ? setTimeout(() => controller.abort(new CliError(`${timeout}분 동안 끝나지 않아 기다리기를 멈췄습니다. 하던 일은 앱에서 계속됩니다.`)), timeout * 60_000) : undefined;
@@ -251,7 +234,7 @@ async function waitFor<T>(topic: string, check: () => Promise<T | undefined>, ti
         buffer = buffer.slice(end + 2);
         if (!block.split('\n').includes(`event: ${FEED_EVENT}`)) continue;
         const data = /^data: (.*)$/m.exec(block)?.[1];
-        const event = data ? (JSON.parse(data) as { projectId?: string; topics: string[] }) : null;
+        const event = data ? (JSON.parse(data) as ChangeEvent) : null;
         if (!event || (event.projectId && event.projectId !== id) || !event.topics.includes(topic)) continue;
         const done = await check();
         if (done !== undefined) return done;
@@ -295,6 +278,7 @@ interface FilterOptions {
   noted?: boolean;
   withoutNote?: boolean;
   excluded?: ExcludedFilter;
+  review?: boolean;
   hideSpeaker?: string[];
   hideStatus?: string[];
   hideTag?: string[];
@@ -307,8 +291,9 @@ interface FilterOptions {
   offset?: string;
 }
 
-function withFilters(command: Command) {
-  return command
+/** The line filter's flags (lineFilterSchema, one flag per field), for every command that picks lines. `paging: false` for a command that takes them all (a run's scope). */
+function withFilters(command: Command, { marks = LINE_MARK_IDS as readonly string[], paging = true } = {}) {
+  const filters = command
     .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자 (%·_·\\도 그 글자 그대로)')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
     .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 모름(청자를 모르거나 AI 추정이 불확실한 대사)')
@@ -319,13 +304,14 @@ function withFilters(command: Command) {
     .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
     .option('--status <statuses...>', '상태 이름')
     .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-    .addOption(new Option('--mark <marks...>', '자동 태그가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
+    .addOption(new Option('--mark <marks...>', '자동 태그가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(marks))
     .option('--unfinished', '상태가 최종이 아닌 대사 (남은 일. 번역 제외 대사는 빠짐)')
     .option('--finished', '상태가 최종인 대사')
     .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
     .option('--noted', '메모가 있는 대사')
     .option('--without-note', '메모가 없는 대사')
     .addOption(new Option('--excluded <방식>', '번역 제외 대사: hide = 뺌, only = 그것만 (없으면 함께)').choices(EXCLUDED_FILTERS))
+    .option('--review', '검토함에 보이는 상태의 대사만')
     .option('--hide-speaker <names...>', '숨기기: 이 인물이 하는 대사는 뺌')
     .option('--hide-status <statuses...>', '숨기기: 이 상태의 대사는 뺌')
     .option('--hide-tag <tags...>', '숨기기: 이 태그 중 하나라도 붙은 대사는 뺌')
@@ -333,9 +319,8 @@ function withFilters(command: Command) {
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
-    .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사. export는 보기의 흐름 순서로')
-    .option('--limit <n>', '한 번에 가져올 수 (최대 1000)')
-    .option('--offset <n>', '건너뛸 수');
+    .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사. export는 보기의 흐름 순서로');
+  return paging ? filters.option('--limit <n>', '한 번에 가져올 수 (최대 1000)').option('--offset <n>', '건너뛸 수') : filters;
 }
 
 function filterFrom(options: FilterOptions): LineFilterInput {
@@ -355,6 +340,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     decidedBy: options.by,
     noted: options.noted ? true : options.withoutNote ? false : undefined,
     excluded: options.excluded,
+    review: options.review || undefined,
     hideSpeakers: options.hideSpeaker,
     hideStatuses: options.hideStatus,
     hideTags: options.hideTag,
@@ -376,7 +362,7 @@ projects
   .description('프로젝트 목록')
   .action(async () => {
     const rows = await unwrap(api().cli.projects.$get());
-    if (globals().json) return print(rows);
+    if (globals().json) return printList(rows.length, rows);
     for (const project of rows) console.log(`${project.name}  (${project.id})`);
   });
 
@@ -423,7 +409,7 @@ const speakers = program
   .description('화자 목록과 대사 수 (저장된 인물과 연결된 이름 포함)')
   .action(async () => {
     const rows = await unwrap(api().projects[':projectId'].speakers.$get({ param: { projectId: await projectId() } }));
-    if (globals().json) return print(rows);
+    if (globals().json) return printList(rows.length, rows);
     for (const row of rows) console.log(`${String(row.lines).padStart(6)}  ${row.speaker ?? '(화자 없음)'}${row.character && row.character !== row.speaker ? `  = ${row.character}` : ''}`);
   });
 
@@ -446,7 +432,7 @@ scenes
   .option('--limit <n>', '한 번에 가져올 수 (최대 200)', '200')
   .option('--offset <n>', '건너뛸 수', '0')
   .action(async (options: { q?: string; limit: string; offset: string }) => {
-    const data = await readTool<{ total: number; scenes: { id: string; key: string; kind: string; title: string; description: string }[] }>('list_scenes', { q: options.q, limit: Number(options.limit), offset: Number(options.offset) });
+    const data = await readTool('list_scenes', { q: options.q, limit: Number(options.limit), offset: Number(options.offset) });
     log(`장면·묶음 ${data.total.toLocaleString()}개 중 ${data.scenes.length.toLocaleString()}개`);
     moreHint(data.total, data.scenes.length, Number(options.offset), false);
     if (globals().json) return printList(data.total, data.scenes);
@@ -460,12 +446,11 @@ scenes
   .option('--offset <n>', '건너뛸 수', '0')
   .action(async (ref: string, options: { limit: string; offset: string }) => {
     const [group] = (await resolveGroups([ref]))!;
-    const data = await readTool<{ total: number; lines: { key: string; speaker: string | null; listener?: string | null; source: string; translation: string | null }[] } & Record<string, unknown>>('read_scene', { sceneId: group!.id, limit: Number(options.limit), offset: Number(options.offset) });
-    const lines = (data.lines ?? []) as { key: string; speaker: string | null; listener?: string | null; source: string; translation: string | null }[];
-    log(`${group!.title}: 대사 ${(data.total ?? lines.length).toLocaleString()}줄 중 ${lines.length.toLocaleString()}줄`);
-    moreHint(Number(data.total ?? lines.length), lines.length, Number(options.offset), false);
+    const data = await readTool('read_scene', { sceneId: group!.id, limit: Number(options.limit), offset: Number(options.offset) });
+    log(`${group!.title}: 대사 ${data.total.toLocaleString()}줄 중 ${data.lines.length.toLocaleString()}줄`);
+    moreHint(data.total, data.lines.length, Number(options.offset), false);
     if (globals().json) return print(data);
-    for (const line of lines) console.log(`${line.key}  ${line.speaker ?? '—'}${line.listener ? ` → ${line.listener}` : ''}: ${short(line.source, 100)}${line.translation ? `\n    → ${short(line.translation, 100)}` : ''}`);
+    for (const line of data.lines) console.log(`${line.key}  ${line.speaker ?? '—'}: ${short(line.source, 100)}${line.translation ? `\n    → ${short(line.translation, 100)}` : ''}`);
   });
 
 scenes
@@ -483,7 +468,7 @@ program
   .description('대사 하나와 앞뒤 대사, 대사 그래프의 분기')
   .option('-a, --around <n>', '앞뒤로 볼 대사 수', '5')
   .action(async (key: string, options: { around: string }) => {
-    const context = await unwrap(api().projects[':projectId'].lines[':key'].context.$get({ param: { projectId: await projectId(), key }, query: { around: options.around } }));
+    const context = await unwrap(api().projects[':projectId'].lines[':key'].around.$get({ param: { projectId: await projectId(), key }, query: { around: options.around } }));
     if (!context) throw new CliError(`대사를 찾을 수 없습니다: ${key}`);
     if (globals().json) return print(context);
     for (const row of context.before) console.log(`  ${row.speaker ?? '—'}: ${short(row.source)}`);
@@ -584,7 +569,7 @@ withFilters(program.command('results').description('번역 결과 파일 만들�
 
 program
   .command('import <파일>')
-  .description('JSONL(줄마다 key·rev와 바꿀 translation/status/addTags/removeTags)을 검사하고 제안 하나로 올리기. 앱에서 수락해야 반영됩니다')
+  .description('JSONL(줄마다 key·rev와 바꿀 translation/status/addTags/removeTags/listener/memo/translate)을 검사하고 변경 하나로 올리기. memo는 줄의 메모, translate는 번역 제외(exclude·include·null). 터미널 권한 모드에 따라 바로 반영되거나 제안으로 기다립니다')
   .option('--dry-run', '검사만 하고 제안은 올리지 않기')
   .addOption(new Option('--origin <누가>', '번역한 쪽').choices(['ai', 'human']).default('ai'))
   .option('--model <이름>', '번역한 모델 이름 (후보에 기록)')
@@ -624,8 +609,8 @@ program
 
 program
   .command('context <키>')
-  .description('AI 노드가 이 대사를 번역할 때 보낼 문맥: 앞 대사(갈래별), 넣은 것과 이유, 상한 때문에 뺀 것. 모델은 부르지 않습니다')
-  .option('-n, --node <id>', 'AI 노드 id (없으면 번역 후보를 만드는 첫 노드)')
+  .description('AI 노드가 이 대사를 번역할 때 보낼 문맥: 앞 대사(갈래별), 넣은 것과 이유, 상한 때문에 뺀 것. 대본 전체 실행에서 이 대사가 들어갈 요청을 실행과 같은 코드로 만듭니다(모델은 부르지 않음). 앞 노드 결과를 읽는 노드는 실행 기록에서만 볼 수 있습니다')
+  .option('-n, --node <id>', '대사 워크플로의 AI 노드 id (없으면 번역 후보를 만드는 첫 노드)')
   .option('-w, --workflow <id>', '같은 노드 id가 여러 워크플로에 있을 때 워크플로 id')
   .option('--prompt', '실제 프롬프트 전체도 출력')
   .action(async (key: string, options: { workflow?: string; node?: string; prompt?: boolean }) => {
@@ -633,7 +618,9 @@ program
       api().projects[':projectId'].lines[':key']['ai-context'].$get({ param: { projectId: await projectId(), key }, query: { workflowId: options.workflow, nodeId: options.node } }),
     );
     if (globals().json) return print(data);
-    if (!data || !('batch' in data) || !data.picked) throw new CliError('AI 노드가 있는 워크플로가 없습니다.');
+    if (!data || !data.picked) throw new CliError('AI 노드가 있는 대사 워크플로가 없습니다.');
+    // What cannot be shown outside a run is said, not approximated (a node that reads an earlier node's result, a line no run takes).
+    if (!('batch' in data)) throw new CliError('unavailable' in data ? data.unavailable : '이 노드가 보낼 내용을 만들지 못했습니다.');
     const { workflowId, nodeId } = data.picked;
     const picked = data.choices.find((choice) => choice.workflowId === workflowId && choice.nodeId === nodeId)!;
     const others = data.choices.filter((choice) => choice !== picked);
@@ -673,20 +660,17 @@ program
   .command('call <도구> [입력]')
   .description('에이전트 도구를 직접 호출. 입력은 JSON, @파일, 또는 - (표준 입력). 변경 도구는 터미널 권한 모드에 따라 바로 반영되거나 제안으로 기다립니다')
   .action(async (name: string, input: string | undefined) => {
-    const result = await unwrap(
-      api().projects[':projectId'].tools[':name'].$post({ param: { projectId: await projectId(), name }, json: readJsonArg(input) as Record<string, unknown> }),
-    );
-    if (result.proposed) {
-      log(result.message);
-      logDropped((result as { report?: Report }).report);
-      const outcome = result as unknown as Outcome;
+    const answer = await callTool(name, readJsonArg(input) as Record<string, unknown>);
+    if ('outcome' in answer) {
+      const { outcome } = answer;
+      log(answer.message);
       if (outcome.status === 'failed') process.exitCode = 1;
       return print({ proposalId: outcome.proposalId, applied: outcome.applied, status: outcome.status, ...(outcome.applied || outcome.status === 'failed' ? { result: outcome.result } : {}) });
     }
     // A graph pick comes back with where to open it; say it as a link.
-    const open = (result.result as { open?: { to: string; search?: Record<string, string> } } | undefined)?.open;
+    const open = (answer.result as { open?: { to: string; search?: Record<string, string> } } | undefined)?.open;
     if (open) log(`앱에서 열기: ${appLink(open.to.replace('$projectId', await projectId()), open.search)}`);
-    print(result.result);
+    print(answer.result);
   });
 
 // ── glossary, knowledge, tags, run plan ──────────────────────────────
@@ -708,14 +692,13 @@ const terms = program
   .option('--tag <tags...>', '태그 이름 (모두 붙은 용어)')
   .option('--limit <n>', '최대 몇 개까지')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (options: { q?: string; status?: string[]; mark?: string[]; by?: DecidedBy; emptyTarget?: boolean; hasTarget?: boolean; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
-    type Term = { id: string; source: string; target: string; targetCandidates?: string[]; scope?: string[]; matchCase?: boolean; note: string; status: KnowledgeStatus; statusBy: string; lines: number | null; examples: string[]; marks: string[]; tags: string[] };
+  .action(async (options: { q?: string; status?: string[]; mark?: (typeof TERM_MARK_IDS)[number][]; by?: DecidedBy; emptyTarget?: boolean; hasTarget?: boolean; unreviewed?: boolean; tag?: string[]; limit?: string; jsonl?: boolean }) => {
+    type Term = ToolResult<'list_terms'>['terms'][number];
     const wanted = options.limit ? Number(options.limit) : Infinity;
     const rows: Term[] = [];
     let total = 0;
-    // A page the tool had to cut still arrives; continue from what came.
     while (rows.length < wanted) {
-      const page = await readTool<{ total: number; terms: Term[] }>('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, decidedBy: options.by, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
+      const page = await readTool('list_terms', { q: options.q, status: statusIds(options.status), marks: options.mark, decidedBy: options.by, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined, unreviewed: options.unreviewed || undefined, tags: options.tag, offset: rows.length, limit: Math.min(100, wanted - rows.length) });
       total = page.total;
       rows.push(...page.terms);
       if (!page.terms.length || rows.length >= total) break;
@@ -733,9 +716,8 @@ terms
   .option('--limit <n>', '최대 몇 줄까지', '100')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
   .action(async (term: string, options: { limit: string; jsonl?: boolean }) => {
-    const data = await readTool<{ term: { id: string; source: string; target: string; status: KnowledgeStatus }; count: number; lines: { key: string; scene: string; speaker: string | null; source: string; translation: string | null }[]; truncated?: { shown: number; total: number } }>('term_usage', { term, limit: Number(options.limit) });
+    const data = await readTool('term_usage', { term, limit: Number(options.limit) });
     log(`${data.term.source}${data.term.target ? ` → ${data.term.target}` : ''}: 대사 ${data.count.toLocaleString()}줄 중 ${data.lines.length.toLocaleString()}줄`);
-    warnTruncated(data, '--limit을 줄이세요.');
     if (options.jsonl) return printJsonl(data.lines);
     if (globals().json) return print(data);
     for (const line of data.lines) console.log(`${line.key}  ${line.speaker ?? '—'}: ${short(line.source)}${line.translation ? `\n    → ${short(line.translation)}` : ''}`);
@@ -746,30 +728,28 @@ terms
   .description('대본에서 용어 후보 찾기 (앱 용어집의 "대본에서 찾기", 모델을 부르지 않음): 새 것은 후보로 더하고 있던 것은 나온 줄 수만 갱신. 터미널 권한 모드를 따름')
   .action(async () => printOutcome(await proposeTool('discover_terms', {}), '용어 후보 찾기'));
 
-const KNOWLEDGE_KINDS = {
-  documents: { tool: 'read_documents', pick: undefined, label: '노트' },
-  characters: { tool: 'list_characters', pick: 'characters', label: '인물' },
-  relationships: { tool: 'list_characters', pick: 'relationships', label: '관계' },
-  events: { tool: 'list_events', pick: undefined, label: '사건' },
-  'speech-rules': { tool: 'list_speech_rules', pick: undefined, label: '말투 규칙' },
-} as const;
+const KNOWLEDGE_KINDS = { documents: '노트', characters: '인물', relationships: '관계', events: '사건', 'speech-rules': '말투 규칙' } as const;
 
 program
   .command('knowledge <종류>')
-  .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, info]) => `${kind}(${info.label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
+  .description(`작품 자료 목록: ${Object.entries(KNOWLEDGE_KINDS).map(([kind, label]) => `${kind}(${label})`).join(', ')}. 상태, 표시(#), 태그 포함. 앱 작품 자료 화면의 필터와 같은 규칙`)
   .addOption(new Option('--status <status...>', '상태 (앱의 상태 열). 둘을 함께 주면 둘 중 하나').choices(STATUS_CHOICES))
   .addOption(new Option('--mark <marks...>', '자동 태그. 여러 개면 모두 붙은 것').choices(KNOWLEDGE_MARK_IDS))
   .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
   .option('--unreviewed', '사람이 아직 정하지 않은 항목 (상태가 후보이거나 AI가 정한 것)')
   .option('--tag <tags...>', '태그 이름 (모두 붙은 항목)')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')
-  .action(async (kind: string, options: { status?: string[]; mark?: string[]; by?: DecidedBy; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
+  .action(async (kind: string, options: { status?: string[]; mark?: (typeof KNOWLEDGE_MARK_IDS)[number][]; by?: DecidedBy; unreviewed?: boolean; tag?: string[]; jsonl?: boolean }) => {
     if (!(kind in KNOWLEDGE_KINDS)) throw new CliError(`종류는 ${Object.keys(KNOWLEDGE_KINDS).join(', ')} 중 하나입니다.`);
-    const info = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
-    const result = await readTool<Record<string, any>>(info.tool, { status: statusIds(options.status), marks: options.mark, decidedBy: options.by, unreviewed: options.unreviewed || undefined, tags: options.tag });
-    const rows: Record<string, any>[] = info.pick ? result[info.pick] : Array.isArray(result) ? result : (result.items ?? []);
-    log(`${info.label} ${rows.length.toLocaleString()}개`);
-    warnTruncated(result, '--status, --by, --mark, --unreviewed, --tag로 좁히세요.');
+    const label = KNOWLEDGE_KINDS[kind as keyof typeof KNOWLEDGE_KINDS];
+    const filter = { status: statusIds(options.status), marks: options.mark, decidedBy: options.by, unreviewed: options.unreviewed || undefined, tags: options.tag };
+    // Printed by kind below, so the rows are read loosely here.
+    const rows: Record<string, any>[] =
+      kind === 'documents' ? await readTool('read_documents', filter)
+      : kind === 'events' ? await readTool('list_events', filter)
+      : kind === 'speech-rules' ? await readTool('list_speech_rules', filter)
+      : (await readTool('list_characters', filter))[kind === 'characters' ? 'characters' : 'relationships'];
+    log(`${label} ${rows.length.toLocaleString()}개`);
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(rows.length, rows);
     const name = (row: Record<string, any>): string =>
@@ -785,8 +765,8 @@ const tagsCommand = program
   .command('tags')
   .description('프로젝트 태그와 기본 표시(#)의 붙는 곳(대사·자료·용어집), 종류, 색, 쓰인 대사·항목 수. 태그는 붙는 곳에만 붙일 수 있고 다른 곳은 거절됩니다')
   .action(async () => {
-    type Entry = { name: string; color: string; places: string[]; lines: number; items: number; id: string; description?: string };
-    const data = await readTool<{ tags: Entry[]; marks: Entry[] }>('list_tags');
+    const data = await readTool('list_tags');
+    type Entry = (typeof data.tags | typeof data.marks)[number];
     if (globals().json) return print(data);
     const row = (entry: Entry) => console.log(`  #${entry.name}  ·  붙는 곳 ${entry.places.join('·')}  ·  ${entry.color}  ·  대사 ${entry.lines} · 자료 ${entry.items}${entry.description ? `  ·  ${entry.description}` : ''}`);
     console.log('태그');
@@ -815,8 +795,7 @@ defaults
   .command('show', { isDefault: true })
   .description('홈 기본값 보기 (연결 이름·종류, 에디터 AI, 채팅 설정, 저장한 지시, 상태, 태그, 워크플로). 고치기는 앱의 홈 › 설정에서 사람이 합니다')
   .action(async () => {
-    type Defaults = { connections: { name: string; kind: string }[]; aiAutoConfirm: boolean; statuses: { name: string; kind: string; inReview: boolean }[]; tags: { name: string }[]; workflows: { templates: string[]; saved: { name: string }[] }; agentSettings: { prompts: { name: string }[] } };
-    const data = await readTool<Defaults>('read_app_defaults');
+    const data = await readTool('read_app_defaults');
     if (globals().json) return print(data);
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
     console.log(`연결: ${data.connections.map((row) => `${row.name}(${row.kind})`).join(', ') || '(없음)'}`);
@@ -829,7 +808,7 @@ defaults
 defaults
   .command('pull <섹션...>')
   .description('홈 기본값을 이 프로젝트로 가져오기를 제안 (앱에서 수락). 섹션: editorAi, prompts, aiAutoConfirm, statuses, tags, workflows. 연결과 채팅 권한은 앱에서 사람이 가져옵니다')
-  .action(async (sections: string[]) => printOutcome(await proposeTool('pull_app_defaults', { sections }), '홈 기본값 가져오기'));
+  .action(async (sections: string[]) => printOutcome(await proposeTool('pull_app_defaults', { sections: sections as ToolInputs['pull_app_defaults']['sections'] }), '홈 기본값 가져오기'));
 
 /** `--model` specs ("연결:모델" for every AI node, "노드=연결:모델" for one) as plan_run / start_run take them. */
 function runModels(specs: string[] | undefined) {
@@ -850,8 +829,7 @@ const statusesCommand = program
   .command('statuses')
   .description('번역 상태: 종류(시작·중간·최종), 순서, 검토함 표시')
   .action(async () => {
-    type Status = { id: string; name: string; kind: string; sort: number; inReview: boolean; color: string };
-    const rows = await readTool<Status[]>('list_statuses');
+    const rows = await readTool('list_statuses');
     if (globals().json) return printList(rows.length, rows);
     const kind: Record<string, string> = { initial: '시작', normal: '중간', final: '최종' };
     for (const row of rows) console.log(`${row.name.padEnd(10)} ${kind[row.kind] ?? row.kind}${row.inReview ? ' · 검토함' : ''}  (${row.id})`);
@@ -862,7 +840,7 @@ statusesCommand
   .description('상태 순서 바꾸기 (앞에 둘 것부터, 빠진 것은 지금 순서대로 뒤에). 터미널 권한 모드를 따름')
   .action(async (names: string[]) => printOutcome(await proposeTool('order_settings', { type: 'status', names }), '상태 순서'));
 
-const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기');
+const workflows = program.command('workflows').description('워크플로: 목록, 노드·연결·검증 보기, 파일로 고쳐 제안하기, 복제');
 
 workflows
   .command('list')
@@ -878,24 +856,18 @@ workflows
   .description('노드(종류·이름·설정 요약)와 연결, 검증 결과. --json이면 save로 돌려보낼 수 있는 {id, name, description, definition}')
   .action(async (ref: string) => {
     const found = await resolveWorkflow(ref);
-    type Node = { id: string; type: string; label?: string; config: Record<string, any> };
-    const data = await readTool<{ id: string; name: string; description: string; definition: { nodes: Node[]; edges: { source: string; sourceHandle: string; target: string }[]; settings?: { retries?: unknown[] }; groups?: { label: string; nodeIds: string[] }[] }; issues: { level: string; message: string; nodeId?: string }[] }>('read_workflow', { workflowId: found.id });
+    const data = await readTool('read_workflow', { workflowId: found.id });
     if (globals().json) return print({ id: data.id, name: data.name, description: data.description, definition: data.definition, issues: data.issues });
     const names = new Map((await unwrap(api().projects[':projectId'].workflows.$get({ param: { projectId: await projectId() } }))).map((item) => [item.id, item.name]));
     const rules = (list: unknown[]) => (list.length ? list.map((rule) => retrySummary(retryRuleSchema.parse(rule))).join(' / ') : '안 함');
-    const summary = (node: Node) =>
-      node.type === 'entry' ? `대상 ${node.config.input === 'terms' ? '용어' : '대사'} (실행 범위로 고름)`
-      : node.type === 'ai' ? `${node.config.output}·${node.config.scope ?? 'line'}${node.config.preset ? ` · 프리셋 ${node.config.preset}` : ''} · ${node.config.model?.model || '모델 없음'} · 동시 ${node.config.concurrency ?? 1}${node.config.fields?.length ? ` · 필드 ${node.config.fields.map((field: { name: string }) => field.name).join(', ')}` : ''} · 재시도 ${Array.isArray(node.config.retries) ? rules(node.config.retries) : '워크플로 기본'}`
-      : node.type === 'function' ? `${node.config.fn}${node.config.fn === 'http' || node.config.fn === 'script' ? ` · 동시 ${node.config.concurrency ?? 2}` : ''}`
-      : node.type === 'condition' ? JSON.stringify(node.config.expression)
-      : node.type === 'gather' ? `모으기 (앞 단계 결과)${node.config.fields?.length ? ` · 필드 ${node.config.fields.join(', ')}` : ''}`
-      : node.type === 'call' ? `호출: ${names.get(node.config.workflowId) ?? (node.config.workflowId ? `(없는 워크플로 ${node.config.workflowId})` : '고르지 않음')}`
-      : '';
+    // The line the app shows under a node's title, then what the app shows elsewhere (ids, model, calls at once, fields, retries, the condition itself).
+    const workflowNames = [...names].map(([id, name]) => ({ id, name }));
+    const summary = (node: (typeof data.definition.nodes)[number]) => [nodeSummary(node, data.definition, { workflows: workflowNames }), ...nodeDetails(node, data.definition)].join(' · ');
     console.log(`${data.name}  (${data.id})${data.description ? `\n${data.description}` : ''}\n재시도 규칙(워크플로 기본): ${rules(data.definition.settings?.retries ?? [])}${data.definition.groups?.length ? `\n프레임: ${data.definition.groups.map((group) => `${group.label || '이름 없음'} (${group.nodeIds.join(', ')})`).join(' / ')}` : ''}\n`);
     // An exit's actions (tags, status) as ids: `[+태그 id, −태그 id, 상태 → id]`.
     const actionText = (action: Record<string, any>) => action.type === 'status' ? `상태 → ${action.statusId}` : `${action.action === 'remove' ? '−' : '+'}${[...(action.tagIds ?? []), ...(action.fromField ? [`(결과의 ${action.fromField})`] : [])].join(' ')}`;
     for (const node of data.definition.nodes) {
-      const exits = (node as Node & { exits?: Record<string, Record<string, any>[]> }).exits ?? {};
+      const exits: Record<string, Record<string, any>[]> = node.exits ?? {};
       const ports = [...new Set([...data.definition.edges.filter((edge) => edge.source === node.id).map((edge) => edge.sourceHandle), ...Object.keys(exits)])];
       const out = ports.map((port) => {
         const targets = data.definition.edges.filter((edge) => edge.source === node.id && edge.sourceHandle === port).map((edge) => edge.target);
@@ -913,17 +885,23 @@ workflows
   .action(async (file: string) => {
     const input = readJsonArg(file === '-' ? '-' : `@${file}`) as Record<string, unknown>;
     const { issues: _issues, ...workflow } = input;
-    printOutcome(await proposeTool('save_workflow', workflow), '워크플로 저장');
+    printOutcome(await proposeTool('save_workflow', workflow as ToolInputs['save_workflow']), '워크플로 저장');
+  });
+
+workflows
+  .command('duplicate <워크플로>')
+  .description('워크플로 복제를 제안으로 올리기: 설명·정의가 같은 새 워크플로("<이름> (복사본)"). 원본은 바뀌지 않습니다. 고쳐 보기 전에 복사본을 만들 때')
+  .option('--name <이름>', '복사본의 이름')
+  .action(async (ref: string, options: { name?: string }) => {
+    const found = await resolveWorkflow(ref);
+    printOutcome(await proposeTool('duplicate_workflow', { id: found.id, name: options.name }), '워크플로 복제');
   });
 
 workflows
   .command('reference [프리셋]')
   .description('워크플로를 만들 때 참고: 노드 종류와 출구, 조건이 읽는 값, AI 출력·프리셋(요약), 반영 노드, 연결된 모델. 프리셋 id를 주면 그 프리셋의 지시문·출력 필드·문맥 전문')
   .action(async (preset?: string) => {
-    const raw = await readTool<{ text?: string } | Record<string, unknown>>('harness_reference', preset ? { preset } : {});
-    // The tool hands the reference over as one JSON string.
-    const data = typeof raw.text === 'string' ? (() => { try { return JSON.parse(raw.text as string) as unknown; } catch { return raw.text; } })() : raw;
-    console.log(typeof data === 'string' ? data : JSON.stringify(data, null, 2));
+    print(await readTool('harness_reference', (preset ? { preset } : {}) as ToolInputs['harness_reference']));
   });
 
 workflows
@@ -931,22 +909,25 @@ workflows
   .description('스크립트·HTTP 노드를 대사 하나로 시험 (앱의 노드 시험과 같음, 아무것도 저장하지 않음). 워크플로는 이름·id 또는 show --json으로 받은 파일(저장 전 수정본). HTTP 노드는 실제로 요청을 보내고 프로젝트의 첫 대사를 씁니다. AI 노드는 loca context로 문맥·프롬프트를 봅니다')
   .option('--key <키>', '스크립트 노드: 이 대사로 (없으면 첫 대사)')
   .action(async (ref: string, nodeId: string, options: { key?: string }) => {
-    type Node = { id: string; type: string; config: { fn?: string; params?: Record<string, any> } };
+    type Definition = ToolResult<'read_workflow'>['definition'];
+    // A file is an unsaved edit of `show --json`: read as a definition here, checked by the server when the node is tried.
     const definition = existsSync(ref) && statSync(ref).isFile()
-      ? (readJsonArg(`@${ref}`) as { definition: { nodes: Node[] } }).definition
-      : (await readTool<{ definition: { nodes: Node[] } }>('read_workflow', { workflowId: (await resolveWorkflow(ref)).id })).definition;
+      ? (readJsonArg(`@${ref}`) as { definition: Definition }).definition
+      : (await readTool('read_workflow', { workflowId: (await resolveWorkflow(ref)).id })).definition;
     const node = definition.nodes.find((candidate) => candidate.id === nodeId);
     if (!node) throw new CliError(`노드가 없습니다: ${nodeId} (${definition.nodes.map((candidate) => candidate.id).join(', ')})`);
-    const params = node.config.params ?? {};
     const id = await projectId();
+    const config = node.type === 'function' ? node.config : undefined;
     let result: { ok: boolean; error?: string; ms: number } & Record<string, unknown>;
-    if (node.type === 'function' && node.config.fn === 'script') {
+    if (config?.fn === 'script') {
       const unitId = options.key ? (await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: id }, json: { keys: [options.key], limit: 1 } }))).rows[0]?.id : undefined;
       if (options.key && !unitId) throw new CliError(`대사를 찾을 수 없습니다: ${options.key}`);
-      result = await unwrap(api().projects[':projectId']['script-test'].$post({ param: { projectId: id }, json: { code: params.code ?? '', ports: params.ports ?? ['out'], fields: params.fields ?? [], unitId } }));
-    } else if (node.type === 'function' && node.config.fn === 'http') {
-      result = await unwrap(api().projects[':projectId']['http-test'].$post({ param: { projectId: id }, json: { params: params as never } }));
-    } else throw new CliError(`${node.type}${node.config.fn ? `(${node.config.fn})` : ''} 노드는 시험할 수 없습니다. 스크립트·HTTP 노드만 됩니다${node.type === 'ai' ? '. AI 노드는 loca context <키> -n ' + node.id + ' --prompt' : ''}.`);
+      // A file's node may leave settings out (the server fills them when the workflow is saved).
+      const { code = '', ports = ['out'], fields = [] } = config.params ?? {};
+      result = await unwrap(api().projects[':projectId']['script-test'].$post({ param: { projectId: id }, json: { code, ports, fields, unitId } }));
+    } else if (config?.fn === 'http') {
+      result = await unwrap(api().projects[':projectId']['http-test'].$post({ param: { projectId: id }, json: { params: config.params ?? {} } }));
+    } else throw new CliError(`${node.type}${config ? `(${config.fn})` : ''} 노드는 시험할 수 없습니다. 스크립트·HTTP 노드만 됩니다${node.type === 'ai' ? '. AI 노드는 loca context <키> -n ' + node.id + ' --prompt' : ''}.`);
     if (!result.ok) process.exitCode = 1;
     if (globals().json) return print(result);
     if (!result.ok) return console.log(`실패 (${result.ms}ms): ${result.error}`);
@@ -962,41 +943,43 @@ runs
   .option('--since <시간>', '몇 시간 전부터', '24')
   .action(async (options: { since: string }) => {
     const data = (await unwrap(api().projects[':projectId'].stats[':of{groups|sections|runs}'].$get({ param: { projectId: await projectId(), of: 'runs' }, query: { sinceHours: options.since } }))) as {
-      runs: { id: string; workflow: string; status: string; subject?: 'lines' | 'terms'; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
+      runs: { id: string; workflow: string; status: string; subject?: Subject; lines: number; calls: number; failedCalls: number; inputTokens: number; outputTokens: number; createdAt: string }[];
       failingNodes: { workflow: string; node: string; failedLines: number }[];
     };
     if (globals().json) return print({ total: data.runs.length, rows: data.runs, failingNodes: data.failingNodes });
     for (const run of data.runs)
-      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${run.subject === 'terms' ? `용어 ${run.lines}개` : `대사 ${run.lines}`}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
+      console.log(`${new Date(run.createdAt).toLocaleString()}  ${run.workflow} [${run.status}] ${INPUT_TYPES[run.subject ?? 'lines'].label} ${run.lines}${INPUT_TYPES[run.subject ?? 'lines'].unit}, 호출 ${run.calls}(실패 ${run.failedCalls}), 토큰 ${(run.inputTokens + run.outputTokens).toLocaleString()}  (${run.id})`);
     if (data.failingNodes.length) console.log(`\n실패가 많은 노드:\n${data.failingNodes.map((node) => `  ${node.workflow} › ${node.node}: ${node.failedLines}줄`).join('\n')}`);
   });
 
-type RunView = { id: string; workflow: string; status: 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; filling?: boolean; subject?: 'lines' | 'terms'; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
-const RUN_STATUS: Record<RunView['status'], string> = { running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
-const readRun = (id: string) => readTool<RunView>('read_run', { runId: id });
-/** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one still being filled with lines does not. */
-const runSettled = (run: RunView) => run.status !== 'running' && !run.filling;
+type RunView = { id: string; workflow: string; status: 'preparing' | 'running' | 'paused' | 'cancelled' | 'completed'; notice: string | null; subject?: Subject; total: number; states: Partial<Record<'queued' | 'running' | 'done' | 'failed' | 'cancelled', number>>; nodes: { nodeId: string; state: string; count: number }[]; ends: { nodeId: string; node: string; count: number }[]; errors: { kind: string; nodeId: string; node: string; message: string; count: number }[]; failures: { key?: string | null; unitId?: string; nodeId?: string; error?: string | null }[]; errored?: { unitId: string; key: string | null }[] };
+const RUN_STATUS: Record<RunView['status'], string> = { preparing: '준비 중', running: '진행 중', paused: '일시정지', cancelled: '취소됨', completed: '끝남' };
+const readRun = (id: string) => readTool('read_run', { runId: id });
+/** A run that stopped by itself or was finished; a run paused by a cap or failures counts as stopped too, one whose lines are still being stored (preparing) does not. */
+const runSettled = (run: RunView) => run.status !== 'running' && run.status !== 'preparing';
 
 /** Where a run stands and what to do next. A run that did not finish cleanly fails the command. */
 async function printRun(run: RunView, options: { nodes?: boolean } = {}) {
   const errored = run.errors.reduce((sum, error) => sum + error.count, 0);
   if (run.status !== 'completed' || run.states.failed || errored) process.exitCode = 1;
   if (globals().json) return print(run);
-  const unit = run.subject === 'terms' ? '개' : '줄';
+  const input = INPUT_TYPES[run.subject ?? 'lines'];
+  const unit = input.unit;
   const count = (state: keyof RunView['states']) => (run.states[state] ?? 0).toLocaleString();
-  console.log(`${run.workflow} [${RUN_STATUS[run.status]}] ${run.subject === 'terms' ? '용어' : '대사'} ${run.total.toLocaleString()}${unit}  (${run.id})`);
+  console.log(`${run.workflow} [${RUN_STATUS[run.status]}] ${input.label} ${run.total.toLocaleString()}${unit}  (${run.id})`);
   console.log(`  끝남 ${count('done')} · 실패 ${count('failed')} · 남음 ${((run.states.queued ?? 0) + (run.states.running ?? 0)).toLocaleString()} · 취소 ${count('cancelled')}`);
   if (run.notice) console.log(`  멈춘 이유: ${run.notice}`);
   if (run.ends.length) console.log(`  끝난 곳: ${run.ends.map((end) => `${end.node} ${end.count.toLocaleString()}`).join(' · ')}`);
-  if (errored) console.log(`  실패했거나 오류로 빠진 ${run.subject === 'terms' ? '용어' : '줄'} ${errored.toLocaleString()}:\n${run.errors.map((error) => `    ${error.node} · ${error.kind} ${error.count.toLocaleString()} — ${short(error.message, 100)}`).join('\n')}`);
+  if (errored) console.log(`  실패했거나 오류로 빠진 ${input.label} ${errored.toLocaleString()}${unit}:\n${run.errors.map((error) => `    ${error.node} · ${error.kind} ${error.count.toLocaleString()} — ${short(error.message, 100)}`).join('\n')}`);
   if (options.nodes) for (const node of run.nodes) console.log(`  ${node.nodeId.padEnd(16)} ${node.state.padEnd(9)} ${node.count.toLocaleString()}`);
   if (run.failures.length) console.log(`\n실패${(run.states.failed ?? 0) > run.failures.length ? ` (${run.failures.length}개만)` : ''}:\n${run.failures.map((failure) => `  ${failure.key ?? failure.unitId ?? ''} ${failure.nodeId ? `[${failure.nodeId}] ` : ''}${short(failure.error ?? '', 120)}`).join('\n')}`);
   const next = [
-    run.states.failed && run.status !== 'cancelled' && `실패한 ${run.subject === 'terms' ? '용어' : '줄'} 다시: loca runs continue ${run.id} --retry-failed --wait`,
-    errored && run.status !== 'running' && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
+    run.states.failed && run.status !== 'cancelled' && `실패한 ${input.label} 다시: loca runs continue ${run.id} --retry-failed --wait`,
+    errored && runSettled(run) && `실패했거나 오류로 빠진 것만 새로 실행: loca runs start "${run.workflow}" --rerun-errors ${run.id} --wait (모델을 바꾸려면 --model)`,
     run.status === 'paused' && `이어서: loca runs resume ${run.id} --wait`,
-    run.status === 'running' && `끝날 때까지: loca runs wait ${run.id}`,
-    run.status === 'completed' && run.subject !== 'terms' && '결과 점검: loca check terms · loca check format (범위는 -g/--key로)',
+    !runSettled(run) && `끝날 때까지: loca runs wait ${run.id}`,
+    // Translations are what the checks read: a lines run's result.
+    run.status === 'completed' && bySubject(run.subject ?? 'lines', { lines: '결과 점검: loca check terms · loca check format (범위는 -g/--key로)', terms: null }),
   ].filter(Boolean);
   if (next.length) console.log(`\n다음:\n${next.map((line) => `  ${line}`).join('\n')}`);
   console.log(`앱에서 보기: ${appLink(`/p/${await projectId()}/runs/${run.id}`)}`);
@@ -1090,65 +1073,74 @@ runs
 
 runs
   .command('continue <id>')
-  .description('멈췄거나 끝난 실행을 이어서: --retry-failed면 실패한 줄을 실패한 단계부터 다시, --model이면 이 실행의 AI 단계만 다른 모델로. 터미널 권한 모드를 따름')
+  .description('멈췄거나 끝난 실행을 이어서: --retry-failed면 실패한 줄을 실패한 단계부터 다시, --model이면 이 실행의 AI 단계만 다른 모델로, --max-calls·--max-input-tokens면 상한을 바꿔서. 터미널 권한 모드를 따름')
   .option('--retry-failed', '실패한 줄 다시')
   .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
+  .option('--max-calls <n>', '호출 상한을 이만큼으로 (none이면 없앰; 지금까지 쓴 호출도 셉니다)')
+  .option('--max-input-tokens <n>', '입력 토큰 상한을 이만큼으로 (none이면 없앰)')
   .option('--wait', '실행이 끝날 때까지 기다린 뒤 요약')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (id: string, options: { retryFailed?: boolean; model?: string[]; wait?: boolean; timeout?: string }) => {
-    await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model) }), options, '실행 이어 하기');
+  .action(async (id: string, options: { retryFailed?: boolean; model?: string[]; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
+    await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model), limits: capsFrom(options) }), options, '실행 이어 하기');
   });
 
-runs
-  .command('plan <워크플로>')
-  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term으로 범위를 정하고 대사 범위 옵션은 쓸 수 없습니다')
-  .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
-  .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
-  .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
-  .option('--status <statuses...>', '이 상태인 것만 (대사: 상태 이름·id, 용어: 후보·확정·버림). 없으면 모든 상태')
-  .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
-  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
-  .option('-s, --speaker <names...>', '이 화자의 대사만 (이름·별칭·화자 키)')
-  .option('--listener <names...>', '이 청자에게 하는 대사만 (- = 청자 모름)')
-  .option('--unfinished', '상태가 최종이 아닌 대사만')
-  .option('--noted', '메모가 있는 대사만')
-  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
-  .option('--empty-target', '용어 입력 워크플로만: 번역어가 비어 있는 용어만')
-  .option('--kind <kinds...>', '대사 종류만 (dialogue, ui …)')
-  .option('-q, --q <글자>', '원문에 이 글자가 있는 대사만')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean }) => {
-    const groups = await sectionGroups(options.section, options.group);
-    const keys = options.view ? (await viewLines(options.view)).map((row) => row.key).filter((key) => !options.key || options.key.includes(key)) : options.key;
-    if (keys && !keys.length) throw new CliError('고른 대사가 보기에 없습니다.');
+/** What `runs plan` and `runs start` take as a run's scope: the line filter's flags, and the two a terms workflow adds. */
+interface RunScopeOptions extends FilterOptions {
+  term?: string[];
+  emptyTarget?: boolean;
+  hasTarget?: boolean;
+  model?: string[];
+}
+
+/** One option set for `runs plan` and `runs start`: every line filter flag (withFilters), the terms of a terms workflow, and this run's models. */
+function withRunScope(command: Command) {
+  return withFilters(command, { marks: [...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])], paging: false })
+    .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 조건에 맞는 모든 용어(많이 쓰인 순)')
+    .option('--empty-target', '용어 입력 워크플로만: 번역어가 비어 있는 용어만')
+    .option('--has-target', '용어 입력 워크플로만: 번역어가 있는 용어만')
+    .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다');
+}
+
+/**
+ * The flags as the scope plan_run and start_run take (names; the server resolves them and refuses what it does not find).
+ * A lines workflow: the line filter. A terms workflow: --status, --tag, --mark and --by are about the terms; any other
+ * filter flag goes along as a line filter, which the server refuses for a terms workflow.
+ */
+function runScopeFrom(subject: Subject, options: RunScopeOptions): Pick<RunScopeInput, 'filter' | 'terms'> {
+  const { limit: _limit, offset: _offset, ...filter } = filterFrom(options);
+  const given = <T extends object>(value: T) => (Object.values(value).some((item) => item !== undefined) ? value : undefined);
+  const own = { terms: options.term, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined };
+  return bySubject<() => Pick<RunScopeInput, 'filter' | 'terms'>>(subject, {
+    lines: () => ({ filter: given(filter), terms: given(own) }),
+    terms: () => {
+      const { statuses, tags, marks, decidedBy, ...rest } = filter;
+      return { filter: given(rest), terms: given({ ...own, statuses, tags, marks: marks as AutoMark[] | undefined, decidedBy }) };
+    },
+  })();
+}
+
+const RUN_SCOPE_HELP = '범위는 대사 필터(loca lines와 같은 플래그)이고 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term·--status(후보·확정·버림)·--mark(용어 표시)·--tag·--by·--empty-target·--has-target만 받습니다. 없는 상태·태그·묶음·구역·대사 키·보기·용어 이름은 오류입니다';
+
+withRunScope(runs.command('plan <워크플로>'))
+  .description(`실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). ${RUN_SCOPE_HELP}`)
+  .action(async (ref: string, options: RunScopeOptions) => {
+    const workflow = await resolveWorkflow(ref);
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
-    const data = await readTool<{
-      workflow: { id: string; name: string };
-      lines: { total: number; translated: number; untranslated: number };
-      subject?: 'lines' | 'terms';
-      plan: { batches: number; linesPerBatch: { min: number; median: number; max: number } | null };
-      nodes: { name: string; model: string | null; concurrency: number; requests: { min: number; expected: number | null; max: number }; promptTokens: number }[];
-      totals: { calls: { min: number; expected: number | null; max: number }; inputTokens: { min: number; expected: number | null; max: number } };
-      pace: { seconds: number | null; costUsd: number | null; subscription: boolean };
-      load: { runs: number; max: number; added: number };
-      suggestedLimits?: { maxCalls?: number; maxInputTokens?: number };
-      readiness: { dialogueLines: number; unknownListenerLines: number; candidateRules: Names; candidateTerms: Names; pairsWithoutRule: { count: number; examples: string[] } };
-    }>('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, models: runModels(options.model) });
+    const data = await readTool('plan_run', { workflow: workflow.id, ...runScopeFrom(workflow.input, options), models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
-    const terms = data.subject === 'terms';
-    console.log(`  ${terms ? '용어' : '대사'} ${data.lines.total.toLocaleString()}개 (번역${terms ? '어' : ''} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
+    // What the preview shows of each input: lines travel in planned batches and have listeners and speech rules to get ready; terms have neither.
+    const shown = bySubject(data.subject, { lines: { translated: '번역', batches: true, readiness: true }, terms: { translated: '번역어', batches: false, readiness: false } });
+    console.log(`  ${INPUT_TYPES[data.subject].label} ${data.lines.total.toLocaleString()}개 (${shown.translated} 있음 ${data.lines.translated.toLocaleString()} · 없음 ${data.lines.untranslated.toLocaleString()})`);
     const per = data.plan.linesPerBatch;
-    if (!terms) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
+    if (shown.batches) console.log(`  묶음 ${data.plan.batches.toLocaleString()}개${per ? ` (묶음당 ${per.min}~${per.max}줄, 중간 ${per.median})` : ''}`);
     console.log(`  AI 요청 ${range(data.totals.calls)} · 입력 토큰 ${range(data.totals.inputTokens)}${data.pace.seconds !== null ? ` · 약 ${Math.round(data.pace.seconds / 60)}분` : ''}${data.pace.subscription ? ' · 구독' : data.pace.costUsd !== null ? ` · 약 $${data.pace.costUsd.toFixed(2)}` : ''}`);
     for (const node of data.nodes) console.log(`    ${node.name}  ${node.model ?? '(모델 없음)'}  요청 ${range(node.requests)} · 동시 ${node.concurrency} · 프롬프트 약 ${node.promptTokens.toLocaleString()}토큰`);
     if (data.load.runs) console.log(`  주의: 다른 실행 ${data.load.runs}개가 AI 요청을 최대 ${data.load.max}개까지 동시에 보내는 중입니다. 이 실행을 시작하면 최대 ${data.load.max + data.load.added}개가 됩니다.   → loca runs list`);
     const caps = [data.suggestedLimits?.maxCalls && `호출 ${data.suggestedLimits.maxCalls.toLocaleString()}회`, data.suggestedLimits?.maxInputTokens && `입력 토큰 ${data.suggestedLimits.maxInputTokens.toLocaleString()}`].filter(Boolean);
     if (caps.length) console.log(`  상한 ${caps.join(' · ')}에서 일시정지 (실행 창과 같은 권장값, runs start가 그대로 씀)   → 바꾸려면 --max-calls·--max-input-tokens`);
-    if (terms) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
+    if (!shown.readiness) return console.log('\n용어 입력 워크플로는 청자·말투 규칙 준비 상태를 보지 않습니다. 시작 전 loca terms로 대상 용어를 확인하세요.');
     const ready = data.readiness;
     console.log('\n준비 상태');
     console.log(`  청자 모름 대사 ${ready.unknownListenerLines.toLocaleString()} / 청자가 필요한 대사 ${ready.dialogueLines.toLocaleString()}${ready.unknownListenerLines ? '   → loca lines --mark unknownListener' : ''}`);
@@ -1158,59 +1150,36 @@ runs
     console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 
-runs
-  .command('start <워크플로>')
-  .description('실행 시작 (AI 호출에 비용이 들어 터미널 권한 모드를 따름: 바로 반영이면 시작, 아니면 앱에서 수락할 때까지 제안으로 기다림). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요. --wait이면 끝날 때까지 기다린 뒤 요약')
-  .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
-  .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
-  .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
-  .option('--status <statuses...>', 'plan과 같은 상태 조건')
-  .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
-  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
-  .option('-s, --speaker <names...>', 'plan과 같은 화자 조건')
-  .option('--listener <names...>', 'plan과 같은 청자 조건 (- = 청자 모름)')
-  .option('--unfinished', 'plan과 같은 최종 아님 조건')
-  .option('--noted', 'plan과 같은 메모 조건')
-  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
-  .option('--empty-target', 'plan과 같은 번역어 비어 있음 조건')
-  .option('--kind <kinds...>', 'plan과 같은 대사 종류 조건')
-  .option('-q, --q <글자>', 'plan과 같은 원문 글자 조건')
+withRunScope(runs.command('start <워크플로>'))
+  .description(`실행 시작 (AI 호출에 비용이 들어 터미널 권한 모드를 따름: 바로 반영이면 시작, 아니면 앱에서 수락할 때까지 제안으로 기다림). 범위는 plan과 같은 플래그로 주고, 먼저 plan으로 확인하세요. ${RUN_SCOPE_HELP}. --wait이면 끝날 때까지 기다린 뒤 요약`)
   .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
   .option('--change-human', '사람이 정한 상태·붙인 태그도 바꾸기 (없으면 그대로 두고 실행 상세에 남김)')
   .option('--max-calls <n>', '호출 상한 (없으면 plan의 권장 상한, 실행 창과 같음; none이면 상한 없이)')
   .option('--max-input-tokens <n>', '입력 토큰 상한 (없으면 plan의 권장 상한; none이면 상한 없이)')
   .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean; rerunErrors?: string; changeHuman?: boolean; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
+  .action(async (ref: string, options: RunScopeOptions & { rerunErrors?: string; changeHuman?: boolean; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
-    const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
-    let unitIds: string[] | undefined;
-    // A page of keys at a time: one request is capped at 1000 lines.
-    for (let at = 0; options.key?.length && at < options.key.length; at += 1000)
-      unitIds = [...(unitIds ?? []), ...(await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key.slice(at, at + 1000), limit: 1000 } }))).rows.map((row) => row.id)];
-    let termIds = options.term;
-    if (options.view) {
-      const ids = new Set((await viewLines(options.view)).map((row) => row.id));
-      unitIds = unitIds ? unitIds.filter((id) => ids.has(id)) : [...ids];
-    }
+    const scope = runScopeFrom(workflow.input, options);
     if (options.rerunErrors) {
       const earlier = await unwrap(api().projects[':projectId'].runs[':runId'].errors.$get({ param: { projectId: await projectId(), runId: options.rerunErrors } }));
-      const what = earlier.subject === 'terms' ? '용어' : '대사';
+      const what = INPUT_TYPES[earlier.subject].label;
       if (!earlier.items.length) throw new CliError(`그 실행에는 실패했거나 오류로 빠진 ${what}가 없습니다.`);
       log(`${earlier.workflow} 실행에서 다시 할 ${what} ${earlier.items.length.toLocaleString()}개`);
-      // Like every other scope option, it narrows what the rest picked.
-      if (earlier.subject === 'terms') termIds = termIds ? earlier.items.filter((item) => termIds!.includes(item.unitId) || termIds!.includes(item.key ?? '')).map((item) => item.unitId) : earlier.items.map((item) => item.unitId);
-      else unitIds = unitIds ? unitIds.filter((id) => earlier.items.some((item) => item.unitId === id)) : earlier.items.map((item) => item.unitId);
+      // Like every other scope option, it narrows what the rest picked: lines by id beside the filter, terms among those named.
+      bySubject(earlier.subject, {
+        terms: () => {
+          const named = scope.terms?.terms;
+          const terms = earlier.items.filter((item) => !named || named.includes(item.unitId) || named.includes(item.key ?? '')).map((item) => item.unitId);
+          if (!terms.length) throw new CliError('고른 용어 중 그 실행에서 실패한 것이 없습니다.');
+          scope.terms = { ...scope.terms, terms };
+        },
+        lines: () => {
+          scope.filter = { ...scope.filter, ids: earlier.items.map((item) => item.unitId) };
+        },
+      })();
     }
-    // An empty list reads as "no condition" on the server: refuse it here instead of running everything.
-    if ((unitIds && !unitIds.length) || (termIds && !termIds.length)) throw new CliError('범위 조건을 모두 만족하는 대사·용어가 없습니다.');
-    const tagIds = options.tag?.length
-      ? (await readTool<{ tags: { id: string; name: string }[] }>('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
-      : undefined;
-    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, ...scope, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
     await followRun(outcome, options, '실행 시작');
   });
 
@@ -1286,7 +1255,7 @@ proposals
 
 proposals
   .command('undo <id...>')
-  .description('터미널 권한 모드로 반영된 변경 되돌리기 (최근 것부터, 그사이 바뀐 대사는 건너뜀). 사람이 수락한 제안은 앱에서 되돌립니다')
+  .description('터미널 권한 모드로 반영된 변경 되돌리기 (최근 것부터, 그사이 바뀐 대사는 건너뜀). 되돌리기도 터미널 권한 모드와 권한을 따릅니다: 매번 묻기이거나 자동 검토가 묻는 되돌리기(삭제, 20개 초과)는 앱에서 합니다. 사람이 수락한 제안도 앱에서 되돌립니다')
   .action(async (ids: string[]) => {
     const answered = await unwrap(api().projects[':projectId'].proposals.undo.$post({ param: { projectId: await projectId() }, json: { ids } }));
     const results = [...answered, ...ids.filter((id) => !answered.some((result) => result.id === id)).map((id) => ({ id, ok: false, error: '이 터미널이 올린 제안이 아닙니다 (loca proposals list로 확인)', skipped: undefined as string[] | undefined }))];
@@ -1325,7 +1294,7 @@ views
   .action(async (options: { label: string; scene?: string[]; speaker?: string[]; line?: string[]; q?: string; between?: string[]; route?: string[]; around: string; exclude?: string[]; request?: string; mode: 'view' | 'mark' }) => {
     if (options.between && options.between.length !== 2) throw new CliError('--between에는 시작과 끝 대사 키 두 개를 줍니다.');
     if (options.route && options.route.length !== 2) throw new CliError('--route에는 시작과 끝 대사 키 두 개를 줍니다.');
-    const result = await readTool<{ ok: boolean; error?: string; nodes: number; unknown: string[]; open: { to: string; search: Record<string, string> } }>('show_graph', {
+    const result = await readTool('show_graph', {
       label: options.label,
       request: options.request,
       mode: options.mode,
@@ -1338,7 +1307,6 @@ views
       around: Number(options.around),
       exclude: options.exclude,
     });
-    if (!result.ok) throw new CliError(result.error ?? '보기를 만들지 못했습니다.');
     const link = appLink(result.open.to.replace('$projectId', await projectId()), result.open.search);
     if (result.unknown.length) log(`찾지 못함: ${result.unknown.slice(0, 10).join(', ')}`);
     if (globals().json) return print({ ...result, link });

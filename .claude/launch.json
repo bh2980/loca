@@ -10,7 +10,7 @@
         "WORKBENCH_DATA_DIR=/Users/bh2980/Desktop/translation_workbench/.claude/worktrees/project-refactor-overhaul-1de489/../../../.tw-smoke",
         "pnpm",
         "--filter",
-        "@tw/server",
+        "@loca/server",
         "dev"
       ],
       "port": 4399
@@ -22,7 +22,7 @@
         "WORKBENCH_PORT=4399",
         "pnpm",
         "--filter",
-        "@tw/web",
+        "@loca/web",
         "dev"
       ],
       "port": 4318

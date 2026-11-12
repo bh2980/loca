@@ -1,9 +1,8 @@
 import { createFileRoute, Navigate } from '@tanstack/react-router';
+import { param, searchParams } from '@/lib/search';
 
 export const Route = createFileRoute('/p/$projectId/keys')({
-  validateSearch: (raw: Record<string, unknown>): { key?: string } => ({
-    key: typeof raw.key === 'string' && raw.key ? raw.key : undefined,
-  }),
+  validateSearch: searchParams({ key: param.text }),
   component: () => {
     const { projectId } = Route.useParams();
     const search = Route.useSearch();

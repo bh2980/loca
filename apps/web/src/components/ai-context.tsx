@@ -1,4 +1,4 @@
-import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@tw/shared';
+import { CONTEXT_ITEM_KINDS, CONTEXT_PRIORITY, type ContextItem } from '@loca/shared';
 import { Chip, Box, Group, Inline, Select, SelectContent, SelectItem, SelectTrigger, SelectValue, Skeleton, Text } from '@loca/ui';
 import { PromptView, useRequestPreview } from '@/components/workflow/node-config/request-preview';
 import { useWorkflows } from '@/lib/workflows';

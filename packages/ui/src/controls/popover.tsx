@@ -2,6 +2,7 @@ import * as React from "react";
 import * as PopoverPrimitive from "@radix-ui/react-popover";
 import { cn } from "../lib/utils";
 import { type SurfaceProps, surfaceClass } from "./surface";
+import { PointAnchor, type ScreenPoint } from "./point-anchor";
 
 function Popover({
   ...props
@@ -47,6 +48,31 @@ function PopoverAnchor({
   return <PopoverPrimitive.Anchor data-slot="popover-anchor" {...props} />;
 }
 
+/**
+ * A popover standing at a point of the screen (where a menu was, over a canvas) rather than by a trigger. `at` null:
+ * closed. Its content is a `PopoverContent`.
+ */
+function PointPopover({
+  at,
+  onClose,
+  children,
+}: {
+  at: ScreenPoint | null | undefined;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <PopoverPrimitive.Root open={Boolean(at)} onOpenChange={(open) => !open && onClose()}>
+      {at && (
+        <PopoverPrimitive.Anchor asChild>
+          <PointAnchor at={at} />
+        </PopoverPrimitive.Anchor>
+      )}
+      {at && children}
+    </PopoverPrimitive.Root>
+  );
+}
+
 function PopoverHeader({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
@@ -81,6 +107,7 @@ function PopoverDescription({
 }
 
 export {
+  PointPopover,
   Popover,
   PopoverAnchor,
   PopoverContent,

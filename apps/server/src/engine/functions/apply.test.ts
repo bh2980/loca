@@ -1,14 +1,14 @@
 import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
-import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName } from '@tw/shared';
+import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName, applyParams, functionConfigSchema } from '@loca/shared';
 import { openDatabase } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { importProject } from '../../services/importer.ts';
-import { issueTagIds } from '../../services/issue-tags.ts';
-import { snapshotWorkflowModels } from '../../services/routes.ts';
+import { snapshotWorkflowModels } from '../../domain/model-target.ts';
 import { createRun } from '../run-create.ts';
-import { APPLY_TOPICS, applyFunctions, applyItems } from './apply.ts';
-import { HUMAN_OWNED_NOTE, syncFunctions, type FunctionInput } from './index.ts';
+import { eventsOf } from '../../events.ts';
+import { applyFunctions, applyItems } from './apply.ts';
+import { HUMAN_OWNED_NOTE, FUNCTION_IMPLEMENTATIONS, runInstantFunction, type FunctionInput } from './index.ts';
 
 const at = { x: 0, y: 0 };
 
@@ -25,8 +25,8 @@ function setup() {
   });
   const { projectId } = importProject(db, file);
   const definition = workflowDefinitionSchema.parse({
-    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'apply', type: 'function', position: at, config: { fn: 'saveTerms', params: {} } }, { id: 'end', type: 'end', position: at }],
-    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'apply' }, { id: '2', source: 'apply', sourceHandle: 'out', target: 'end' }],
+    nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'apply', type: 'function', position: at, config: { fn: 'saveTerms', params: {} } }],
+    edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'apply' }],
   });
   const workflow = db.insert(s.workflows).values({ projectId, name: 'wf', definition }).returning().get();
   const run = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
@@ -45,7 +45,7 @@ function apply(ctx: Ctx, fn: ApplyFunctionName, params: Record<string, unknown>,
   const data = { ...item.data, ...extra, path: [{ nodeId: 'entry', port: 'out', at: 0 }, { nodeId: 'ai', port: 'out', at: 0 }], outputs: output ? { ai: output } : ({} as Record<string, Record<string, unknown>>) };
   // The runner hands a function the previous step's result (here the AI node's) as `previous`.
   const input: FunctionInput = { subject: 'lines', unit, item: { ...item, nodeId: 'apply', data }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId, previous: output };
-  return ctx.db.transaction((tx) => applyFunctions[fn](tx, params, input));
+  return ctx.db.transaction((tx) => applyFunctions[fn].instant(tx, applyParams.parse(params), input));
 }
 
 /** The project's tags besides the ones every project starts with (형식 오류 … AI 실패). */
@@ -149,7 +149,7 @@ describe('apply nodes', () => {
   it('writes a candidate into the line unless a person saved the translation', () => {
     const ctx = setup();
     const params = { map: { text: 'text' } };
-    ctx.db.update(s.runs).set({ scope: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } }).run();
+    ctx.db.update(s.runs).set({ scope: { filter: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } } }).run();
     const fresh = apply(ctx, 'saveCandidate', params, { text: '늦었군.' }, 'a1');
     expect(fresh.output).toMatchObject({ applied: true });
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()).toMatchObject({ translation: '늦었군.', statusBy: 'ai' });
@@ -174,7 +174,7 @@ describe('apply nodes', () => {
   it('says a revision changed nothing by the text the AI node was given, not by a person\'s translation it never replaced', () => {
     const ctx = setup();
     const params = { map: { text: 'text' } };
-    ctx.db.update(s.runs).set({ scope: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } }).run();
+    ctx.db.update(s.runs).set({ scope: { filter: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } } }).run();
     const save = (text: string, textBefore?: string) => {
       ctx.db.update(s.units).set({ translation: '사람이 씀', statusBy: 'human' }).where(eq(s.units.key, 'a2')).run();
       return apply(ctx, 'saveCandidate', params, { text }, 'a2', textBefore === undefined ? {} : { textBefore }).output;
@@ -201,10 +201,23 @@ describe('apply nodes', () => {
     expect(apply(ctx, 'setListener', params, { value: 'unknown', confidence: 0.95 }, 'a2').output).toMatchObject({ recorded: false, reason: '청자 미상' });
   });
 
-  it('is registered as instant functions and names the topics it writes', () => {
-    expect(Object.keys(syncFunctions)).toEqual(expect.arrayContaining(Object.keys(APPLY_TOPICS)));
-    expect(APPLY_TOPICS.saveTerms).toEqual(['terms']);
-    expect(APPLY_TOPICS.saveEvents).toContain('knowledge');
+  it('is registered as instant functions, and what it writes says its own topic (no list of them here)', () => {
+    expect(Object.keys(FUNCTION_IMPLEMENTATIONS)).toEqual(expect.arrayContaining(Object.keys(applyFunctions)));
+    const ctx = setup();
+    const events = eventsOf(ctx.db);
+    events.flush();
+    const topics = new Set<string>();
+    const listen = (event: { topics: string[] }) => event.topics.forEach((topic) => topics.add(topic));
+    events.on('change', listen);
+    apply(ctx, 'saveTerms', { list: 'terms', map: { source: 'source', target: 'target' } }, { terms: [{ source: 'sail', target: '돛' }], batchLeader: true });
+    events.flush();
+    expect([...topics]).toContain('terms');
+    expect([...topics]).not.toContain('knowledge');
+    topics.clear();
+    apply(ctx, 'saveCharacters', { list: 'people', map: { name: 'name' } }, { people: [{ name: 'Carol' }], batchLeader: true });
+    events.flush();
+    events.off('change', listen);
+    expect([...topics]).toContain('knowledge');
   });
 });
 
@@ -216,9 +229,9 @@ describe('checks only judge', () => {
     const unit = ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()!;
     const item = ctx.db.select().from(s.runItems).where(eq(s.runItems.subjectId, unit.id)).get()!;
     const input: FunctionInput = { subject: 'lines', unit, item: { ...item, data: { ...item.data, candidateText: '' } }, tagIds: [], projectId: ctx.projectId, runId: ctx.runId };
-    const format = ctx.db.transaction((tx) => syncFunctions.formatCheck!(tx, {}, input));
+    const format = ctx.db.transaction((tx) => runInstantFunction(tx, functionConfigSchema.parse({ fn: 'formatCheck' }), input));
     expect(format).toMatchObject({ port: 'fail', output: { passed: false, kind: 'format' } });
-    const glossary = ctx.db.transaction((tx) => syncFunctions.glossaryCheck!(tx, {}, { ...input, item: { ...item, data: { ...item.data, candidateText: '좋아' } } }));
+    const glossary = ctx.db.transaction((tx) => runInstantFunction(tx, functionConfigSchema.parse({ fn: 'glossaryCheck' }), { ...input, item: { ...item, data: { ...item.data, candidateText: '좋아' } } }));
     expect(glossary).toMatchObject({ port: 'pass', output: { kind: 'term' } });
     expect(format).not.toHaveProperty('issueTags');
     expect(glossary).not.toHaveProperty('issueTags');

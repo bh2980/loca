@@ -1,15 +1,13 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createLiveQueryCollection } from '@tanstack/react-db';
-import type { FeedSnapshot } from '@tw/shared';
+import type { FeedSnapshot } from '@loca/shared';
 import { feedCollection } from './collections';
-import { feed } from './feed';
-
-type Term = { id: string; source: string; target: string };
+import { createFeed, feed } from './feed';
 
 const later = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 function setup(projectId: string, snapshot: FeedSnapshot, gate?: Promise<void>) {
-  return feedCollection<Term>({ projectId, name: 'terms', load: async () => (await gate, snapshot) });
+  return feedCollection({ projectId, name: 'terms', load: async () => (await gate, snapshot) });
 }
 
 describe('a feed collection', () => {
@@ -62,5 +60,90 @@ describe('a feed collection', () => {
     // Already seen, or nothing to wait for: at once.
     await feed.wait('p4', 1);
     await feed.wait('p4', undefined);
+  });
+
+  it('a write is not shown until the collection that will show it has loaded', async () => {
+    const own = createFeed();
+    let release = () => {};
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const terms = feedCollection({ projectId: 'p', name: 'terms', feed: own, load: async () => (await gate, { seq: 2, rows: [{ id: 'a' }] }) });
+    terms.startSyncImmediate();
+    let shown = false;
+    const waited = own.wait('p', 3).then(() => (shown = true));
+    // The event comes, but the collection is still loading its snapshot (the event waits for it).
+    own.push('p', { terms: { upsert: [{ id: 'b' }], delete: [] } }, 3);
+    await later();
+    expect(shown).toBe(false);
+    release();
+    await waited;
+    expect(terms.has('b')).toBe(true);
+  });
+
+  it('a collection whose snapshot cannot be read does not hold writes back while it waits to try again', async () => {
+    const own = createFeed();
+    const terms = feedCollection({ projectId: 'p', name: 'terms', feed: own, load: async () => { throw new Error('서버가 꺼져 있습니다'); } });
+    terms.startSyncImmediate();
+    await later();
+    const waited = own.wait('p', 3);
+    own.push('p', {}, 3);
+    await waited;
+    await terms.cleanup();
+  });
+});
+
+describe('a feed collection and the event stream', () => {
+  const rowsOf = (terms: { toArray: { id: string }[] }) => terms.toArray.map((row) => row.id).sort();
+
+  it('reads its snapshot once the stream is open, and not again when it opens', async () => {
+    const own = createFeed();
+    own.connecting();
+    let loads = 0;
+    const terms = feedCollection({ projectId: 'p', name: 'terms', feed: own, load: async () => ({ seq: ++loads, rows: [{ id: 'a' }] }) });
+    terms.startSyncImmediate();
+    await later();
+    expect(loads).toBe(0);
+    own.opened();
+    await terms.toArrayWhenReady();
+    await later();
+    expect(loads).toBe(1);
+  });
+
+  it('a snapshot read without the stream (it did not open in time) is read again when the stream opens', async () => {
+    vi.useFakeTimers();
+    try {
+      const own = createFeed();
+      own.connecting();
+      const snapshots = [{ seq: 1, rows: [{ id: 'a' }, { id: 'b' }] }, { seq: 4, rows: [{ id: 'a' }, { id: 'c' }] }];
+      let loads = 0;
+      const terms = feedCollection({ projectId: 'p', name: 'terms', feed: own, load: async () => snapshots[loads++]! });
+      terms.startSyncImmediate();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect([loads, rowsOf(terms)]).toEqual([1, ['a', 'b']]);
+      // Meanwhile b was deleted and c added, unheard. The stream opens: the snapshot is read again and replaces the rows.
+      own.opened();
+      await vi.advanceTimersByTimeAsync(0);
+      expect([loads, rowsOf(terms)]).toEqual([2, ['a', 'c']]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('a reconnect reads the snapshot again, taking a restarted server\'s lower count, and lets waiting writes go', async () => {
+    const own = createFeed();
+    own.connecting();
+    own.opened();
+    const snapshots = [{ seq: 50, rows: [{ id: 'a' }, { id: 'b' }] }, { seq: 2, rows: [{ id: 'a' }] }];
+    let loads = 0;
+    const terms = feedCollection({ projectId: 'p', name: 'terms', feed: own, load: async () => snapshots[loads++]! });
+    await terms.toArrayWhenReady();
+    const waited = own.wait('p', 51);
+    own.connecting();
+    own.opened();
+    await waited;
+    await later();
+    expect([loads, rowsOf(terms)]).toEqual([2, ['a']]);
+    // The restarted server counts from 0: its events are newer than the new snapshot although their count is lower than before.
+    own.push('p', { terms: { upsert: [{ id: 'z' }], delete: [] } }, 3);
+    expect(rowsOf(terms)).toEqual(['a', 'z']);
   });
 });

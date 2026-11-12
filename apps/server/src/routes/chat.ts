@@ -3,18 +3,16 @@ import { Hono } from 'hono';
 import { UI_MESSAGE_STREAM_HEADERS, type UIMessage } from 'ai';
 import { and, desc, eq, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, chatChipSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@tw/shared';
-import { badRequest, found, validate, type Env } from '../context.ts';
+import { agentSettingsSchema, chatChipSchema, ATTACH_KINDS, ATTACH_PAGE, modelChoiceSchema, savedPromptsSchema, PERMISSION_MODES, type ModelChoice } from '@loca/shared';
+import { found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { attachTurn, steerable, turnStartedAt } from '../services/chat-turns.ts';
+import { attachTurn, steerable, turnStartedAt } from '../services/chat-turn-registry.ts';
 import { dequeueSteer, enqueueSteer, stopWithQueued } from '../services/chat-interject.ts';
-import { runChatTurn } from '../services/chat-run.ts';
+import { compactChat, runChatTurn } from '../services/chat-turn.ts';
 import { searchAttach } from '../services/attach-search.ts';
 import { answerRunCard, createRunCard } from '../services/chat-run-cards.ts';
 import { chatUsage } from '../services/chat-usage.ts';
 import { readSavedPrompts, writeSavedPrompts } from '../services/saved-prompts.ts';
-import { chatSessionRows } from '../services/log-rows.ts';
 
 /**
  * What the user is looking at when they send a message. The web app reports it from every page,
@@ -29,7 +27,7 @@ const viewSchema = z.object({
 
 /** How the agent reaches what a person attached with @, through the tools it already has. */
 const ATTACH_HOW: Record<string, string> = {
-  대사: 'read_line(unitId) 또는 line_context로 앞뒤·청자·말투 규칙을 읽습니다',
+  대사: 'read_line(unitId) 또는 line_around로 앞뒤·청자·말투 규칙을 읽습니다',
   장면: 'read_scene(sceneId)로 대사를 읽습니다 (list_events에서 장면의 사건도 찾을 수 있습니다)',
   인물: 'list_characters, find_lines(speakers: [이름])로 그 인물의 대사를 찾습니다',
   관계: 'list_relationships(ids: [id])',
@@ -64,7 +62,6 @@ const choiceColumns = (choice: Partial<ModelChoice> | { connectionId: string | n
 });
 
 export const chatRoutes = new Hono<Env>()
-  .get('/projects/:projectId/chat', (c) => c.json(chatSessionRows(c.var.deps.db, c.req.param('projectId'))))
   .post('/projects/:projectId/chat', validate('json', z.object({ model: modelChoiceSchema.optional() })), (c) => {
     const { db } = c.var.deps;
     const projectId = c.req.param('projectId');
@@ -75,7 +72,6 @@ export const chatRoutes = new Hono<Env>()
     // …and starts in the project's default permission mode (#45).
     const permissionMode = settings.defaultPermissionMode;
     const row = db.insert(s.chatSessions).values({ projectId, title: '새 대화', ...choiceColumns(choice), permissionMode }).returning().get();
-    events.changed(projectId, 'chat');
     return c.json(row, 201);
   })
   // @-attach: every kind (lines, scenes, people, relationships, rules, events, notes, terms, tags, statuses, workflows, runs), grouped by kind, paged.
@@ -117,34 +113,12 @@ export const chatRoutes = new Hono<Env>()
 
     const hits: Hit[] = [];
 
-    const extractMessageText = (msg: Record<string, unknown>): string => {
-      const parts: string[] = [];
-      if (Array.isArray(msg.parts)) {
-        for (const part of msg.parts) {
-          if (part && typeof part === 'object') {
-            const p = part as Record<string, unknown>;
-            if (p.type === 'text' && typeof p.text === 'string') {
-              parts.push(p.text);
-            }
-          }
-        }
-      }
-      if (typeof msg.content === 'string') {
-        parts.push(msg.content);
-      } else if (Array.isArray(msg.content)) {
-        for (const part of msg.content) {
-          if (typeof part === 'string') {
-            parts.push(part);
-          } else if (part && typeof part === 'object') {
-            const p = part as Record<string, unknown>;
-            if (p.type === 'text' && typeof p.text === 'string') {
-              parts.push(p.text);
-            }
-          }
-        }
-      }
-      return parts.join('\n');
-    };
+    // A stored message is a UIMessage: its text is its text parts.
+    const extractMessageText = (msg: Record<string, unknown>): string =>
+      (Array.isArray(msg.parts) ? msg.parts : []).flatMap((part: unknown) => {
+        const text = part && typeof part === 'object' && (part as { type?: unknown }).type === 'text' ? (part as { text?: unknown }).text : undefined;
+        return typeof text === 'string' ? [text] : [];
+      }).join('\n');
 
     const makeSnippet = (text: string, queryNeedle: string, maxLength = 80): string => {
       const normalized = text.replace(/\s+/g, ' ').trim();
@@ -165,16 +139,7 @@ export const chatRoutes = new Hono<Env>()
     for (const session of sessions) {
       if (hits.length >= 30) break;
       const sessionUpdatedAt = session.updatedAt instanceof Date ? session.updatedAt.getTime() : Number(session.updatedAt);
-      let rawMessages: unknown[] = [];
-      if (Array.isArray(session.messages)) {
-        rawMessages = session.messages;
-      } else if (typeof session.messages === 'string') {
-        try {
-          rawMessages = JSON.parse(session.messages);
-        } catch {
-          rawMessages = [];
-        }
-      }
+      const rawMessages = session.messages;
 
       let sessionMatched = false;
       for (let i = 0; i < rawMessages.length; i++) {
@@ -222,36 +187,33 @@ export const chatRoutes = new Hono<Env>()
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get(), '대화');
     // What the latest turn is doing or how it ended, for a panel that is not streaming it (after a reload).
     const call = db.select({ label: s.aiCalls.label, status: s.aiCalls.status, error: s.aiCalls.error, startedAt: s.aiCalls.startedAt }).from(s.aiCalls).where(eq(s.aiCalls.refId, sessionId)).orderBy(desc(s.aiCalls.startedAt)).get() ?? null;
-    return c.json({ ...session, turn: { startedAt: turnStartedAt(sessionId), call }, usage: chatUsage(db, session) });
+    return c.json({ ...session, turn: { startedAt: turnStartedAt(db, sessionId), call }, usage: chatUsage(db, session) });
   })
   .patch('/chat/:sessionId', validate('json', z.object({ title: z.string().trim().min(1).optional(), model: modelChoiceSchema.optional(), permissionMode: z.enum(PERMISSION_MODES).optional() })), (c) => {
     const { db } = c.var.deps;
     const { title, model, permissionMode } = c.req.valid('json');
     // A mode switch applies from the agent's next change, even mid-turn (change-gate reads it then).
-    const row = found(db.update(s.chatSessions).set({ title, permissionMode, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
-    events.changed(row.projectId, 'chat');
+    found(db.update(s.chatSessions).set({ title, permissionMode, ...(model && choiceColumns(model)) }).where(eq(s.chatSessions.id, c.req.param('sessionId'))).returning().get(), '대화');
     return c.json({ ok: true });
   })
   .delete('/chat/:sessionId', async (c) => {
     await deleteChat(c.var.deps.db, c.req.param('sessionId'));
     return c.json({ ok: true });
   })
-  // The server owns the conversation record (#46): the browser sends the new message only (an
-  // answered approval resends the reply it belongs to), and the turn reads everything else from here.
-  .post('/chat/:sessionId/stream', validate('json', z.object({ message: z.any().optional(), messages: z.array(z.any()).optional(), trigger: z.enum(['submit-message', 'regenerate-message']).optional(), view: viewSchema.optional() })), async (c) => {
+  // The server owns the conversation record (#46): the browser sends the new message only (a tool
+  // the browser carried out resends the reply it belongs to), and the turn reads everything else from here.
+  .post('/chat/:sessionId/stream', validate('json', z.object({ message: z.any().optional(), trigger: z.enum(['submit-message', 'regenerate-message']).optional(), view: viewSchema.optional() })), async (c) => {
     const { db } = c.var.deps;
     const session = found(db.select().from(s.chatSessions).where(eq(s.chatSessions.id, c.req.param('sessionId'))).get(), '대화');
     const body = c.req.valid('json');
-    try {
-      return await runChatTurn(c.var.deps, session, { incoming: (body.message ?? body.messages?.at(-1)) as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
-    } catch (error) {
-      badRequest(error instanceof Error ? error.message : String(error));
-    }
+    return runChatTurn(c.var.deps, session, { incoming: body.message as UIMessage | undefined, trigger: body.trigger, view: body.view ? describeView(body.view) : null });
   })
+  // /compact: answers once the summary is stored; closing the request (취소) stops the model call and stores nothing.
+  .post('/chat/:sessionId/compact', async (c) => c.json(await compactChat(c.var.deps, c.req.param('sessionId'), c.req.raw.signal)))
   // The running turn's reply from its start, for a window that is not streaming it (a reload, another
   // window, a turn the server started after the last proposal was decided). 204 when none is running.
   .get('/chat/:sessionId/stream', (c) => {
-    const stream = attachTurn(c.req.param('sessionId'));
+    const stream = attachTurn(c.var.deps.db, c.req.param('sessionId'));
     if (!stream) return c.body(null, 204);
     return new Response(stream.pipeThrough(new TextEncoderStream()), { headers: UI_MESSAGE_STREAM_HEADERS });
   })
@@ -259,7 +221,7 @@ export const chatRoutes = new Hono<Env>()
   // (409) when no turn can take it any more; the browser then sends it as a new message.
   .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => {
     const sessionId = c.req.param('sessionId');
-    if (!steerable(sessionId)) return c.json({ queued: false }, 409);
+    if (!steerable(c.var.deps.db, sessionId)) return c.json({ queued: false }, 409);
     enqueueSteer(c.var.deps.db, sessionId, c.req.valid('json').text);
     return c.json({ queued: true });
   })

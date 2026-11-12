@@ -1,11 +1,13 @@
+import type { RunCaps } from '@loca/shared';
+
 /** A run's caps as the run dialog and the run page's "상한 늘려 재개" form edit them. */
 export interface Caps {
   maxCalls?: number;
   maxInputTokens?: number;
 }
 
-/** What a field edited so far holds: absent = follow `suggested`, null = cleared by the person. */
-export type CapEdits = { maxCalls?: number | null; maxInputTokens?: number | null };
+/** What a field edited so far holds: absent = follow `suggested`, null = cleared by the person. The caps as the server takes them (runCapsSchema). */
+export type CapEdits = RunCaps;
 
 /**
  * What a new run asks for: only the fields the person changed (null = cleared). The server fills in the suggestion for the
@@ -23,11 +25,4 @@ export function resumeLimits(current: Caps | undefined, next: { maxCalls?: numbe
   };
 }
 
-/** A new run's caps in words, as starting it would set them: what it asks for over the suggestion; 없음 when it has none. */
-export function startCaps(asked: CapEdits | undefined, suggested: Caps | undefined) {
-  const pick = (key: keyof Caps) => (asked?.[key] === undefined ? suggested?.[key] : asked[key] ?? undefined);
-  const calls = pick('maxCalls');
-  const input = pick('maxInputTokens');
-  const parts = [calls && `호출 ${calls.toLocaleString()}회`, input && `입력 토큰 ${input.toLocaleString()}`].filter(Boolean);
-  return parts.length ? `${parts.join(' · ')}에서 멈춤` : '없음';
-}
+export { startCaps } from '@loca/shared';

@@ -1,6 +1,6 @@
 /** Right-hand pane to add or edit one status. */
 import { Trash2 } from 'lucide-react';
-import { DEFAULT_STATUS_COLOR } from '@tw/shared';
+import { DEFAULT_STATUS_COLOR } from '@loca/shared';
 import { InspectorToggle, InspectorHeader, Inspector, Button, Input, Select, SelectContent, SelectItem, SelectValue, SelectTrigger, Section, Field, Box } from '@loca/ui';
 import { STATUS_KIND } from '@/lib/labels';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';

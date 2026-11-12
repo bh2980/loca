@@ -1,14 +1,15 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
-import { lineFilterSchema, nodesBetween } from '@tw/shared';
+import { and, eq, inArray, sql } from 'drizzle-orm';
+import { lineFilterSchema, nodesBetween, viaWith } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { inList } from '../db/chunk.ts';
+import { inChunks, inList } from '../db/chunk.ts';
 import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
-import { events } from '../events.ts';
 import { allLines } from './script-query.ts';
 import { projectReadingRoute } from './reading-route.ts';
+import { badRequest, found } from '../refusal.ts';
+import { nodeByKey } from './graph-edit.ts';
 
 /** What an agent can pick graph nodes by; every part is optional and they add up. */
 export interface NodePick {
@@ -54,13 +55,13 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
     for (const row of db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all())
       if (row.groupId && sceneIds.has(row.groupId)) nodes.add(row.id);
   // Lines → the graph nodes that hold them.
-  const lineFilter = { ...(pick.speakers?.length && { speakers: pick.speakers }), ...(pick.lines?.length && { keys: pick.lines }), ...(pick.q && { q: pick.q }) };
-  if (Object.keys(lineFilter).length) {
+  // Keys that are no line are reported with the other picks not found; the pick goes on with the lines that are.
+  const keys = pick.lines?.length ? inChunks(pick.lines, (slice) => db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all()).map((row) => row.key) : undefined;
+  if (keys) unknown.push(...pick.lines!.filter((key) => !keys.includes(key)));
+  const lineFilter = { ...(pick.speakers?.length && { speakers: pick.speakers }), ...(keys && { keys }), ...(pick.q && { q: pick.q }) };
+  // Named lines of which none exists pick no line (an empty list of keys would be no condition).
+  if (Object.keys(lineFilter).length && keys?.length !== 0) {
     const unitIds = allLines(db, projectId, lineFilterSchema.parse(lineFilter)).map((line) => line.id);
-    if (pick.lines?.length) {
-      const found = new Set(allLines(db, projectId, lineFilterSchema.parse({ keys: pick.lines })).map((line) => line.key));
-      unknown.push(...pick.lines.filter((key) => !found.has(key)));
-    }
     if (unitIds.length)
       for (const row of db.all<{ id: string }>(sql`
         select distinct n.id as id from ${s.graphNodes} n, json_each(n.unit_ids) j
@@ -165,7 +166,6 @@ export function saveView(db: Db, projectId: string, nodeIds: string[], label: st
   const reasons = Object.fromEntries(Object.entries(made.reasons ?? {}).filter(([nodeId, reason]) => ids.includes(nodeId) && reason.trim()));
   const route = made.route ? { start: made.route.start, end: made.route.end, ...(made.route.via && { via: made.route.via }) } : null;
   db.insert(s.graphViews).values({ id, projectId, label, nodeIds: ids, origin: made.origin, request: made.request ?? null, reasons, route }).run();
-  events.changed(projectId, 'graph');
   return id;
 }
 
@@ -193,20 +193,42 @@ export function updateView(db: Db, projectId: string, id: string, change: { labe
   const reasons = Object.fromEntries(Object.entries(view.reasons).filter(([nodeId]) => nodeIds.includes(nodeId)));
   db.transaction((tx) => {
     tx.update(s.graphViews).set({ label: change.label?.trim() || view.label, nodeIds, reasons, route, updatedAt: new Date() }).where(eq(s.graphViews.id, id)).run();
-    if (changed) cancelViewLayouts(projectId, `view:${id}`);
+    if (changed) cancelViewLayouts(db, projectId, `view:${id}`);
     if (changed) tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
   });
-  events.changed(projectId, 'graph');
   return readView(db, projectId, id)!;
 }
 
+/** A view made by a person: from nodes picked in the graph, or from one reading route (it holds that route's nodes). */
+export function createView(db: Db, projectId: string, input: { label: string; nodeIds: string[]; route?: ViewRoute }) {
+  if (!input.route) return saveView(db, projectId, input.nodeIds, input.label, { origin: 'manual' });
+  const routed = routeNodes(db, projectId, input.route);
+  if ('error' in routed) badRequest(routed.error);
+  return saveView(db, projectId, routed.nodeIds, input.label, { origin: 'manual', route: input.route });
+}
+
+/**
+ * updateView for a surface that names nodes by line or node key (the CLI, the agent): keys become the nodes holding
+ * them, and `branches` take another branch at forks named by key (on top of `via`, or of the view's own).
+ */
+export function changeView(db: Db, projectId: string, id: string, change: { label?: string; add?: string[]; remove?: string[]; addKeys?: string[]; removeKeys?: string[]; via?: string; branches?: { at: string; to: string }[] }) {
+  const byKey = (keys: string[] = []) => keys.map((key) => nodeByKey(db, projectId, key));
+  let via = change.via;
+  if (change.branches?.length) {
+    via ??= found(readView(db, projectId, id), '보기').route?.via ?? '';
+    for (const branch of change.branches) via = viaWith(via, nodeByKey(db, projectId, branch.at), nodeByKey(db, projectId, branch.to));
+  }
+  const view = found(updateView(db, projectId, id, { label: change.label, via, add: [...(change.add ?? []), ...byKey(change.addKeys)], remove: [...(change.remove ?? []), ...byKey(change.removeKeys)] }) ?? undefined, '보기');
+  if ('error' in view) badRequest(view.error);
+  return view;
+}
+
 export function deleteView(db: Db, projectId: string, id: string) {
-  cancelViewLayouts(projectId, `view:${id}`);
+  cancelViewLayouts(db, projectId, `view:${id}`);
   db.transaction((tx) => {
     tx.delete(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, `view:${id}`))).run();
     tx.delete(s.graphViews).where(and(eq(s.graphViews.id, id), eq(s.graphViews.projectId, projectId))).run();
   });
-  events.changed(projectId, 'graph');
 }
 
 /** The project's views, newest change first. */
@@ -244,8 +266,7 @@ export function sectionWithMost(db: Db, projectId: string, nodeIds: string[]) {
 
 /** Lays out a stored view on its own (once) and returns the section key the graph route serves it under. */
 export async function viewSection(db: Db, projectId: string, id: string, direction: LayoutDirection = 'vertical') {
-  const view = readView(db, projectId, id);
-  if (!view) throw new Error('없는 보기입니다.');
+  const view = found(readView(db, projectId, id), '보기');
   const key = `view:${id}`;
   await nodeSetLayout(db, projectId, key, view.nodeIds, view.label, direction, !view.route);
   return key;

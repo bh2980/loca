@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { HTTPException } from 'hono/http-exception';
+import { Refusal } from '../refusal.ts';
 import { readingRoute, type ReadingEdge, type ReadingNode, type ReadingUnit } from './reading-route.ts';
 
 const node = (id: string, unitIds: string[] = [], kind = 'script'): ReadingNode => ({ id, key: id, unitIds, kind });
@@ -55,9 +55,9 @@ describe('reading route', () => {
     const nodes = [node('start', ['u1']), node('control', [], 'state'), node('end', ['u2'])];
     const units = [unit('u1', 1), unit('u2', 2)];
 
-    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'foreign', end: 'end' })).toThrow(HTTPException);
-    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'start', end: 'foreign' })).toThrow(HTTPException);
-    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'control', end: 'end' })).toThrow(HTTPException);
+    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'foreign', end: 'end' })).toThrow(Refusal);
+    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'start', end: 'foreign' })).toThrow(Refusal);
+    expect(() => readingRoute(nodes, [edge('start', 'control'), edge('control', 'end')], units, { start: 'control', end: 'end' })).toThrow(Refusal);
   });
 
   it('includes one reachable branch in linear story with branch forks', () => {

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CHAT_IMAGE_MAX_BYTES, compactionMarker, contextMeter, dataUrlBytes, imageDecision, imageProblem, limitsFor } from './index.ts';
+import { CHAT_IMAGE_MAX_BYTES, compactionMarker, dataUrlBytes, imageDecision, imageProblem, limitsFor } from './index.ts';
 
 const png = (bytes: number) => `data:image/png;base64,${Buffer.alloc(bytes, 1).toString('base64')}`;
 
@@ -26,25 +26,13 @@ describe('chat images', () => {
   });
 });
 
-describe('context meter', () => {
-  it('is the share of the window the last input used, hidden when either is unknown', () => {
-    expect(contextMeter({ inputTokens: 50_000, window: 200_000 })).toMatchObject({ percent: 25, level: 'ok' });
-    expect(contextMeter({ inputTokens: 150_000, window: 200_000 })).toMatchObject({ percent: 75, level: 'ok' });
-    expect(contextMeter({ inputTokens: 170_000, window: 200_000 })).toMatchObject({ percent: 85, level: 'high' });
-    expect(contextMeter({ inputTokens: 190_000, window: 200_000 })).toMatchObject({ percent: 95, level: 'full' });
-    // A turn summed over an agent's steps: no percent, no warning.
-    expect(contextMeter({ inputTokens: 300_000, window: 200_000 })).toMatchObject({ percent: null, level: 'ok' });
-    expect(contextMeter({ inputTokens: 0, window: 200_000 })?.percent).toBe(0);
-    expect(contextMeter({ inputTokens: 5, window: null })).toBeNull();
-    expect(contextMeter({ inputTokens: null, window: 200_000 })).toBeNull();
-  });
-});
-
 describe('compaction marker', () => {
   it('points before the first message the summary does not cover', () => {
     expect(compactionMarker({ upTo: 4, summary: '요약', at: 1 }, 7)).toEqual({ index: 4, summary: '요약', at: 1 });
     expect(compactionMarker(null, 7)).toBeNull();
-    expect(compactionMarker({ upTo: 7, summary: '요약', at: 1 }, 7)).toBeNull();
+    // Everything so far is summarized (/compact): the mark sits after the last message.
+    expect(compactionMarker({ upTo: 7, summary: '요약', at: 1 }, 7)).toEqual({ index: 7, summary: '요약', at: 1 });
+    expect(compactionMarker({ upTo: 8, summary: '요약', at: 1 }, 7)).toBeNull();
     expect(compactionMarker({ upTo: 0, summary: '요약', at: 1 }, 7)).toBeNull();
   });
 });

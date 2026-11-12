@@ -7,8 +7,8 @@ import { Button } from "../../controls/button"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "../../controls/dialog"
 import { SelectItem } from "../../controls/select"
 import { Text } from "../../primitives/text"
-import { FieldChildren, FieldReadRow, RequestDetails, RequestPart, SelectField, TagToggle } from "./node-config-parts"
-import { NodeKindIcon } from "../graph/node-card"
+import { FieldChildren, FieldReadRow, RequestDetails, RequestPart, SelectField } from "./node-config-parts"
+import { NodeKindIcon } from "./node-card"
 
 const meta = { title: "Domains/Workflow/Node settings", decorators: [(Story) => <Box style={{ width: 340 }}><Story /></Box>] } satisfies Meta
 export default meta
@@ -38,16 +38,6 @@ export const JsonFieldRows: Story = {
       <FieldChildren>
         <Text variant="caption" tone="muted">목록 안의 필드</Text>
       </FieldChildren>
-    </Stack>
-  ),
-}
-
-export const TagToggles: Story = {
-  render: () => (
-    <Stack direction="row" wrap gap="tight">
-      <TagToggle tag={{ name: "붙임", color: "var(--background-color-accent)" }} sign="+" />
-      <TagToggle tag={{ name: "뗌", color: "var(--background-color-accent)" }} sign="−" struck />
-      <TagToggle tag={{ name: "그대로", color: "var(--background-color-accent)" }} faint />
     </Stack>
   ),
 }

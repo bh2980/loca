@@ -3,21 +3,15 @@ import { useMutation } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Play } from 'lucide-react';
 import { Button, NumberInput, Spinner, NoticeRow, Field } from '@loca/ui';
-import { client, unwrap } from '@/lib/api';
 import { resumeLimits, type Caps } from '@/lib/run-limits';
+import { controlRun } from '@/lib/runs';
 
 /** In the pause notice of a run a cap stopped: the caps, changeable, and a resume that takes them. */
-export function RaiseCaps({ runId, limits }: { runId: string; limits: Caps & { hit?: 'calls' | 'input' } }) {
+export function RaiseCaps({ projectId, runId, limits }: { projectId: string; runId: string; limits: Caps & { hit?: 'calls' | 'input' } }) {
   const [calls, setCalls] = useState(limits.maxCalls);
   const [input, setInput] = useState(limits.maxInputTokens);
   const resume = useMutation({
-    mutationFn: () =>
-      unwrap(
-        client.runs[':id'][':action{pause|resume|cancel}'].$post(
-          { param: { id: runId, action: 'resume' } },
-          { init: { body: JSON.stringify({ limits: resumeLimits(limits, { maxCalls: calls, maxInputTokens: input }) }), headers: { 'content-type': 'application/json' } } },
-        ),
-      ),
+    mutationFn: () => controlRun(projectId, runId, 'resume', resumeLimits(limits, { maxCalls: calls, maxInputTokens: input })),
     onError: (error) => toast.error(error.message),
   });
   return (

@@ -1,11 +1,11 @@
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { DEFAULT_FORMAT_RULES, exclusionReason, importFileSchema, lineExclusion, workflowDefinitionSchema } from '@tw/shared';
+import { DEFAULT_FORMAT_RULES, exclusionReason, importFileSchema, lineExclusion } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { excludedInScope, selectRunUnits } from '../engine/run-create.ts';
+import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
 import { importProject } from './importer.ts';
-import { excludedSql, lineFactConditions } from './line-marks.ts';
+import { excludedSql, lineFactConditions } from '../domain/line-marks.ts';
 import { findLines } from './script-query.ts';
 
 describe('번역 제외 rules', () => {
@@ -63,7 +63,6 @@ describe('번역 제외 in the project', () => {
     const { db, projectId, keyOf } = setup();
     const remaining = db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...lineFactConditions(projectId, { unfinished: true }))).all().map((row) => row.key).sort();
     expect(remaining).toEqual(['a', 'd']);
-    const definition = workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'end', type: 'end', position: { x: 0, y: 0 } }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'end' }] });
     expect(selectRunUnits(db, projectId, {}).map((id) => keyOf.get(id)).sort()).toEqual(['a', 'd']);
     expect(excludedInScope(db, projectId, {})).toBe(2);
     expect(findLines(db, projectId, { translated: false, offset: 0, limit: 50 }).rows.map((row) => row.key)).toEqual(['a', 'd']);

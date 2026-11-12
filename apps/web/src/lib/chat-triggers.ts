@@ -1,4 +1,4 @@
-import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt } from '@tw/shared';
+import { ATTACH_KIND_ALIASES, ATTACH_KINDS, PROMPT_TARGET, type AttachKind, type SavedPrompt, type Subject } from '@loca/shared';
 
 /** An `@query` being typed: where it starts in the box and everything between the @ and the caret. */
 export interface AtTrigger {
@@ -80,7 +80,7 @@ export interface WorkflowCommand {
   name: string;
   description: string;
   /** What it takes in: decides which things can be picked as its target. */
-  input: 'lines' | 'terms';
+  input: Subject;
   /** Why it cannot run now (the run dialog does not offer workflows with errors). */
   blocked?: string;
 }
@@ -91,20 +91,32 @@ export interface PromptCommand {
   description: string;
   text: string;
 }
-export type Command = WorkflowCommand | PromptCommand;
+/** What the app itself does to the conversation: nothing is sent to the model as a message. */
+export interface AppCommand {
+  kind: 'app';
+  id: 'new' | 'compact';
+  name: string;
+  description: string;
+}
+export const APP_COMMANDS: AppCommand[] = [
+  { kind: 'app', id: 'new', name: 'new', description: '새 대화 시작' },
+  { kind: 'app', id: 'compact', name: 'compact', description: '지금까지의 대화를 요약으로 줄여 문맥 비우기' },
+];
+export type Command = WorkflowCommand | PromptCommand | AppCommand;
 
-/** The list for `/`: the project's workflows, then its saved prompts. The app has no commands of its own. */
+/** The list for `/`: the project's workflows, its saved prompts, then the app's own commands for the conversation. */
 export function allCommands(
-  workflows: readonly { id: string; name: string; description: string; input: 'lines' | 'terms'; errorCount?: number }[],
+  workflows: readonly { id: string; name: string; description: string; input: Subject; errorCount?: number }[],
   prompts: readonly SavedPrompt[],
 ): Command[] {
   return [
     ...workflows.map((workflow): Command => ({ kind: 'workflow', id: workflow.id, name: workflow.name, description: workflow.description, input: workflow.input, ...(workflow.errorCount ? { blocked: `워크플로에 오류가 ${workflow.errorCount}개 있어 실행할 수 없습니다.` } : {}) })),
     ...prompts.map((prompt): Command => ({ kind: 'prompt', id: `prompt:${prompt.name}`, name: prompt.name, description: prompt.text.replace(/\s+/g, ' ').slice(0, 60), text: prompt.text })),
+    ...APP_COMMANDS,
   ];
 }
 
-/** Commands whose name starts with what was typed first, then those that contain it; workflows stay above saved prompts within each. */
+/** Commands whose name starts with what was typed first, then those that contain it; the list's order (workflows, saved prompts, the app's) stays within each. */
 export function filterCommands(commands: Command[], query: string): Command[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return commands;

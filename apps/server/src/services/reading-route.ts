@@ -1,10 +1,10 @@
 import { eq } from 'drizzle-orm';
-import type { ReadingRouteFork, ReadingRouteForkOption } from '@tw/shared';
-export type { ReadingRouteFork, ReadingRouteForkOption };
+import type { ReadingRouteFork, ReadingRouteForkOption } from '@loca/shared';
+export type { ReadingRouteForkOption };
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { badRequest, found } from '../http-errors.ts';
-import { routeGraph } from './route-slice.ts';
+import { badRequest, found } from '../refusal.ts';
+import { nodeOrder } from './node-order.ts';
 
 export interface ReadingNode { id: string; key: string; kind?: string; unitIds: string[]; label?: string | null }
 export interface ReadingEdge { from: string; to: string; label: string | null }
@@ -170,7 +170,7 @@ export function readingRoute(nodes: ReadingNode[], edges: ReadingEdge[], units: 
     };
   }
 
-  const semantics = routeGraph(nodes.map((node) => ({ ...node, kind: node.kind ?? 'script' })), edges, byUnit);
+  const bySeq = nodeOrder(nodes, edges, byUnit);
 
   const out = new Map<string, Set<string>>();
   const edgeMap = new Map<string, string | null>();
@@ -360,7 +360,7 @@ export function readingRoute(nodes: ReadingNode[], edges: ReadingEdge[], units: 
       before.get(to)!.push(from);
     }
   }
-  for (const incoming of before.values()) incoming.sort(semantics.bySeq);
+  for (const incoming of before.values()) incoming.sort(bySeq);
 
   // Step 2: Backward BFS reachability (distToEnd)
   const computeDistTo = (target: string): Map<string, number> => {
@@ -459,7 +459,7 @@ export function readingRoute(nodes: ReadingNode[], edges: ReadingEdge[], units: 
       );
 
       const sorted = [...viable].sort(
-        (a, b) => distToEnd.get(a)! - distToEnd.get(b)! || semantics.bySeq(a, b),
+        (a, b) => distToEnd.get(a)! - distToEnd.get(b)! || bySeq(a, b),
       );
 
       chosenTarget = explicitPick ?? sorted[0]!;
@@ -564,7 +564,7 @@ export function readingRoute(nodes: ReadingNode[], edges: ReadingEdge[], units: 
         (byId.get(t)?.key && picks[`target:${byId.get(t)!.key}`] === byId.get(t)!.key),
     );
     const targetWithEndpoint = outs.find((t) => branchContains(t, start) || branchContains(t, end));
-    const sorted = [...outs].sort(semantics.bySeq);
+    const sorted = [...outs].sort(bySeq);
     const chosen = explicitPick ?? targetWithEndpoint ?? sorted[0]!;
 
     if (!forks.some((f) => f.nodeId === curr)) {
@@ -595,7 +595,7 @@ export function readingRoute(nodes: ReadingNode[], edges: ReadingEdge[], units: 
           (byId.get(t)?.key && picks[`target:${byId.get(t)!.key}`] === byId.get(t)!.key),
       );
       const targetWithEndpoint = deadEndTargets.find((t) => branchContains(t, start) || branchContains(t, end));
-      const sorted = [...deadEndTargets].sort(semantics.bySeq);
+      const sorted = [...deadEndTargets].sort(bySeq);
       const chosen = explicitPick ?? targetWithEndpoint ?? sorted[0]!;
 
       if (!forks.some((f) => f.nodeId === parentNodeId)) {

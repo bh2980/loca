@@ -41,7 +41,7 @@
     "@radix-ui/react-tooltip": "^1.1.8",
     "@tanstack/react-table": "^8.21.3",
     "@tanstack/react-virtual": "^3.14.13",
-    "@tw/shared": "workspace:*",
+    "@loca/shared": "workspace:*",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "cmdk": "^1.1.1",

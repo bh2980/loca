@@ -1,6 +1,6 @@
 import { Slot } from "@radix-ui/react-slot"
 import { CircleAlert, StickyNote, X } from "lucide-react"
-import type { ComponentProps, ReactNode } from "react"
+import type { ReactNode } from "react"
 import { cn } from "../../lib/utils"
 import { Button } from "../../controls/button"
 import { Icon } from "../../primitives/icon"
@@ -28,10 +28,6 @@ export function ScriptReviewIssue({ issue }: { issue: string }) {
   )
 }
 
-/** An invisible point where a right-click menu opens (the pointer's place). */
-export function ScriptMenuAnchor({ x, y, ...props }: Omit<ComponentProps<"span">, "className"> & { x: number; y: number }) {
-  return <span aria-hidden {...props} className="pointer-events-none fixed size-0" style={{ left: x, top: y }} />
-}
 
 /**
  * The look of a line's source text, put on the one text element inside: the open line reads larger; `tone` says what the line is

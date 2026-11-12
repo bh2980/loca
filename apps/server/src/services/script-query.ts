@@ -1,18 +1,18 @@
-import { and, asc, count, desc, eq, gte, inArray, like, or, sql, type SQL } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineExclusion, lineMarksOf, mentions, runNodeName, type BatchChange, type CheckKind, type LineFilter, type LineMark, withSourceWhitespace } from '@tw/shared';
+import { and, asc, count, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
+import { checkFormat, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { attachUnitTags, scopeRefusal } from './tag-scope.ts';
-import { saveLine } from './line-save.ts';
-import { PERSON, type Saver } from './status-by.ts';
-import { refusesListener, setHumanListener } from './listeners.ts';
-import { hiddenMarkConditions, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from './line-marks.ts';
-import { lineTextFilter } from './line-text.ts';
-import { describeRule, knowledgeOf, knownListener, speechRuleIndex } from './speech.ts';
-import { precedingLines } from './context.ts';
-import { viewUnitIds } from './view-flow.ts';
+import { attachUnitTags, scopeRefusal } from '../domain/tag-scope.ts';
+import { isStale, LINE_CHANGED, revOf, saveLine, setLineMemo, setLineTranslate, statusRefusal } from '../domain/line-save.ts';
+import { PERSON, type Saver } from '../domain/saver.ts';
+import { refusesListener, setAiListener, setHumanListener } from '../domain/line-listener.ts';
+import { markConditions, translatableSql } from '../domain/line-marks.ts';
+import { lineConditions, personNames, requireLineFilter } from '../domain/line-filter.ts';
+import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.ts';
+import { knowledgeOf } from '../domain/knowledge-cache.ts';
+import { precedingLines } from '../engine/ai-context.ts';
+import { viewUnitIds } from '../domain/view-flow.ts';
 
 /**
  * Reading and batch-changing the script, shared by the CLI routes and the chat's tools so both
@@ -46,62 +46,26 @@ export interface LineRow {
 }
 
 export function lookups(db: Db, projectId: string) {
-  const characters = db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all();
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).orderBy(asc(s.statuses.sort)).all();
   const tags = db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all();
-  /** Every spelling a character goes by: stored name, aliases, and the given text itself. */
-  const namesOf = (name: string) => {
-    const wanted = name.trim().toLowerCase();
-    const spellings = (character: (typeof characters)[number]) => [character.name, ...character.aliases];
-    let found = characters.filter((character) => spellings(character).some((alias) => alias.toLowerCase() === wanted));
-    // "Alice" finds "Alice Grey" / CHAR_ALICE: a whole word of a name or alias, when nothing matches exactly.
-    if (!found.length) {
-      const word = new RegExp(`(^|[^\\p{L}\\p{N}])${wanted.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\p{L}\\p{N}])`, 'iu');
-      found = characters.filter((character) => spellings(character).some((alias) => word.test(alias.replace(/_/g, ' '))));
-    }
-    return [...new Set([name.trim(), ...found.flatMap(spellings)])];
-  };
   const statusId = (value: string) => statuses.find((status) => status.id === value || status.name === value)?.id;
   const tagId = (value: string) => tags.find((tag) => tag.id === value || tag.name === value.replace(/^#/, ''))?.id;
-  return { characters, statuses, tags, namesOf, statusId, tagId };
+  return { statuses, tags, statusId, tagId };
 }
 
-/** Lines matching a filter, in script order. `total` counts every match, not just this page. */
-/** With `all`, every matching line in one query (no count, no paging): see allLines. `seq` limits it to a stretch of the script. */
-export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; seq?: [number, number]; diverged?: boolean } = {}): { total: number; rows: LineRow[] } {
-  const { namesOf, statusId, tagId, statuses, tags } = lookups(db, projectId);
-  const where: SQL[] = [eq(s.units.projectId, projectId)];
-  if (filter.q) where.push(lineTextFilter(filter.q));
-  if (filter.speakers?.length) where.push(inList(s.units.speaker, filter.speakers.flatMap(namesOf)));
-  if (filter.listeners?.length) {
-    // The app's rules (services/line-marks.ts): '-' is 청자 모름 (dialogue only), a name must be a known listener.
-    const names = filter.listeners.filter((name) => name !== '-').flatMap(namesOf);
-    where.push(or(...(names.length ? [and(inArray(s.units.listener, names), knownListenerSql)!] : []), ...(filter.listeners.includes('-') ? [unknownListenerSql(projectId)] : []))!);
-  }
-  if (filter.groups?.length) where.push(or(inList(s.groups.key, filter.groups), inList(s.groups.id, filter.groups), inList(s.groups.title, filter.groups))!);
-  if (filter.sections?.length) where.push(inList(s.groups.section, filter.sections));
-  if (filter.groupKind) where.push(eq(s.groups.kind, filter.groupKind));
-  if (filter.kind) where.push(eq(s.units.kind, filter.kind));
-  if (filter.statuses?.length) where.push(inList(s.units.statusId, filter.statuses.map((value) => statusId(value) ?? value)));
-  // Several tags: lines carrying every one of them, as in the app's list.
-  for (const tag of filter.tags ?? []) where.push(sql`${s.units.id} in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
-  where.push(...markConditions(projectId, filter.marks), ...lineFactConditions(projectId, filter));
-  // 숨기기: any one of these leaves a line out.
-  if (filter.hideSpeakers?.length) where.push(sql`coalesce(${s.units.speaker}, '') not in (select value from json_each(${JSON.stringify(filter.hideSpeakers.flatMap(namesOf))}))`);
-  if (filter.hideStatuses?.length) where.push(sql`${s.units.statusId} not in (select value from json_each(${JSON.stringify(filter.hideStatuses.map((value) => statusId(value) ?? value))}))`);
-  for (const tag of filter.hideTags ?? []) where.push(sql`${s.units.id} not in (select unit_id from ${s.unitTags} where tag_id = ${tagId(tag) ?? tag})`);
-  where.push(...hiddenMarkConditions(projectId, filter.hideMarks));
-  // Asking for translated or untranslated lines (exports, checks) asks for lines to translate: 번역 제외 lines stay out.
-  if (filter.translated !== undefined) where.push(filter.translated ? sql`${s.units.translation} is not null and ${s.units.translation} != ''` : sql`(${s.units.translation} is null or ${s.units.translation} = '')`, translatableSql(projectId));
-  if (filter.keys?.length) where.push(inList(s.units.key, filter.keys));
-  if (filter.ids?.length) where.push(inList(s.units.id, filter.ids));
-  if (filter.view) where.push(inList(s.units.id, viewUnitIds(db, projectId, filter.view)));
-  if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
+/**
+ * Lines matching a filter, in script order. `total` counts every match, not just this page; with `all`, every matching
+ * line in one query (no count, no paging: see allLines). A name the project does not have is refused (400, requireLineFilter).
+ */
+export function findLines(db: Db, projectId: string, filter: LineFilter, options: { all?: boolean; diverged?: boolean } = {}): { total: number; rows: LineRow[] } {
+  return findResolved(db, projectId, requireLineFilter(db, projectId, filter), { ...options, page: filter });
+}
 
-  // Mentions need whole-word matching (and {ALIAS} placeholders), so they are checked in code
-  // over a LIKE pre-filter; everything else pages in SQL.
-  const mentionNames = filter.mentions?.flatMap(namesOf) ?? [];
-  if (mentionNames.length) where.push(or(...mentionNames.map((name) => like(s.units.source, `%${name}%`)))!);
+/** findLines for a filter already resolved (lineSteps asks many times for one filter). `seq` limits it to a stretch of the script. */
+function findResolved(db: Db, projectId: string, filter: ResolvedLineFilter, options: { all?: boolean; seq?: [number, number]; diverged?: boolean; page?: { offset: number; limit: number } }): { total: number; rows: LineRow[] } {
+  const { statuses, tags } = lookups(db, projectId);
+  const where = lineConditions(projectId, filter);
+  if (options.seq) where.push(sql`${s.units.seq} >= ${options.seq[0]} and ${s.units.seq} < ${options.seq[1]}`);
   const base = db
     .select({ unit: s.units, group: { key: s.groups.key, title: s.groups.title, kind: s.groups.kind, section: s.groups.section } })
     .from(s.units)
@@ -110,19 +74,12 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
     .orderBy(asc(s.units.seq));
   let total: number;
   let page: { unit: Unit; group: LineRow['group'] }[];
-  if (mentionNames.length) {
-    const all = base.all().filter(({ unit }) => mentionNames.some((name) => mentions(unit.source, name) || unit.source.includes(`{${name}}`)));
-    total = all.length;
-    page = options.all ? all : all.slice(filter.offset, filter.offset + filter.limit);
-  } else if (options.all) {
+  if (options.all || !options.page) {
     page = base.all();
     total = page.length;
   } else {
-    // Groups are joined only when a group filter needs them.
-    const counted = db.select({ count: count() }).from(s.units);
-    const usesGroups = Boolean(filter.groups?.length || filter.sections?.length || filter.groupKind);
-    total = (usesGroups ? counted.innerJoin(s.groups, eq(s.groups.id, s.units.groupId)) : counted).where(and(...where)).get()!.count;
-    page = base.limit(filter.limit).offset(filter.offset).all();
+    total = db.select({ count: count() }).from(s.units).where(and(...where)).get()!.count;
+    page = base.limit(options.page.limit).offset(options.page.offset).all();
   }
   const ids = page.map(({ unit }) => unit.id);
   const tagRows = inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all());
@@ -131,7 +88,6 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
   const tagsByUnit = new Map<string, string[]>();
   for (const row of tagRows) tagsByUnit.set(row.unitId, [...(tagsByUnit.get(row.unitId) ?? []), tagName.get(row.tagId) ?? row.tagId]);
   const statusName = new Map(statuses.map((status) => [status.id, status.name]));
-  const finalStatus = new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
   const project = db.select({ rules: s.projects.formatRules, exclusion: s.projects.exclusionRules, language: s.projects.sourceLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
   const rules = project?.rules;
   const exclusion = exclusionRulesSchema.parse(project?.exclusion ?? {});
@@ -144,7 +100,7 @@ export function findLines(db: Db, projectId: string, filter: LineFilter, options
     rows: page.map(({ unit, group }) => ({
       id: unit.id,
       key: unit.key,
-      rev: unit.updatedAt.getTime(),
+      rev: revOf(unit),
       group,
       kind: unit.kind,
       speaker: unit.speaker,
@@ -177,10 +133,11 @@ const yieldNow = () => new Promise((resolve) => setImmediate(resolve));
  * requests for more than a few tens of milliseconds.
  */
 export async function* lineSteps(db: Db, projectId: string, filter: LineFilter): AsyncGenerator<LineRow[]> {
+  const resolved = requireLineFilter(db, projectId, filter);
   const range = db.select({ low: sql<number | null>`min(${s.units.seq})`, high: sql<number | null>`max(${s.units.seq})` }).from(s.units).where(eq(s.units.projectId, projectId)).get();
   if (range?.low === null || range?.low === undefined || range.high === null) return;
   for (let low = range.low; low <= range.high; low += STEP_LINES) {
-    const rows = findLines(db, projectId, filter, { all: true, seq: [low, low + STEP_LINES] }).rows;
+    const rows = findResolved(db, projectId, resolved, { all: true, seq: [low, low + STEP_LINES] }).rows;
     if (rows.length) yield rows;
     await yieldNow();
   }
@@ -188,7 +145,7 @@ export async function* lineSteps(db: Db, projectId: string, filter: LineFilter):
 
 /** Groups where every one of these speakers has at least one line (e.g. "Alice and Bob talking"). */
 export function scenesWith(db: Db, projectId: string, speakers: string[]) {
-  const { namesOf } = lookups(db, projectId);
+  const namesOf = personNames(db, projectId);
   const sets = speakers.map((name) => new Set(namesOf(name)));
   const rows = db
     .select({ groupId: s.units.groupId, speaker: s.units.speaker, lines: count() })
@@ -209,7 +166,7 @@ export function scenesWith(db: Db, projectId: string, speakers: string[]) {
 }
 
 /** A line with the lines around it in its group, and its neighbours in the dialogue graph (choices, conditions). */
-export function lineContext(db: Db, projectId: string, key: string, around: number) {
+export function lineAround(db: Db, projectId: string, key: string, around: number) {
   const unit = db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get();
   if (!unit) return null;
   const siblings = db.select({ id: s.units.id, key: s.units.key, speaker: s.units.speaker, source: s.units.source, translation: s.units.translation }).from(s.units).where(eq(s.units.groupId, unit.groupId)).orderBy(asc(s.units.seq)).all();
@@ -398,20 +355,30 @@ export function normalizeBatch(db: Db, projectId: string, batch: BatchChange, op
     const unit = units.get(change.key);
     if (!unit) return [change];
     const next = { ...change };
-    if (options.fillRev && next.rev === undefined) next.rev = unit.updatedAt.getTime();
+    if (options.fillRev && next.rev === undefined) next.rev = revOf(unit);
     // Compared as saveLine will store it: the source's leading and trailing whitespace.
     if (next.translation !== undefined) next.translation = withSourceWhitespace(unit.source, next.translation);
     if (next.translation !== undefined && next.translation === (unit.translation ?? '')) delete next.translation;
     if (next.status && statusId(next.status) === unit.statusId) delete next.status;
     if (next.listener !== undefined && next.listener === unit.listener) delete next.listener;
     if (next.translate !== undefined && next.translate === unit.translate) delete next.translate;
-    if (next.translation === undefined && next.listener === undefined && next.translate === undefined && !next.status && !next.addTags.length && !next.removeTags.length) {
+    if (next.memo !== undefined && next.memo.trim() === unit.note) delete next.memo;
+    if (lineChangeEmpty(next)) {
       unchanged.push(change.key);
       return [];
     }
     return [next];
   });
   return { batch: { ...batch, changes }, unchanged };
+}
+
+/**
+ * Why the line may not be in the status the change gives it (or, when the change only empties its text, in the status
+ * it keeps), by the rule of statuses (statusRefusal) against the text the change leaves it with. Null when it holds.
+ */
+function statusProblem(db: Pick<Db, 'select'>, projectId: string, unit: Unit, change: LineChange, statusId: (name: string) => string | undefined) {
+  const status = change.status ? statusId(change.status) : change.translation !== undefined && !change.translation.trim() ? unit.statusId : undefined;
+  return status ? statusRefusal(db, projectId, status, change.translation ?? unit.translation) : null;
 }
 
 export interface BatchReport {
@@ -425,7 +392,7 @@ export interface BatchReport {
   warnings: { key: string; issues: string[] }[];
 }
 
-/** Validate a batch without writing: unknown keys, stale revs, unknown statuses/tags, and format/glossary problems in new translations. */
+/** Validate a batch without writing: unknown keys, stale revs, unknown statuses/tags, a status its line may not be in, and format/glossary problems in new translations. */
 export function validateBatch(db: Db, projectId: string, batch: BatchChange): BatchReport {
   const { statusId, tagId } = lookups(db, projectId);
   const units = unitsByKey(db, projectId, batch.changes.map((change) => change.key));
@@ -436,14 +403,16 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
   for (const change of batch.changes) {
     const unit = units.get(change.key);
     let tagRefusal: string | null = null;
+    let statusRefused: string | null = null;
     if (!unit) report.errors.push({ key: change.key, reason: '없는 대사 키입니다.' });
     else if (refusesListener(unit, change.listener)) report.errors.push({ key: change.key, reason: '나레이션에는 청자가 없습니다.' });
     else if (seen.has(change.key)) report.errors.push({ key: change.key, reason: '같은 키가 두 번 나옵니다.' });
-    else if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) report.conflicts.push({ key: change.key, reason: '읽은 뒤에 다른 곳에서 바뀌었습니다.' });
+    else if (isStale(unit, change.rev)) report.conflicts.push({ key: change.key, reason: LINE_CHANGED });
     else if (change.status && !statusId(change.status)) report.errors.push({ key: change.key, reason: `없는 상태입니다: ${change.status}` });
     else if ([...change.addTags, ...change.removeTags].some((tag) => !tagId(tag))) report.errors.push({ key: change.key, reason: `이 프로젝트에 없는 태그입니다: ${[...change.addTags, ...change.removeTags].filter((tag) => !tagId(tag)).join(', ')}` });
     else if ((tagRefusal = scopeRefusal(db, projectId, change.addTags.map((tag) => tagId(tag)!), 'lines'))) report.errors.push({ key: change.key, reason: tagRefusal });
-    else if (change.translation === undefined && change.listener === undefined && change.translate === undefined && !change.status && !change.addTags.length && !change.removeTags.length) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if (lineChangeEmpty(change)) report.errors.push({ key: change.key, reason: '바꿀 내용이 없습니다.' });
+    else if ((statusRefused = statusProblem(db, projectId, unit, change, statusId))) report.errors.push({ key: change.key, reason: statusRefused });
     else {
       report.changes++;
       if (change.translation !== undefined) {
@@ -467,6 +436,8 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
   const { statusId, tagId } = lookups(db, projectId);
   const applied: string[] = [];
   const skipped: { key: string; reason: string }[] = [];
+  const listenerKept: string[] = [];
+  const rules = db.select({ rules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.rules;
   db.transaction((tx) => {
     const units = unitsByKey(tx, projectId, batch.changes.map((change) => change.key));
     for (const change of batch.changes) {
@@ -475,24 +446,36 @@ export function applyBatch(db: Db, projectId: string, batch: BatchChange, saver:
         skipped.push({ key: change.key, reason: '없는 대사 키' });
         continue;
       }
-      if (change.rev !== undefined && change.rev !== unit.updatedAt.getTime()) {
-        skipped.push({ key: change.key, reason: '그사이 바뀜' });
+      if (isStale(unit, change.rev)) {
+        skipped.push({ key: change.key, reason: LINE_CHANGED });
         continue;
       }
       // Only dialogue has a listener (validateBatch reports the same).
       if (refusesListener(unit, change.listener)) {
-        skipped.push({ key: change.key, reason: '나레이션에는 청자가 없음' });
+        skipped.push({ key: change.key, reason: '나레이션에는 청자가 없습니다.' });
         continue;
       }
-      // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it.
-      saveLine(tx, unit, { text: change.translation, statusId: change.status ? statusId(change.status)! : undefined, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
-      if (change.listener !== undefined) setHumanListener(tx, [unit.id], change.listener);
-      if (change.translate !== undefined) tx.update(s.units).set({ translate: change.translate }).where(eq(s.units.id, unit.id)).run();
+      // The status's rule, asked before anything of the line is written (validateBatch reports the same): the line is skipped, the rest go on.
+      const status = change.status ? statusId(change.status)! : undefined;
+      const refused = statusProblem(tx, projectId, unit, change, statusId);
+      if (refused) {
+        skipped.push({ key: change.key, reason: refused });
+        continue;
+      }
+      // Who decided it: a person who accepted the proposal, or AI when the terminal's mode applied it. The rev was checked above
+      // (the line's other fields below raise it again).
+      saveLine(tx, unit, { text: change.translation, statusId: status, origin: batch.origin, model: batch.model ?? null, note: change.note, statusBy: saver.statusBy });
+      // A listener is a person's only when a person decided this batch; otherwise it is the agent's guess, which never replaces a person's.
+      if (change.listener !== undefined) {
+        if (saver.statusBy === 'human') setHumanListener(tx, [unit.id], change.listener);
+        else if (!setAiListener(tx, unit, change.listener, 1, rules)) listenerKept.push(change.key);
+      }
+      if (change.translate !== undefined) setLineTranslate(tx, projectId, [unit.id], change.translate);
+      if (change.memo !== undefined) setLineMemo(tx, projectId, [unit.id], change.memo);
       // Checked in validateBatch; a tag whose place changed since is skipped here, never put where it doesn't belong.
       attachUnitTags(tx, projectId, [unit.id], { add: change.addTags.map((tag) => tagId(tag)).filter((id): id is string => !!id), remove: change.removeTags.map((tag) => tagId(tag)).filter((id): id is string => !!id) }, { onMisplaced: 'skip' });
       applied.push(change.key);
     }
   });
-  events.changed(projectId, 'units');
-  return { ok: true, applied: applied.length, skipped };
+  return { ok: true, applied: applied.length, skipped, ...(listenerKept.length && { listenerKept: { keys: listenerKept, note: '이 줄들의 청자는 그대로 두었습니다(사람이 정했거나 가져온 청자가 있거나, 청자가 필요 없는 줄).' } }) };
 }

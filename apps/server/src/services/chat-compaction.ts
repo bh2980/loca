@@ -1,13 +1,14 @@
 import type { UIMessage } from 'ai';
+import { badRequest } from '../refusal.ts';
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@tw/shared';
-import * as ai from '@tw/ai';
+import { estimateTokens, limitsFor, runCardOf, runEndOf } from '@loca/shared';
+import * as ai from '@loca/ai';
 import type { Db } from '../db/index.ts';
+import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
-import { events } from '../events.ts';
-import { logged } from './ai-calls.ts';
-import { runCardLine, runEndLine, transcript } from './chat-context.ts';
+import { logged } from '../domain/ai-calls.ts';
+import { runCardLine, runEndLine, transcript } from './chat-record.ts';
 
 /**
  * A conversation is sent whole until it would not fit the model's window; then, as pi does, the
@@ -29,7 +30,8 @@ export const summaryText = (summary: string) => `이 대화의 앞부분 요약(
 
 /** The record as the model sees it: the stored summary in place of the messages it covers. */
 export function withCompaction(record: UIMessage[], compaction: Compaction | null): UIMessage[] {
-  if (!compaction || compaction.upTo <= 0 || compaction.upTo >= record.length) return record;
+  // A summary that covers more than the record holds is stale (the record was cut back): the record stands.
+  if (!compaction || compaction.upTo <= 0 || compaction.upTo > record.length) return record;
   return [{ id: 'compaction', role: 'user', parts: [{ type: 'text', text: summaryText(compaction.summary) }] }, ...record.slice(compaction.upTo)];
 }
 
@@ -74,7 +76,7 @@ const SUMMARY_SYSTEM = `당신은 번역 작업실 채팅의 앞부분을 요약
 이전 요약이 주어지면 그 내용도 새 요약에 합칩니다. 지어내지 마세요.`;
 
 /** One summary of `messages` (and the summary before them), in pieces when they do not fit the model at once. */
-async function summarize(db: Db, chat: { id: string; projectId: string }, route: ai.ResolvedRoute, window: number, previous: string | null, messages: UIMessage[], signal?: AbortSignal): Promise<string> {
+async function summarize(db: Db, chat: { id: string; projectId: string }, target: ai.ModelTarget, window: number, previous: string | null, messages: UIMessage[], signal?: AbortSignal): Promise<string> {
   const room = Math.max(8_000, window - RESERVE_TOKENS - estimateTokens(SUMMARY_SYSTEM) - 2_000);
   let summary = previous;
   let start = 0;
@@ -84,8 +86,8 @@ async function summarize(db: Db, chat: { id: string; projectId: string }, route:
     let used = summary ? estimateTokens(summary) : 0;
     while (end < messages.length && (end === start || used + partsTokens(messages[end]!.parts) <= room)) used += partsTokens(messages[end++]!.parts);
     const prompt = [summary ? `이전 요약:\n${summary}` : '', `요약할 대화:\n${transcript(messages.slice(start, end))}`].filter(Boolean).join('\n\n');
-    const result = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '대화 압축' }, route, () =>
-      ai.generate(route, { system: SUMMARY_SYSTEM, prompt, schema: z.object({ summary: z.string().min(1) }), timeoutMs: 300_000, signal }),
+    const result = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '대화 압축' }, target, () =>
+      ai.generate(target, { system: SUMMARY_SYSTEM, prompt, schema: z.object({ summary: z.string().min(1) }), timeoutMs: 300_000, signal }),
     );
     summary = result.object.summary;
     start = end;
@@ -97,19 +99,51 @@ async function summarize(db: Db, chat: { id: string; projectId: string }, route:
  * The record for this turn's model, compacted first when it would not fit: `overhead` is what the
  * turn adds around it (system prompt, tool schemas, a CLI's own prompt).
  */
-export async function fitRecord(input: { db: Db; chat: typeof s.chatSessions.$inferSelect; route: ai.ResolvedRoute; record: UIMessage[]; overhead: number; signal?: AbortSignal }): Promise<UIMessage[]> {
-  const { db, chat, route, record } = input;
-  const window = chatWindow(db, route.connectionId, route.model);
-  const stored = chat.compaction && chat.compaction.upTo < record.length ? chat.compaction : null;
+export async function fitRecord(input: { db: Db; chat: typeof s.chatSessions.$inferSelect; target: ai.ModelTarget; record: UIMessage[]; overhead: number; signal?: AbortSignal }): Promise<UIMessage[]> {
+  const { db, chat, target, record } = input;
+  const window = chatWindow(db, target.connectionId, target.model);
+  const stored = chat.compaction && chat.compaction.upTo <= record.length ? chat.compaction : null;
   const current = withCompaction(record, stored);
   if (tokensOf(current) + input.overhead <= window - RESERVE_TOKENS) return current;
   const from = stored?.upTo ?? 0;
   const cut = cutPoint(record, from);
   // Only the newest exchange is left: nothing more to summarize; the model gets it as it is.
   if (!cut) return current;
-  const summary = await summarize(db, chat, route, window, stored?.summary ?? null, record.slice(from, cut), input.signal);
+  const summary = await summarize(db, chat, target, window, stored?.summary ?? null, record.slice(from, cut), input.signal);
   const compaction = { upTo: cut, summary, at: Date.now() };
   db.update(s.chatSessions).set({ compaction }).where(eq(s.chatSessions.id, chat.id)).run();
-  events.changed(chat.projectId, 'chat');
   return withCompaction(record, compaction);
+}
+
+/** Conversations being compacted on request (/compact), each with the work a new turn waits for. */
+const compacting = perDatabase(() => new Map<string, Promise<unknown>>());
+
+/** Resolves once no /compact of the conversation is running: a turn started meanwhile reads the summary it stored. */
+export const compactionSettled = (db: Db, sessionId: string): Promise<void> => compacting(db).get(sessionId)?.then(() => undefined, () => undefined) ?? Promise.resolve();
+
+/**
+ * /compact: everything said so far becomes the summary now, whether or not it would still fit the
+ * model, so the next turn starts from the summary alone. A CLI keeps the whole conversation in its
+ * own session; that session is let go, and the next turn opens a new one with the summary.
+ */
+export function compactNow(input: { db: Db; sessionId: string; target: ai.ModelTarget; signal?: AbortSignal }): Promise<Compaction> {
+  const { db, sessionId, target } = input;
+  const running = compacting(db);
+  if (running.has(sessionId)) badRequest('이 대화는 이미 압축하는 중입니다.');
+  const work = (async () => {
+    const chat = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
+    if (!chat) badRequest('대화가 없습니다.');
+    const record = chat.messages as UIMessage[];
+    const stored = chat.compaction && chat.compaction.upTo <= record.length ? chat.compaction : null;
+    const from = stored?.upTo ?? 0;
+    if (record.length <= from) badRequest(record.length ? '마지막 압축 뒤로 나눈 대화가 없습니다.' : '압축할 대화가 없습니다.');
+    const summary = await summarize(db, chat, target, chatWindow(db, target.connectionId, target.model), stored?.summary ?? null, record.slice(from), input.signal);
+    // Messages that came in meanwhile (a run card) stay after the summary: it covers what was read above.
+    const compaction = { upTo: record.length, summary, at: Date.now() };
+    db.update(s.chatSessions).set({ compaction, agentSession: null }).where(eq(s.chatSessions.id, sessionId)).run();
+    if (chat.agentSession) void ai.closeSession(chat.agentSession.id);
+    return compaction;
+  })();
+  running.set(sessionId, work);
+  return work.finally(() => running.delete(sessionId));
 }

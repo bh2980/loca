@@ -1,6 +1,6 @@
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from './importer.ts';
@@ -83,5 +83,20 @@ describe('a route view', () => {
     expect(made).toMatchObject({ ok: true });
     expect(listViews(db, projectId)).toMatchObject([{ label: '처음부터 끝까지', route: { start: id('node.A'), end: id('node.E') } }]);
     expect(await tools.show_graph.execute({ route: { start: 'A', end: 'E' }, mode: 'view', label: 'x', scenes: [], speakers: ['MIRA'], lines: [], exclude: [], keep: [], around: 0 })).toMatchObject({ ok: false });
+  });
+
+  it('is listed and renamed by the agent (list_views, update_view), by name or id', async () => {
+    const { db, projectId, id } = setup();
+    const tools = agentTools(db, projectId) as unknown as Record<string, { execute: (input: unknown) => Promise<Record<string, unknown>> }>;
+    await tools.show_graph.execute({ route: { start: 'A', end: 'E' }, mode: 'view', label: '처음부터 끝까지', scenes: [], speakers: [], lines: [], exclude: [], keep: [], around: 0 });
+    const listed = (await tools.list_views.execute({})) as { views: { id: string; label: string; route: boolean; nodes: number }[] };
+    expect(listed.views).toMatchObject([{ label: '처음부터 끝까지', origin: 'ai', route: true }]);
+
+    expect(await tools.update_view.execute({ view: '처음부터 끝까지', label: '본편 길', add: [], remove: [] })).toMatchObject({ ok: true, label: '본편 길', route: true, nodes: listed.views[0]!.nodes });
+    expect(listViews(db, projectId)).toMatchObject([{ id: listed.views[0]!.id, label: '본편 길' }]);
+    // Leaving a node out by its line key: it is no longer that route.
+    expect(await tools.update_view.execute({ view: listed.views[0]!.id, add: [], remove: ['E'] })).toMatchObject({ ok: true, label: '본편 길', route: false, nodes: listed.views[0]!.nodes - 1 });
+    expect(listViews(db, projectId)[0]!.route).toBeNull();
+    expect(id('node.E')).toBeTruthy();
   });
 });

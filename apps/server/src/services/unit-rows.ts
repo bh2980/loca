@@ -8,6 +8,8 @@ export const unitColumns = {
   key: s.units.key,
   groupId: s.units.groupId,
   sort: s.units.sort,
+  /** Its place in the whole script (shown as the line's number). */
+  seq: s.units.seq,
   kind: s.units.kind,
   speaker: s.units.speaker,
   listener: s.units.listener,
@@ -15,6 +17,8 @@ export const unitColumns = {
   listenerConfidence: s.units.listenerConfidence,
   source: s.units.source,
   translation: s.units.translation,
+  /** The candidate its translation is (a line's history marks it). */
+  candidateId: s.units.candidateId,
   statusId: s.units.statusId,
   statusBy: s.units.statusBy,
   note: s.units.note,
@@ -24,19 +28,19 @@ export const unitColumns = {
 };
 
 /**
- * A line as every line list shows it (the script list, the path view, the browser's units collection
- * fed by the row feed): with its scene, candidate origin, whether an AI 제안 waits, tags and latest run
- * note; script order, optionally one page.
+ * A line as every line list shows it (the rows the browser's units collection holds): with its candidate's
+ * origin, whether an AI 제안 waits, its tags and its latest run's note, in script order. Its scene is named by
+ * id only (groupId): a scene's title, section and kind are the groups collection's, so renaming or moving a
+ * scene changes one row there and no line.
  */
-export function unitRows(db: Db, where: SQL | undefined, page?: { limit: number; offset: number }) {
-  const query = db
-    .select({ ...unitColumns, groupTitle: s.groups.title, groupSection: s.groups.section, groupKind: s.groups.kind, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
+function unitRows(db: Db, where: SQL | undefined) {
+  const rows = db
+    .select({ ...unitColumns, origin: s.candidates.origin, model: s.candidates.model, suggested: sql`exists (select 1 from ${s.candidates} c where c.unit_id = ${s.units.id} and c.state = 'pending')`.mapWith(Boolean) })
     .from(s.units)
-    .innerJoin(s.groups, eq(s.groups.id, s.units.groupId))
     .leftJoin(s.candidates, eq(s.candidates.id, s.units.candidateId))
     .where(where)
-    .orderBy(asc(s.units.seq));
-  const rows = (page ? query.limit(page.limit).offset(page.offset) : query).all();
+    .orderBy(asc(s.units.seq))
+    .all();
   const ids = rows.map((row) => row.id);
   const tagRows = inChunks(ids, (slice) => db.select().from(s.unitTags).where(inArray(s.unitTags.unitId, slice)).all());
   const tags = Map.groupBy(tagRows, (row) => row.unitId);
@@ -61,5 +65,3 @@ export function unitRowsByIds(db: Db, projectId: string, ids: readonly string[])
   const byId = new Map(unitRows(db, and(eq(s.units.projectId, projectId), inList(s.units.id, ids))).map((row) => [row.id, row] as const));
   return ids.flatMap((id) => (byId.has(id) ? [byId.get(id)!] : []));
 }
-
-export type UnitRow = ReturnType<typeof unitRows>[number];

@@ -1,4 +1,4 @@
-import { normalizeTagScopes, type TagScope } from './marks.ts';
+import type { TagScope } from './marks.ts';
 /**
  * The kinds of problem a check or a review names (a review's `categories`, a check's `kind`), and the tag a new project
  * gets for each. The tags are ordinary tags (renamed, recoloured, deleted like any other): a workflow's 태그 붙이기 node

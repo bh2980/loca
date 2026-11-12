@@ -11,8 +11,12 @@ import ts from 'typescript';
 const TIERS = ['tokens', 'primitives', 'controls', 'patterns', 'domains'] as const;
 const rank = (tier: string): number => (tier === 'lib' ? -1 : TIERS.indexOf(tier as (typeof TIERS)[number]));
 
-/** Words that name a screen or a feature: only domains/ may carry them. Matched as whole CamelCase/kebab words. */
-const DOMAIN_WORDS = ['Script', 'Knowledge', 'Workflow', 'Graph', 'Chat', 'Rules', 'Editor', 'Settings', 'Run', 'Node', 'Speaker', 'Scene', 'Canvas', 'Project', 'Glossary', 'Translation'];
+/**
+ * Words that name a screen or a feature: only domains/ may carry them. Matched as whole CamelCase/kebab words.
+ * (A canvas is neither: the source graph, the knowledge graphs and the workflow editor all draw on one, so its
+ * surface, toolbar and direction control are patterns.)
+ */
+const DOMAIN_WORDS = ['Script', 'Knowledge', 'Workflow', 'Graph', 'Chat', 'Rules', 'Editor', 'Settings', 'Run', 'Node', 'Speaker', 'Scene', 'Project', 'Glossary', 'Translation'];
 
 /**
  * Controls that wrap a Radix/shadcn element and forward `className` to its slot. They are the third-party slot

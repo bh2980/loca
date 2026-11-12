@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { checkFormat, resultRequestSchema } from '@tw/shared';
+import { checkFormat, resultRequestSchema } from '@loca/shared';
 import type { z } from 'zod';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';

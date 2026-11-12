@@ -1,16 +1,17 @@
 import { useEffect, useMemo } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import type { RunCard, RunEnd } from '@tw/shared';
+import type { RunCard, RunEnd } from '@loca/shared';
 import { Box, Button, Inline, Progress, RunStatusBadge, Spinner, Stack, Text } from '@loca/ui';
-import { cardSummary } from '@/lib/chat-run';
+import { cardSummary } from '@/lib/chat-run-records';
 import { startCaps } from '@/lib/run-limits';
-import { answerRunCard } from '@/lib/chat-run-api';
+import { answerRunCard } from '@/lib/chat-sessions';
 import { keyLabel } from '@/lib/keys';
 import { AttachChip } from './attach-chip';
 import { useRuns } from '@/lib/runs';
+import { INPUT_TYPES } from '@loca/shared';
 
-const STATUS = { running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
+const STATUS = { preparing: '준비 중', running: '진행 중', paused: '일시중지', cancelled: '취소됨', completed: '완료' } as const;
 
 /** What the keyboard does to the card that waits for an answer (Enter in the empty box runs it, Esc cancels). */
 export interface RunCardControls {
@@ -24,12 +25,10 @@ export interface RunCardControls {
  * answer it once (the server starts the run and records its id on the card). After 실행 the same card
  * follows the run and links to its page. The target is not editable here: cancel and start again to change it.
  */
-export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, controls }: {
+export function RunCardView({ projectId, sessionId, card, onAnswered, controls }: {
   projectId: string;
   sessionId: string;
   card: RunCard;
-  /** The card as the server now has it (after 실행 or 취소). */
-  onChange: (card: RunCard) => void;
   /** After 실행 or 취소: focus goes back to the box, never stays on a button. */
   onAnswered: () => void;
   /** Set on the newest waiting card, so the box can answer it by key. */
@@ -37,11 +36,9 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
 }) {
   const waiting = card.state === 'pending';
   const answer = useMutation({
-    mutationFn: (kind: 'start' | 'cancel') => answerRunCard(sessionId, card.id, kind),
-    onSuccess: (next) => {
-      onChange(next);
-      onAnswered();
-    },
+    mutationFn: (kind: 'start' | 'cancel') => answerRunCard(projectId, sessionId, card.id, kind),
+    // The answered card comes with the conversation, which the answer changed (chatSession is asked again).
+    onSuccess: onAnswered,
   });
   const summary = cardSummary(card.input, card.plan);
   const canStart = waiting && !summary.empty && !answer.isPending;
@@ -67,7 +64,7 @@ export function RunCardView({ projectId, sessionId, card, onChange, onAnswered, 
       </Stack>
       {card.runId ? <RunProgress projectId={projectId} runId={card.runId} /> : (
         <p>
-          {summary.empty ? <Text tone="muted">이 대상에는 실행할 {card.input === 'terms' ? '용어' : '대사'}가 없습니다.</Text> : (
+          {summary.empty ? <Text tone="muted">이 대상에는 실행할 {INPUT_TYPES[card.input].label}가 없습니다.</Text> : (
             <>
               대상 <Text as="b" weight="medium" tabular>{summary.targets}</Text> · AI 요청 <Text as="b" weight="medium" tabular>{summary.requests}</Text>
               {summary.time && ` · 약 ${summary.time}`}
@@ -115,7 +112,7 @@ const END_TITLE = { completed: '실행이 끝났습니다', paused: '실행이 �
 
 /** A run started here has stopped: what came of it and the way to it. Nothing else happens in the conversation until the person writes (the agent reads this then). */
 export function RunEndView({ projectId, end }: { projectId: string; end: RunEnd }) {
-  const unit = end.subject === 'terms' ? '개' : '줄';
+  const unit = INPUT_TYPES[end.subject].unit;
   const counts = [['done', '완료'], ['failed', '실패'], ['cancelled', '취소']].flatMap(([state, label]) => ((end.states[state!] ?? 0) > 0 ? [`${label} ${end.states[state!]!.toLocaleString()}${unit}`] : []));
   return (
     <Box spaceY="tight" radius="md" border="all" background="sunken" paddingX="normal" paddingY="condensed" variant="body" role="status">

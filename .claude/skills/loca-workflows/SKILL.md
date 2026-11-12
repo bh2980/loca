@@ -1,6 +1,6 @@
 ---
 name: loca-workflows
-description: Build, change, run and debug loca workflows — the user-defined automation between translation statuses (entry → AI / function / condition / apply nodes → end). Use when asked to create or edit a workflow, add an AI step with JSON output fields, branch on conditions, save AI results into the project, preview or start a run, choose models for a run, or find out why a run failed.
+description: Build, change, run and debug loca workflows — the user-defined automation between translation statuses (entry → AI / function / condition / apply nodes). Use when asked to create or edit a workflow, add an AI step with JSON output fields, branch on conditions, save AI results into the project, preview or start a run, choose models for a run, or find out why a run failed.
 ---
 
 # loca 워크플로 만들고 돌리기
@@ -8,7 +8,7 @@ description: Build, change, run and debug loca workflows — the user-defined au
 공통 규칙(연결, 제안, 권한, 터미널 권한 모드)은 `loca` 스킬을 따릅니다.
 
 ## 워크플로가 하는 일
-번역 상태 사이에 놓인 자동화입니다. 진입 노드가 고른 상태의 대사를 받아 노드를 따라 흘려보내고, 대사마다 끝에 닿으면 마칩니다. 노드는 특정 게임이나 이름에 묶이지 않은 일반 노드입니다.
+번역 상태 사이에 놓인 자동화입니다. 진입 노드가 고른 상태의 대사를 받아 노드를 따라 흘려보내고, 대사는 선이 없는 출구로 나가면 거기서 끝납니다(종료 노드는 없습니다; 오류를 가진 채 나가면 실패, 아니면 끝남). 노드는 특정 게임이나 이름에 묶이지 않은 일반 노드입니다.
 
 | 노드 | 하는 일 | 출구 |
 |---|---|---|
@@ -19,7 +19,6 @@ description: Build, change, run and debug loca workflows — the user-defined au
 | 흐름: 조건(condition) | 대사의 데이터로 갈래를 나눔 | 조건식에 따라 |
 | 흐름: 모으기(gather) | 실행 전체의 앞 단계 결과를 다 기다렸다가 하나로 넘김 | `out` |
 | 흐름: 워크플로 호출(call) | 같은 입력 타입의 다른 저장된 워크플로를 이 자리에서 돌림. 설정 `{workflowId}`. 끝까지 가면 `out`(완료), 실패로 끝나게 되면 `error`(오류, 오류 종류와 메시지를 가짐) | `out`/`error` |
-| 종료(end) | 흐름을 마침 | — |
 
 **워크플로 호출(`call`)**: 실행을 시작할 때 호출 노드가 부른 워크플로의 노드로 펼쳐집니다(그 순간의 내용으로 돌고, 도중에 그 워크플로를 고쳐도 이미 시작한 실행은 그대로). 부른 워크플로의 진입 노드와 `settings`는 쓰이지 않고 **부르는 쪽의 설정**(연속 실패·노드 방문 상한)이 적용됩니다. 부른 워크플로가 이 워크플로로 되돌아오는 순환은 저장할 때와 실행을 시작할 때 모두 거부됩니다(자기 자신, 여러 단계를 거친 경우 포함). 다른 워크플로가 부르고 있는 워크플로는 지울 수 없습니다(부르는 곳 이름이 오류로 나오니 호출을 먼저 지움). "앞 단계 결과"는 대사가 실제로 거쳐 온 노드의 결과입니다: 호출 안의 첫 노드는 호출 앞 노드의 결과를, 호출 뒤의 노드는 그 대사가 호출 안에서 마지막으로 거친 노드의 결과를 받습니다. 실행 기록에서는 안쪽 노드가 `호출 이름 › 노드 이름`으로 보이고 그래프에는 호출 하나가 카드 하나로 나옵니다.
 
@@ -34,11 +33,11 @@ AI 노드는 결과를 **만들기만** 하고, 프로젝트에 넣는 건 반�
 ## 입력: 대사 또는 용어
 워크플로는 진입 노드의 `input`(`lines` 대사, 기본 / `terms` 용어집의 용어)으로 무엇이 들어오는지 선언합니다. 실행의 항목, 묶음, 범위, 개수가 그 단위가 됩니다. 노드는 코어 + 그 입력의 확장입니다. 입력마다 다른 것은 reference의 `inputs.table` 하나에만 있습니다(묶음 방식, 문맥 칸, 조건 행, 그 입력에만 있는 노드·프리셋).
 - 진입 설정: `input` 하나뿐입니다. 어떤 대사·용어를 넣을지(상태, 표시, 장면, 고른 항목)는 실행 창·`loca runs plan/start`·`start_run`의 범위가 정합니다.
-- 입력에만 있는 노드: 용어는 `saveTermEntry`(용어 표기 저장, `applyParams.onlyEmpty` 기본 true), 대사는 형식·용어 검사·번역 저장·청자 저장. 출구 동작의 상태는 입력에 맞아야 합니다(용어: 후보·확정·버림). 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
+- 입력에만 있는 노드: 대사의 청자 저장(`setListener`)뿐입니다. 번역 저장(`saveCandidate`)은 두 입력 모두에 있고, 용어에는 표기와 메모를 넣습니다(사람이 저장한 것은 덮어쓰지 않음). 출구 동작의 상태는 입력에 맞아야 합니다(용어: 후보·확정·버림). 다른 입력의 노드나 그 입력에 없는 묶음 방식(용어: 장면별·대본 전체)은 검증 오류입니다.
 - AI 문맥: 대사는 앞 대사(번역)·이전 장면·청자·말투, 용어는 `examples`(0~5, 기본 2: 용어가 나온 대사를 번역과 함께).
 - AI 문맥 `대화 쌍`(대사 워크플로의 AI 노드, `context.pairs` 켬/끔 + `context.pairMinTurns` 1~20, 기본 3): 보내는 대사에서 서로 말을 주고받은 두 사람과 횟수(`talkingPairs: [{a, b, turns}]`, 이름은 대본에 쓰인 대로, 이름 순 정렬)를 프롬프트 한 구역으로 보냅니다. 청자가 있는 대사는 화자→청자로 세고(두 방향이 한 쌍), 청자가 없는 대사는 같은 장면에서 바로 앞에 다른 사람이 한 말과 이어진 것으로 세며(말하는 사람이 없는 줄은 건너뜀), 횟수가 `pairMinTurns` 이상인 쌍만 보냅니다. 앞 단계 결과를 합치는 노드(`input.lines: false`)는 이번 실행이 읽은 모든 대사에서 셉니다. 인물·관계 추출 템플릿은 장면 노드와 합치기 노드에 켜 두고, 장면 노드는 쌍마다 관계를 쓰거나 `pairsWithoutRelationship: [{between, kind, reason}]`에 적고, 합치기 노드는 쌍마다 최종 관계를 내거나 `unresolvedPairs: [{between, kind, reason}]`에 적습니다. `kind`(필수)는 `notPerson`(한쪽이 사람이 아님) · `noEvidence`(대사에 근거 없음) · `undecided`(근거는 있으나 정할 수 없음)입니다. 사람이 아닌 화자 이름(UI 문구·목표·장치·장소·효과음)은 인물이 아니라 `notPeople: [{name, reason}]`에 적고(장면 노드가 내고 모으기가 모으고 합치기가 한 번씩 정리), 합치기는 `notPeople`에 있는 이름을 `characters`에 내지 않습니다. 인물 저장의 `params.notPeople`(목록 필드 이름)은 그 이름의 인물을 만들지 않고, 같은 이름(별칭 포함)의 저장된 인물은 출처와 상관없이 바꾸거나 지우지 않고 확인 권장 표시 `인물이 아닐 수 있음: <이유>`만 붙여 사람이 정하게 하며, 결과에 `notPeople`(건너뛴 수)·`flagged`(표시한 수)를 남깁니다. 관계 저장의 `params.unresolved`는 `kind`가 `notPerson`인 쌍을 넣지 않고(결과의 `unresolvedPairs.notPerson`에 수만 남김) 나머지를 ‘관계 미확인’ 후보로 넣습니다. 한 사람이 두 이름으로 나오면(`Voltaire` / `Inspector Voltaire`) 합치기는 가장 온전한 이름 하나를 인물로 내고 나머지는 별칭으로 적으며 관계·말투 규칙에도 그 이름 하나만 씁니다. 인물 저장은 저장된 인물에 쓰는 것과 같은 규칙(한 단어 이름이 다른 이름의 한 단어와 같음, 별칭끼리는 잇지 않음, 한 단어가 여러 이름에 들어맞으면 잇지 않음)을 이번에 새로 나온 인물끼리에도 적용해 가장 온전한 이름의 인물 하나에 별칭으로 합치고(결과의 `merged`), 관계·말투 규칙 저장은 이름·별칭으로 인물을 찾으므로 어느 이름으로 써도 그 인물에 들어갑니다. 실행 단계의 문맥 항목(`loca context`)에 `대화 쌍`으로 남습니다.
 - 조건: 대사는 `unit`(상태·최종 상태·정한 쪽·종류·태그·자동 태그·청자·청자 모름·메모), 용어는 `term`(`status`, `statusBy`, `hasTarget`, `lines` = 나온 대사 수, `marks`, `tagIds`).
-- 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `target`, `note`) → `saveTermEntry`. `loca-glossary` 참고.
+- 전형적인 용어 입력 흐름: AI(`termTranslate` 프리셋: `target`, `note`) → `saveCandidate`(번역 저장). `loca-glossary` 참고.
 
 ## 먼저 읽기
 ```
@@ -53,7 +52,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
 1. 비슷한 워크플로를 `show --json`으로 받아 고치는 게 가장 안전합니다. 새로 만들면 `id`를 빼고 `name`, `definition`만 씁니다.
 2. `definition` = `nodes`(`id`, `type`, `position`, `label?`, `config`) + `edges`(`source`, `sourceHandle`=출구 id, `target`) + `settings`(`maxVisitsPerNode` 노드 방문 상한 기본 5, `maxConsecutiveFailures` 연속 실패 기본 3; 앱에서는 노드를 고르지 않았을 때 오른쪽 "워크플로 설정"에 보임).
 3. 규칙 (reference의 `rules`가 기준):
-   - 진입은 정확히 하나. `error`를 뺀 모든 출구를 잇습니다(이어지지 않은 `out`은 경고, 대사가 거기서 멈춤).
+   - 진입은 정확히 하나. `out`과 `error`는 잇지 않아도 됩니다(대사가 거기서 끝남: 잇지 않은 `error`로 나가면 실패). 그 밖의 출구(`pass`, 조건의 출구, 스크립트의 출구)는 잇거나 출구 동작으로 상태를 정해야 합니다. 다만 `pass`를 이은 노드의 `fail`, 두 출구 중 하나를 이은 조건은 그대로 둘 수 있습니다.
    - 화살표는 단계 순서입니다. AI 노드는 `concurrency`(동시 처리 수, 기본 1, 1–16)만큼 요청을 동시에 보내고, HTTP·스크립트 함수 노드는 자기 `config.concurrency`(기본 2, 1–8)만큼 호출을 동시에 보냅니다(`settings`에는 동시 처리 수가 없습니다). CLI 연결이면 그만큼 모델 프로세스가 뜹니다. 연결에는 동시 한도가 없고 실행마다 따로 셉니다. 다른 실행이 돌고 있으면 `loca runs plan`이 알려 줍니다. 실행 중 상황은 `loca runs show <id>` 또는 앱의 실행 기록 › 그래프에서 봅니다.
    - 병렬 갈래는 **한 출구에서 여러 간선**으로. 갈래끼리 다시 만나면 안 되고, 상태를 바꾸는 갈래는 하나까지.
    - 같은 출구에서 같은 노드로 간선 두 개 금지. 되돌아가는 고리에는 출구가 둘 이상인 노드가 있어야 합니다.
@@ -65,7 +64,7 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    - `timeoutMinutes`(기본 10, 작품 분석 프리셋 30): 요청 하나가 이 시간을 넘으면 그 줄들은 `error`(`timeout`)로 나갑니다. 연결에는 제한 시간이 없습니다.
    - **프레임**(`groups: [{id, label, nodeIds, box?}]`)은 단계(번역 · 자동 검사 · AI 검수 …)를 읽는 순서대로 묶어 그래프에 테두리로 그리는 표시일 뿐이고 실행은 읽지 않습니다. 노드는 프레임 하나에만 들고, 워크플로를 고칠 때는 프레임을 그대로 두고 새 노드는 그 단계의 프레임 `nodeIds`에 넣습니다. `box`(그래프에서 프레임이 선 자리와 크기)는 앱이 정하니 그대로 두세요. 빈 프레임(`nodeIds: []`)도 그대로 두세요: 사람이 노드를 넣으려고 그려 둔 단계입니다. 상자 밖에 놓인 노드가 있으면 앱이 그만큼 넓혀 그립니다. 기본 번역·검수 워크플로는 프레임을 가집니다. 화면에서는 프레임이 왼쪽에서 오른쪽으로 놓이고(세로 배치일 때), 출구 동작은 그 출구의 선 위 칩(+#태그, −#태그, → 상태)으로, 선이 없는 출구는 출구 아래 칩으로 보입니다.
    - 실패한 줄을 다시 보내는 것은 AI 노드의 **재시도 규칙**입니다(재요청 노드는 없습니다). 규칙은 `{kinds (받을 오류 종류; rate-limit(사용량 한도)·network(연결 끊김) 포함), scale (0.1–1, 기본 0.5; 1 = 그대로), wait (초, 0–3600, 기본 0 = 바로), model (null = 노드의 모델 | {connectionId, model, effort?} = 이 대사들만 그 모델로), maxTimes (1–5, 기본 2)}`이고 최대 5개, 위에서부터 그 오류를 받고 횟수가 남은 첫 규칙이 같은 노드에 다시 보냅니다(`wait`초 동안 쉬었다가, 요청 크기에 지금까지의 `scale`을 곱해, 모델이 같은 대사끼리 묶어서; 기다리는 동안 실행은 계속되고 일시정지·취소·이어하기도 그대로). 다시 보낸 횟수는 노드 방문 상한에 세지 않고, 규칙이 다시 보내는 실패는 연속 실패(`settings.maxConsecutiveFailures`)에도 세지 않습니다. AI 노드의 `config.retries`가 null이면 워크플로의 `settings.retries`를 따르고(기본값: 출력 잘림·요청이 너무 김·답에서 빠짐·형식 오류·시간 초과를 절반 크기로 최대 2번, 그다음 사용량 한도·연결 끊김을 60초 뒤 같은 크기로 최대 3번), `[]`이면 재시도하지 않습니다. 그 밖에 엔진은 요청을 나누거나 다른 연결로 넘기지 않습니다. 규칙이 받지 않거나 다 쓴 실패는 `error` 출구로 나가고, 이어지지 않은 `error`는 그 줄을 이유와 함께 실패로 끝냅니다(실패한 줄은 실행 기록 › 이어서 실행의 "실패 다시 보내기"로 다시 돌림). 기본 템플릿은 AI 노드의 `error` 출구에 실패 표시를 출구 동작으로 붙입니다(선 없음): 번역·검수는 상태 `검토 필요`(번역·검수·수정 실패, '수정 3회 미만?'의 `false`, '수정으로 바뀌었나?'의 `false`도 같은 동작), 용어 추출·인물·관계 추출·사건 추출·청자 추정은 태그 붙이기 `AI 실패`(용어 번역은 대사 태그를 용어에 붙일 수 없어 `error`가 비어 있음). 사람이 볼 줄은 출구의 상태·태그로 남깁니다.
-   - 문맥(용어집·말투 규칙·앞 대사·노트·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음).
+   - 문맥(용어집·말투 규칙·앞 대사·노트·인물 등)은 노드마다 켜고 끕니다. 무엇이 실제로 들어가는지는 `loca context <키> -n <노드 id>`로 봅니다(모델은 부르지 않음). 대본 전체를 실행할 때 그 대사가 들어가는 요청을 실행과 같은 코드로 만들어 보여 줍니다. 앞 노드의 결과를 읽는 노드(`input.previous`, 합치기 포함)는 실행 중에야 내용이 정해지므로 만들 수 없다고 답하고, 번역 제외 대사도 실행에 들어가지 않는다고 답합니다. 그런 요청은 실행 기록의 호출에서 봅니다.
    - 모으기(`gather`, 노드 종류 "모으기"): 앞 노드의 요청이 **모두** 끝날 때까지 기다렸다가 합친 결과 하나만 다음 노드로 넘깁니다(나머지 항목은 거기서 끝나고 경로에 `gathered`로 보임). 설정 `{fields}`: 모으는 결과는 선으로 이어진 앞 단계(AI·스크립트 노드)의 답이고, `fields`는 답마다 남길 경로(비면 전체). 결과는 `outputs.<모으기 id> = {parts: [앞 단계의 답마다 하나(묶음 답은 한 번), fields로 추림], count, failed(앞에서 실패한 항목 수)}`. 대사를 여러 요청으로 나눠 읽는 AI 노드 → 모으기 → 그 조각들을 합치는 AI 노드가 전형적인 모양입니다. 모으기 뒤에서는 항목을 바꾸는 노드(번역·청자 저장)와 출구 동작이 거부되고, 모으기 바로 뒤의 AI 노드는 `input: {previous: true, lines: false}`로만 읽으며(`previous: [{parts, count, failed}]`로 들어옴), 고리 안에는 둘 수 없습니다.
 5. 조건 노드는 JSON Logic입니다. 읽는 값: `visits`(노드별 방문 횟수), `outputs`(앞 노드 출력), `candidate`, `issues`, `unit`(`kind`, `speaker`, `listener`, `listenerUnknown` 청자 모름, `statusId`, `final` 최종 상태, `statusBy` `ai`·`human`, `noted` 메모 있음, `tagIds`, `marks` 자동 태그; 대사 입력, 용어 입력은 `term`), `error`(마지막으로 `error` 출구로 보낸 실패: `kind` = `missing`·`invalid-output`·`timeout`·`too-long`·`cut-off`·`rate-limit`·`network`·`refused`·`other`, `message`, `nodeId`; 조건을 지나도 남고, 작업 노드가 성공하면 지워짐). 예: `{"!!": [{"var": "unit.listenerUnknown"}]}`, `{"==": [{"var": "unit.statusBy"}, "ai"]}`, `{"in": ["aiSuggestion", {"var": "unit.marks"}]}`, `{"<": [{"var": "visits.review"}, 3]}`, `{"==": [{"var": "error.kind"}, "missing"]}`. 노드 id와 상태 id는 reference·show에서 확인합니다.
 6. 올리기:
@@ -73,6 +72,11 @@ loca workflows reference <프리셋 id>       # 그 프리셋의 지시문·출�
    loca workflows save "$W/wf.json"         # id가 있으면 그 워크플로를 바꾸고, 없으면 새로 만드는 제안
    ```
    실행 중이거나 멈춘 실행이 있는 워크플로는 바꿀 수 없습니다. 수락 뒤 `loca workflows show <워크플로>`로 검증 결과(오류 0)를 확인합니다.
+   잘 돌아가는 워크플로를 고쳐 보려면 먼저 복사본을 만듭니다(설명·정의가 같은 새 워크플로, 원본은 그대로):
+   ```
+   loca workflows duplicate <워크플로> [--name "<이름>"]   # 이름이 없으면 "<이름> (복사본)"
+   ```
+   함수 노드의 `config`는 `{fn, params}`이고 `params`는 그 함수의 설정 스키마(`loca workflows reference`의 functionNode.functions)를 따릅니다. 없는 함수 이름이나 형이 다른 값(예: `method: "DELETE"`, 숫자 칸에 글자)은 save가 입력 오류로 거절합니다. 빠진 칸은 기본값으로 채워지고, 아직 덜 채운 값(HTTP 주소 없음, 정규식 규칙의 패턴 없음·잘못된 정규식, 이름이 없거나 영문·숫자·_ 가 아닌 필드)은 저장은 되지만 검증 오류로 나와 실행할 수 없습니다.
 
 ## 시험해 보기 (저장 전에)
 ```
@@ -88,17 +92,19 @@ loca connections test <연결> <모델> "짧은 원문"               # 모델�
 AI 호출은 비용이 들어 시작·이어 하기는 터미널 권한 모드를 따릅니다. "바로 반영"이면 바로 시작되고, 아니면 사람이 수락할 때까지 제안으로 기다립니다(`loca` 스킬).
 ```
 loca runs plan <워크플로> -g <장면>               # 읽기만: 대사 수, 묶음·요청 수 추정, 권장 상한, 준비 상태
-loca runs plan <워크플로> --section "03 · 본편" -s Alice --kind dialogue   # 화자(-s)·청자(--listener, - = 청자 미상)·종류(--kind)·원문 글자(-q)로도 좁힘
+loca runs plan <워크플로> --section "03 · 본편" -s Alice --kind dialogue   # 범위는 loca lines와 같은 필터 플래그 전부: 화자(-s)·청자(--listener, - = 청자 미상)·종류(--kind)·글자(-q)·상태·태그·--unfinished …
 loca runs start <워크플로> -g <장면> --wait       # 시작(제안이면 결정을 기다림) → 끝날 때까지 기다린 뒤 요약
 ```
 - 범위(대사 입력):
-  - 옵션: `-g` 장면·묶음, `--section` 구역(장), `--key` 대사, `--view` 대사 그래프 보기, `--status` 상태(이름·id), `--unfinished` 최종 아님, `--by ai|human` 정한 쪽, `--noted` 메모 있음, `--listener -` 청자 모름, `--mark` 자동 태그, `--tag` 태그. 모두 만족해야 합니다. 상태나 최종 아님으로 고른 실행은 사람이 저장한 번역을 덮어쓰지 않습니다.
+  - 옵션: `loca lines`와 같은 대사 필터 전부입니다(`loca` 스킬의 필터 표). 자주 쓰는 것: `-g` 장면·묶음, `--section` 구역(장), `--key` 대사, `--view` 대사 그래프 보기, `--status` 상태(이름·id), `--unfinished` 최종 아님, `--by ai|human` 정한 쪽, `--noted` 메모 있음, `-s` 화자, `--listener -` 청자 모름, `--mark` 자동 태그, `--tag` 태그, `--hide-…` 숨기기. 모두 만족해야 합니다. 상태로 고른 실행(`--status`·`--hide-status`·`--unfinished`·`--finished`·`--review`)은 사람이 저장한 번역을 덮어쓰지 않습니다.
+  - 없는 이름(상태·태그·묶음·구역·대사 키·보기)은 plan도 start도 오류로 답합니다(`찾지 못함: …`). 조건이 빠진 채 더 넓게 도는 일은 없습니다.
+  - 채팅 도구도 같습니다: `plan_run`과 `start_run`은 `filter`(`find_lines`와 같은 대사 필터)를 받습니다. 예: `{"workflowId": "…", "filter": {"groups": ["c1.ferry"], "statuses": ["미번역"]}}`.
   - 아무것도 없으면 모든 대사입니다. 워크플로에는 대상 상태가 없고, 범위는 실행할 때 정합니다.
 - 범위(용어 입력):
-  - 옵션: `--term <원문|id...>` 용어, `--status` 상태, `--by ai|human` 정한 쪽, `--empty-target` 번역어 없음, `--mark` 용어 자동 태그(`unused` 대본 미등장, `duplicateTarget` 번역어 중복), `--tag` 용어 태그.
+  - 옵션: `--term <원문|id...>` 용어, `--status` 상태, `--by ai|human` 정한 쪽, `--empty-target` 번역어 없음(`--has-target` 있음), `--mark` 용어 자동 태그(`unused` 대본 미등장, `duplicateTarget` 번역어 중복), `--tag` 용어 태그. 도구로는 `terms`: `{"workflowId": "…", "terms": {"statuses": ["후보"], "emptyTarget": true}}`.
   - `--status`는 후보·확정이고, 버림은 넣을 때만 명시합니다. 용어집의 상태 열과 같습니다.
   - 아무것도 없으면 모든 용어입니다(많이 쓰인 순).
-  - 대사 범위 옵션(`-g`·`--key`·`--view`)은 용어 입력 워크플로에, `--term`은 대사 입력 워크플로에 쓸 수 없고 서버가 거절합니다.
+  - 그 밖의 대사 필터(`-g`·`--key`·`--view`·`-s` …)는 용어 입력 워크플로에, `--term`·`--empty-target`은 대사 입력 워크플로에 쓸 수 없고 서버가 거절합니다.
   - plan의 개수는 용어 수이고, 청자·말투 규칙 준비 상태는 나오지 않습니다.
 - 이번 실행만 다른 모델을 쓰려면 `--model "연결:모델"`(모든 AI 단계) 또는 `--model "노드=연결:모델"`(한 단계)을 씁니다. 워크플로는 바뀌지 않습니다.
 - **상한:** 실행은 plan이 보여 주는 권장 상한(예상 요청·입력 토큰의 1.3배와 재시도 여유)에서 일시정지합니다. 앱의 실행 창, 채팅에서 시작한 실행과 같은 값입니다. 사용자가 원할 때만 `--max-calls <n>`·`--max-input-tokens <n>`으로 바꾸거나 `none`으로 없앱니다. 상한에 닿아 멈추면 이유를 알리고 `runs resume --max-calls`로 올릴지 묻습니다.
@@ -113,7 +119,7 @@ loca runs start <워크플로> -g <장면> --wait       # 시작(제안이면 �
 loca runs wait <id>                               # 이미 시작한 실행을 끝날 때까지 기다린 뒤 요약
 loca runs pause <id> · loca runs cancel <id>      # 비용이 들지 않아 바로 됨. 취소한 실행은 이어서 할 수 없음
 loca runs resume <id> --wait                      # 일시정지한 실행 이어 하기 (--max-calls/--max-input-tokens로 상한을 올리거나 none으로 없앰)
-loca runs continue <id> --retry-failed --wait     # 실패한 줄을 실패한 단계부터 다시 (--model로 이 실행의 AI 단계만 다른 모델로)
+loca runs continue <id> --retry-failed --wait     # 실패한 줄을 실패한 단계부터 다시 (--model로 이 실행의 AI 단계만 다른 모델로, --max-calls/--max-input-tokens로 상한을 올리거나 none으로 없앰)
 loca runs start <워크플로> --rerun-errors <id> --wait   # 그 실행에서 실패했거나 오류 출구로 빠진 줄만 새로 실행
 loca runs start <워크플로> --change-human --wait          # 사람이 정한 상태·붙인 태그도 바꾸게
 ```

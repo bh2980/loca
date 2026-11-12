@@ -1,4 +1,4 @@
-import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, SidebarInset, SidebarProvider, Box, Count, DockPane, Icon, Inline, Notice, ListRow, Chip, Meter, Progress, Stack, StatusBarButton, Text, Spinner, TextLink, PopoverContent, SectionHeading, EmptyState } from '@loca/ui';
+import { DockProvider, DockInspector, DockHeader, WorkspaceShell, PageHeader, EmptyContent, EmptyDescription, EmptyHeader, EmptyTitle, Button, SidebarTrigger, AppStatusBar, STATUS_BAR_SLOT_ID, Popover, PopoverTrigger, StatusIcon, SidebarInset, SidebarProvider, Box, Count, DockPane, Icon, Inline, ListRow, Chip, Meter, Progress, Stack, StatusBarButton, Text, Spinner, TextLink, PopoverContent, SectionHeading, EmptyState } from '@loca/ui';
 import { useCallback, useEffect, useState } from 'react';
 import { createFileRoute, Link, Outlet } from '@tanstack/react-router';
 import { Bell, CheckCircle2, Pause, Play, TriangleAlert } from 'lucide-react';
@@ -10,14 +10,15 @@ import { CommandSearch } from '@/components/command-search';
 import { ExportDialog } from '@/components/export-dialog';
 import { ShortcutHelp } from '@/components/shortcut-help';
 import { chatDock, useChatDockOpen } from '@/lib/chat-dock';
+import { useShortcuts } from '@/lib/shortcuts';
 import { useChatUnread } from '@/lib/chat-unread';
 import { clearRunNews, useJobNotices, useRunNews } from '@/lib/job-notices';
 import { useCurrentNav } from '@/lib/nav';
 import { useProgress } from '@/lib/use-progress';
 import { shownAfterClear, useRecentRunsCleared } from '@/lib/recent-runs';
-import { dateTime } from '@/lib/datetime';
 import { loadProject } from '@/lib/project';
 import { useProposals } from '@/lib/proposals';
+import { INPUT_TYPES } from '@loca/shared';
 
 export const Route = createFileRoute('/p/$projectId')({
   // The project row, or the not-found page.
@@ -55,16 +56,7 @@ function ProjectLayout() {
     chatDock.set(false);
   }, []);
   useJobNotices(projectId);
-  useEffect(() => {
-    const onKey = (event: KeyboardEvent) => {
-      if ((event.metaKey || event.ctrlKey) && event.key.toLowerCase() === 'i') {
-        event.preventDefault();
-        chatDock.toggle();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  useShortcuts({ chat: () => chatDock.toggle() });
   const terminalProposals = useProposals(projectId, { status: 'pending' });
   const waiting = terminalProposals.total ?? 0;
   const pending = terminalProposals.data ?? [];
@@ -225,10 +217,12 @@ function ProjectLayout() {
                                 <Text truncate>{run.workflowName}</Text>
                                 <Chip
                                   size="tight"
-                                  variant={run.status === 'running' || run.status === 'paused' || hasFail ? 'solid' : 'quiet'}
-                                  tone={run.status !== 'running' && (run.status === 'paused' || hasFail) ? 'danger' : undefined}
+                                  variant={run.status === 'preparing' || run.status === 'running' || run.status === 'paused' || hasFail ? 'solid' : 'quiet'}
+                                  tone={run.status !== 'running' && run.status !== 'preparing' && (run.status === 'paused' || hasFail) ? 'danger' : undefined}
                                 >
-                                  {run.status === 'running'
+                                  {run.status === 'preparing'
+                                    ? '준비 중'
+                                    : run.status === 'running'
                                     ? '실행 중'
                                     : run.status === 'paused'
                                       ? '일시정지'
@@ -298,7 +292,7 @@ function ProjectLayout() {
                                 <Text truncate>{run.workflowName}</Text>
                               </Inline>
                               <Text minWidth={0} variant="caption" tabular tone="muted" truncate title={run.notice ?? undefined}>
-                                {run.status === 'paused' ? (run.notice ?? '일시정지') : `${run.total.toLocaleString()}${run.subject === 'terms' ? '개' : '줄'} 끝남`}
+                                {run.status === 'paused' ? (run.notice ?? '일시정지') : `${run.total.toLocaleString()}${INPUT_TYPES[run.subject].unit} 끝남`}
                               </Text>
                             </Link>
                           </ListRow>

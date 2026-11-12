@@ -15,6 +15,8 @@ export interface SelectionBarProps {
    * count ("필터에 맞는 41줄 모두 고르기").
    */
   more?: { label: string; onSelect: () => void }
+  /** Laid over a canvas (a graph's picked nodes): the bar brings its own surface instead of sitting in a row that has one. */
+  floating?: boolean
 }
 
 export function SelectionBar({
@@ -23,6 +25,7 @@ export function SelectionBar({
   children,
   grow,
   more,
+  floating,
 }: SelectionBarProps) {
   const { rootRef, onKeyDown } = useToolbarRoving([children, count])
   return (
@@ -37,6 +40,7 @@ export function SelectionBar({
         // A primary (default) button keeps its fill: stripping it would leave white text on nothing.
         "[&_button:not([role=checkbox],[data-variant=default])]:border-transparent! [&_button:not([role=checkbox],[data-variant=default])]:bg-transparent! [&_button:not([role=checkbox],[data-variant=default])]:shadow-none! [&_button:not([role=checkbox],[data-variant=default]):hover]:bg-hover!",
         grow && "flex-1 pr-4",
+        floating && "max-w-full rounded-md border border-default bg-surface py-1 pr-1 pl-2 shadow-2xs backdrop-blur-xs select-none",
       )}
       role="toolbar"
       aria-label="선택한 항목 동작"

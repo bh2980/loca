@@ -1,5 +1,5 @@
 import type { UIMessage } from 'ai';
-import { CHAT_IMAGES_MAX, IMAGE_UNSUPPORTED_NOTE, imageProblem, parseDataUrl } from '@tw/shared';
+import { CHAT_IMAGES_MAX, IMAGE_UNSUPPORTED_NOTE, imageProblem, parseDataUrl } from '@loca/shared';
 
 /** The images a message carries (file parts holding a data URL; they are stored with the message). */
 export const imagesOf = (message: UIMessage | undefined) => (message?.parts ?? []).filter((part): part is Extract<UIMessage['parts'][number], { type: 'file' }> => part.type === 'file');

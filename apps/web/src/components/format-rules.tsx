@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Plus, Sparkles, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@tw/shared';
+import { compileFormatRules, FORMAT_PRESET_IDS, FORMAT_PRESETS, formatPatternError, matchTokens, type FormatRules } from '@loca/shared';
 import { Box, Button, Checkbox, Icon, Grid, Inline, Count, RulesPresetCard, RulesPresetExample, Select, SelectContent, SelectItem, SelectValue, Stack, Text, Input, SelectTrigger, Textarea, Section, SectionHeading } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useFormFrom } from '@/lib/use-form-from';
