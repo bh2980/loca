@@ -130,10 +130,6 @@ function Glossary() {
   const promotable = pickedTerms.filter((term) => !isSettled(term) && term.target.trim());
   const discardable = pickedTerms.filter((term) => !isSettled(term));
   const afterBulk = { onSuccess: clearPicked };
-  // A run on terms takes the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
-  const narrowed = Boolean(needle || search.ids || search.source || search.status || search.decidedBy || search.emptyTarget !== undefined || search.marks?.length || search.tags?.length || search.hideMarks?.length || search.hideTags?.length);
-  const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
-
   const chips: FilterChip[] = [
     ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => setFilter({ ids: undefined }) }] : []),
     ...(search.status ? [{ key: 'status', label: KNOWLEDGE_STATUS_LABELS[search.status], clear: () => setFilter({ status: undefined }) }] : []),
@@ -151,6 +147,10 @@ function Glossary() {
       return { key: `hide-tag:${id}`, label: `#${known?.name ?? id}`, color: known?.color, hidden: true, clear: () => pickTag(id, 'hide') };
     }),
   ];
+  // Every filter shows as a chip, so the chips (and the search box) say whether the list is narrowed: the empty state and the run's scope read this one answer.
+  const narrowed = Boolean(needle) || chips.length > 0;
+  // A run on terms takes the picked terms, else on what the filters leave; with neither, on the terms its own 대상 picks.
+  const runTermIds = pickedTerms.length ? pickedTerms.map((term) => term.id) : narrowed ? rows.map((term) => term.id) : undefined;
 
   const columns: ColumnDef<Term, unknown>[] = [
     { id: 'source', header: '원문', meta: { hideable: false }, cell: ({ row }) => <Text weight="medium"><AiNamed row={row.original}>{row.original.source}</AiNamed></Text> },
@@ -247,7 +247,7 @@ function Glossary() {
           rowDeps={[taxonomy.tags]}
           rowKey={(term) => terms.duplicates.has(term)}
           loading={terms.isLoading}
-          empty={<EmptyState noun="용어" filtered={Boolean(needle || search.ids || search.source || search.status || search.marks?.length || search.tags?.length)} />}
+          empty={<EmptyState noun="용어" filtered={narrowed} />}
           selected={selected?.id}
           onRowClick={(term) => select(term.id === search.term ? undefined : term.id)}
           picked={picked}

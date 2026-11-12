@@ -4,7 +4,7 @@ import { Text } from "../../primitives/text"
 import { ExpandableRow } from "../../patterns/expandable-row"
 import { Group } from "../../patterns/section"
 import { Select, SelectContent, SelectTrigger, SelectValue } from "../../controls/select"
-import { Chip, type ChipProps } from "../../patterns/chip"
+import { Chip } from "../../patterns/chip"
 import { cn } from "../../lib/utils"
 import { X } from "lucide-react"
 import { Button } from "../../controls/button"
@@ -28,23 +28,6 @@ export function FieldReadRow(props: Omit<React.HTMLAttributes<HTMLDivElement>, "
 /** The fields of a list field, one step in behind a guide line that is darker while one of them is being edited. */
 export function FieldChildren({ active, children }: { active?: boolean; children: React.ReactNode }) {
   return <div className={cn("mt-1 ml-1 border-l-2 pl-2", active ? "border-neutral" : "border-neutral/30")}>{children}</div>
-}
-
-/**
- * A tag chip that is a toggle: faint until picked (`faint`), with the `sign` (+ / −) before it once it has a state, struck through when
- * `struck` (it will be taken off). The chip itself is the button.
- */
-export function TagToggle({ tag, sign, faint, struck, ...props }: Omit<ChipProps, "as" | "variant" | "size" | "children" | "color" | "tone"> & { tag: { name: string; color: string }; sign?: string; faint?: boolean; struck?: boolean }) {
-  return (
-    <Chip as="button" variant="bare" {...props}>
-      {sign && <Text variant="caption" tone="muted">{sign}</Text>}
-      <Box asChild lineThrough={struck}>
-        <Chip variant="tint" color={tag.color} faint={faint}>
-          #{tag.name}
-        </Chip>
-      </Box>
-    </Chip>
-  )
 }
 
 /** The 상세 of a request: a folding group like every other (open at first, remembered), its parts below. */

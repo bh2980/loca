@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { StatusPane } from '@/components/settings/status-pane';
 import { TagPane } from '@/components/settings/tag-pane';
+import { TagDeleteDialog } from '@/components/settings/tag-delete-dialog';
 import { scopeLabel, type StatusForm, type StatusRowData, type TagForm, type TagRowData } from '@/components/settings/status-types';
 import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
@@ -41,6 +42,8 @@ function StatusSettings() {
   const statuses = useMemo<StatusRowData[] | undefined>(() => taxonomy.statuses?.map((status) => ({ ...status, units: counts.statuses.get(status.id) ?? 0 })), [taxonomy.statuses, counts]);
   const tags = useMemo<TagRowData[] | undefined>(() => taxonomy.tags?.map((tag) => ({ ...tag, units: 0, items: 0, ...counts.tags.get(tag.id) })), [taxonomy.tags, counts]);
   const [removing, setRemoving] = useState<StatusRowData[] | null>(null);
+  // Tags asked to be deleted from the list (the bulk button, a row's menu): the same confirmation a tag's pane asks.
+  const [removingTags, setRemovingTags] = useState<TagRowData[] | null>(null);
   const statusPicks = usePicked(`statuses.${projectId}`);
   const tagPicks = usePicked(`tags.${projectId}`);
   const [moveTo, setMoveTo] = useState<string>('');
@@ -160,7 +163,7 @@ function StatusSettings() {
   const placesOf = (row: AnyTag) => normalizeTagScopes(row.tag.scope);
   const allTags: AnyTag[] | undefined = tags?.map((tag) => ({ id: tag.id, tag }));
   const shownTags = allTags && search.on ? allTags.filter((row) => placesOf(row).includes(search.on!)) : allTags;
-  const pickedTagIds = (shownTags ?? []).filter((row) => tagPicks.picked.has(row.id)).map((row) => row.id);
+  const pickedTags = (shownTags ?? []).filter((row) => tagPicks.picked.has(row.id)).map((row) => row.tag);
   const pickedStatuses = (statuses ?? []).filter((status) => statusPicks.picked.has(status.id));
   const tagColumns: ColumnDef<AnyTag, unknown>[] = [
     {
@@ -308,7 +311,7 @@ function StatusSettings() {
                   picked={tagPicks.picked}
                   onPick={tagPicks.pick}
                   bulk={
-                    <Button variant="outline" tone="danger" disabled={!pickedTagIds.length || removeTags.isPending} onClick={() => removeTags.mutate(pickedTagIds)}>
+                    <Button variant="outline" tone="danger" disabled={!pickedTags.length || removeTags.isPending} onClick={() => setRemovingTags(pickedTags)}>
                       <Trash2 /> 삭제
                     </Button>
                   }
@@ -321,7 +324,7 @@ function StatusSettings() {
                       <ContextMenuSeparator />
                       <ContextMenuItem
                         variant="destructive"
-                        onClick={() => removeTags.mutate(tagPicks.picked.has(row.id) && pickedTagIds.length > 1 ? pickedTagIds : [row.tag.id])}
+                        onClick={() => setRemovingTags(tagPicks.picked.has(row.id) && pickedTags.length > 1 ? pickedTags : [row.tag])}
                       >
                         삭제
                       </ContextMenuItem>
@@ -370,6 +373,7 @@ function StatusSettings() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+      <TagDeleteDialog tags={removingTags} onClose={() => setRemovingTags(null)} onConfirm={() => removingTags && removeTags.mutate(removingTags.map((tag) => tag.id))} />
     </Page>
   );
 }

@@ -355,8 +355,9 @@ function Knowledge() {
     known: knowledgeTags,
     onChange: (next) => set({ ...('source' in next && { source: next.source }), ...('status' in next && { status: next.status }), ...('decidedBy' in next && { decidedBy: next.decidedBy }), ...('marks' in next && { marks: next.marks }), ...('tags' in next && { tags: next.tags }), ...('hideMarks' in next && { hideMarks: next.hideMarks }), ...('hideTags' in next && { hideTags: next.hideTags }), item: undefined }),
   };
-  const filtered = Boolean(search.source || search.status || search.decidedBy || search.marks?.length || search.tags?.length || search.ids);
   const chips = [...knowledgeFilterChips(filters, markStyles), ...(search.ids ? [{ key: 'ids', label: `실행 범위 ${search.ids.length}`, clear: () => set({ ids: undefined, item: undefined }) }] : [])];
+  // Every filter shows as a chip, so the chips say whether the list is narrowed.
+  const filtered = chips.length > 0;
   const bulk = (
     <>
       <BulkDecide picked={checked.size} actionable={checkedRows} pending={decide.isPending} onConfirm={() => decide.mutate({ items: checkedItems(), action: 'confirm' })} onDiscard={() => decide.mutate({ items: checkedItems(), action: 'discard' })} />

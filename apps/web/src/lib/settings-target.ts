@@ -23,7 +23,6 @@ export function connectionsApi(target: SettingsTarget) {
   const app = client.app.connections;
   const proj = projectConnections;
   return {
-    list: () => (project ? proj.$get({ param: pid }) : app.$get()),
     create: (json: ConnectionCreate) => (project ? proj.$post({ param: pid, json }) : app.$post({ json })),
     locate: (json: { kind: string; executable?: string }) => (project ? proj.locate.$post({ param: pid, json }) : app.locate.$post({ json })),
     patch: (id: string, json: ConnectionPatch) => (project ? proj[':id'].$patch({ param: { ...pid, id }, json }) : app[':id'].$patch({ param: { id }, json })),

@@ -4,7 +4,7 @@ import { Stack } from "../../primitives/stack"
 import { Chip } from "../../patterns/chip"
 import { Inline } from "../../primitives/stack"
 import { Text } from "../../primitives/text"
-import { EditorAiSuggestion, EditorChangedWord, EditorDiffWord, EditorPreviousDiff } from "./editor-diff"
+import { EditorAiSuggestion, EditorChangedWord, EditorDiffWord } from "./editor-diff"
 import { Check, Sparkles } from "lucide-react"
 import { Button } from "../../controls/button"
 import { Popover, PopoverTrigger } from "../../controls/popover"
@@ -46,9 +46,6 @@ export const DiffAndNotes: Story = {
       <EditorAiSuggestion meta="번역 실행 · gpt-test" actions={<><Button variant="outline">적용</Button><Button variant="ghost">거절</Button></>}>
         <EditorDiffWord change="removed">찾았잖아</EditorDiffWord> <EditorDiffWord change="added">찾았다고</EditorDiffWord> 한참
       </EditorAiSuggestion>
-      <EditorPreviousDiff title="바뀐 곳">
-        <EditorDiffWord change="removed">찾았잖아</EditorDiffWord> <EditorDiffWord change="added">찾았다고</EditorDiffWord> <EditorDiffWord>한참</EditorDiffWord>
-      </EditorPreviousDiff>
       <Text variant="caption" tone="warning">
         <Inline as="span" inline gap="tight">용어 1</Inline> <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote> <EditorTermMark dotted>하윤</EditorTermMark>
       </Text>

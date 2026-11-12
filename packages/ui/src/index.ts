@@ -128,8 +128,6 @@ export * from "./domains/graph/node-card"
 export * from "./domains/graph/workflow-frame"
 export * from "./domains/graph/exit-tag"
 export * from "./domains/graph/node-library"
-export * from "./domains/graph/path-chips"
-export * from "./domains/graph/path-node"
 export * from "./domains/graph/relationship-node"
 export * from "./domains/graph/selection-toolbox"
 

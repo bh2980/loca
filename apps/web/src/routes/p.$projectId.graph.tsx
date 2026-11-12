@@ -41,8 +41,6 @@ type GraphDirection = 'vertical' | 'horizontal';
 interface GraphSearch {
   scope: Scope;
   direction?: GraphDirection;
-  /** 길 따라 보기: the slice of the dialogue graph for the stored choices. */
-  view?: 'path';
   /** Reading route endpoints belong to this URL, independent of persisted legacy graph slices. */
   routeStart?: string;
   routeEnd?: string;
@@ -50,10 +48,6 @@ interface GraphSearch {
   pickStart?: string;
   pickEnd?: string;
   pickStep?: 'start' | 'end';
-  pickSection?: string;
-  pickQ?: string;
-  pickChain?: string;
-  pickFocus?: string;
   node?: string;
   scene?: string;
   /** Dialogue graph section (chapter, act, day…); "all" draws the whole graph on one sheet. Absent = the first section. */
@@ -86,18 +80,13 @@ interface GraphSearch {
 
 export const Route = createFileRoute('/p/$projectId/graph')({
   validateSearch: (raw: Record<string, unknown>): GraphSearch => ({
-    scope: raw.scope === 'scene' && raw.view !== 'path' ? 'scene' : 'dialogue',
+    scope: raw.scope === 'scene' ? 'scene' : 'dialogue',
     direction: raw.direction === 'horizontal' ? 'horizontal' : raw.direction === 'vertical' ? 'vertical' : undefined,
-    view: raw.view === 'path' ? 'path' : undefined,
     routeStart: typeof raw.routeStart === 'string' && raw.routeStart ? raw.routeStart : undefined,
     routeEnd: typeof raw.routeEnd === 'string' && raw.routeEnd ? raw.routeEnd : undefined,
     pickStart: typeof raw.pickStart === 'string' && raw.pickStart ? raw.pickStart : undefined,
     pickEnd: typeof raw.pickEnd === 'string' && raw.pickEnd ? raw.pickEnd : undefined,
     pickStep: raw.pickStep === 'start' || raw.pickStep === 'end' ? raw.pickStep : undefined,
-    pickSection: typeof raw.pickSection === 'string' && raw.pickSection ? raw.pickSection : undefined,
-    pickQ: typeof raw.pickQ === 'string' && raw.pickQ ? raw.pickQ : undefined,
-    pickChain: typeof raw.pickChain === 'string' && raw.pickChain ? raw.pickChain : undefined,
-    pickFocus: typeof raw.pickFocus === 'string' && raw.pickFocus ? raw.pickFocus : undefined,
     node: typeof raw.node === 'string' ? raw.node : undefined,
     scene: typeof raw.scene === 'string' ? raw.scene : undefined,
     section: typeof raw.section === 'string' && raw.section ? raw.section : undefined,

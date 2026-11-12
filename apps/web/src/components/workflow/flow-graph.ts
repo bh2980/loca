@@ -1,6 +1,7 @@
 /** What the editor and a run's graph share: a node's one-line summary and the edges as React Flow draws them. */
 import { MarkerType } from '@xyflow/react';
-import { AI_OUTPUTS, APPLY_TARGETS, BATCH_MODE_LABELS, FUNCTIONS, WORKFLOW_SUBJECTS, nodeName, nodePorts, previousSteps, callSummary, workflowInput, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
+import { z } from 'zod';
+import { AI_OUTPUTS, APPLY_TARGETS, BATCH_MODE_LABELS, FUNCTIONS, WORKFLOW_SUBJECTS, formatCheckParams, httpParams, scriptParams, nodeName, nodePorts, previousSteps, callSummary, workflowInput, type FunctionName, type WorkflowDefinition, type WorkflowNode } from '@tw/shared';
 import type { FlowEdge } from '@/components/workflow/workflow-edge';
 
 export interface SummaryNames {
@@ -27,6 +28,19 @@ function savesTo(node: WorkflowNode & { type: 'function' }, definition: Workflow
   return `→ ${where}${from}`;
 }
 
+/** An address as a card's line: without the scheme, its query left out ("?…" says there is one), cut at `max`. */
+function shortAddress(url: string, max = 48) {
+  const [, bare = '', rest = ''] = /^(?:https?:\/\/)?([^?#]*)(.*)$/i.exec(url.trim()) ?? [];
+  const address = rest.startsWith('?') ? `${bare}?…` : bare;
+  return address.length > max ? `${address.slice(0, max - 1)}…` : address;
+}
+
+/**
+ * The format check's settings as the summary reads them: its own schema and defaults, with the custom rules only counted
+ * (a rule being typed has no pattern yet and does not fit the schema; the other checks still read as they are set).
+ */
+const formatCheckSummaryParams = formatCheckParams.extend({ customRules: z.array(z.unknown()).default([]) });
+
 /** "← 앞 단계" for a node that takes the previous step's result (a gather). */
 const stepsLabel = (definition: WorkflowDefinition, nodeId: string) => {
   const steps = previousSteps(definition, nodeId);
@@ -42,24 +56,36 @@ export function nodeSummary(node: WorkflowNode, definition: WorkflowDefinition, 
       // What it makes and how it reads; the model is the card's badge (nodeBadge).
       return `${AI_OUTPUTS[node.config.output].label} · ${BATCH_MODE_LABELS[node.config.batch.mode]}`;
     case 'function': {
-      const params = node.config.params as Record<string, unknown>;
-      if (node.config.fn === 'http') return `${(params.method as string) ?? 'POST'} ${names.connection.get(params.connectionId as string) ?? '연결 없음'}/${(params.path as string) ?? ''}`;
-      if (node.config.fn === 'script') return `출구: ${((params.ports as string[]) ?? ['out']).join(', ')}`;
-      if (node.config.fn in APPLY_TARGETS) return savesTo(node, definition);
-      if (node.config.fn === 'formatCheck') {
+      const fn = node.config.fn;
+      if (fn in APPLY_TARGETS) return savesTo(node, definition);
+      const label = FUNCTIONS[fn as FunctionName]?.label ?? fn;
+      if (fn === 'http') {
+        const params = httpParams.safeParse(node.config.params ?? {});
+        return params.success ? `${params.data.method} ${shortAddress(params.data.url) || '주소 없음'}` : label;
+      }
+      if (fn === 'script') {
+        const params = scriptParams.safeParse(node.config.params ?? {});
+        return params.success ? `출구: ${params.data.ports.join(', ')}` : label;
+      }
+      if (fn === 'formatCheck') {
+        const parsed = formatCheckSummaryParams.safeParse(node.config.params ?? {});
+        if (!parsed.success) return label;
+        const params = parsed.data;
         const checks = [
-          params.placeholders !== false && '자리표시자',
-          params.tags !== false && '서식 태그',
-          params.newlines !== false && '줄바꿈',
-          params.emptyText !== false && '빈 번역',
+          params.placeholders && '자리표시자',
+          params.tags && '서식 태그',
+          params.newlines && '줄바꿈',
+          params.emptyText && '빈 번역',
           params.numbers && '숫자',
           params.spaces && '공백',
           params.particles && '조사',
-          Array.isArray(params.customRules) && params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
+          (params.maxChars || params.maxBytes || params.maxLineChars || params.maxLines || params.maxLengthRatio) && '길이',
+          params.forbiddenWords.split(',').some((word) => word.trim()) && '금지어',
+          params.customRules.length > 0 && `규칙 ${params.customRules.length}개`,
         ].filter(Boolean);
         return checks.length ? `검사: ${checks.join('·')}` : '켠 검사 항목 없음 (항상 통과)';
       }
-      return FUNCTIONS[node.config.fn as FunctionName]?.label ?? node.config.fn;
+      return label;
     }
     case 'condition':
       return node.config.description || '조건식';

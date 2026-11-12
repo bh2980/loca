@@ -41,17 +41,6 @@ export const q = {
       queryFn: () => unwrap(client.projects[':projectId'].graph[':scope{dialogue|scene}'].$get({ param: { projectId, scope }, query: { ...(section && { section }), direction } })),
       staleTime: Infinity,
     }),
-  /** The slice of the dialogue graph for the stored choices (길 따라 보기): blocks, edges, forks, stubs, seams, the picks and the translation counts (units topic: translations decide them). */
-  route: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route'], queryFn: () => unwrap(client.projects[':projectId'].route.$get({ param: { projectId } })) }),
-  /** 다음 길: the route through the most untranslated lines, what it adds and how many routes are left (units topic, like the counts it is made from). */
-  routeNext: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-next'], queryFn: () => unwrap(client.projects[':projectId'].route.next.$get({ param: { projectId } })) }),
-  /** 남은 갈래: untranslated lines the current route does not pass, by branch, and lines no route reaches (units topic). */
-  routeRemaining: (projectId: string) => queryOptions({ queryKey: ['units', projectId, 'route-remaining'], queryFn: () => unwrap(client.projects[':projectId'].route.remaining.$get({ param: { projectId } })) }),
-  /** 이음새 점검: the checked seams of the current route with whether their lines still read as they did, and the counts for the round (units topic: translations decide). */
-  seamChecks: (projectId: string) => queryOptions({ queryKey: ['units', 'seam-checks', projectId], queryFn: () => unwrap(client.projects[':projectId']['seam-checks'].$get({ param: { projectId } })) }),
-  /** One seam: the current route's last lines before it and the earlier route's lines after it. */
-  seamDetail: (projectId: string, nodeId: string) =>
-    queryOptions({ queryKey: ['units', 'seam', projectId, nodeId], queryFn: () => unwrap(client.projects[':projectId'].route.seams[':nodeId'].$get({ param: { projectId, nodeId } })) }),
   graphNode: (nodeId: string, projectId?: string) => queryOptions({
     queryKey: ['units', 'graph-node', projectId ?? null, nodeId],
     queryFn: () => unwrap(client['graph-nodes'][':nodeId'].$get({
@@ -66,9 +55,6 @@ export const q = {
   /** What one model request sent (kept for whole-script reads and glossary fills). */
   aiCallRequest: (projectId: string, id: string) =>
     queryOptions({ queryKey: ['calls', 'request', id], queryFn: () => unwrap(client.projects[':projectId']['ai-calls'][':id'].request.$get({ param: { projectId, id } })), staleTime: Infinity }),
-  /** How fast this model has answered this kind of request before (seconds per 1,000 input tokens). */
-  aiPace: (model: string, kind: 'whole' | 'terms' | 'run' | 'chat' | 'test') =>
-    queryOptions({ queryKey: ['calls', 'pace', model, kind], queryFn: () => unwrap(client['ai-calls'].pace.$get({ query: { model, kind } })) }),
   /** The batches a run was planned in. */
   runPlan: (id: string) => queryOptions({ queryKey: ['runs', 'plan', id], queryFn: () => unwrap(client.runs[':id'].plan.$get({ param: { id } })), staleTime: Infinity }),
   chatSession: (sessionId: string) =>

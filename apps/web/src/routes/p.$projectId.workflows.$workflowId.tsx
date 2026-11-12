@@ -25,7 +25,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { ArrowLeftRight, ArrowUpDown, ChevronRight, Copy, Focus, Frame, Group, LayoutGrid, LogOut, Maximize, Pencil, Plus, SlidersHorizontal, Tag, Trash2, Ungroup, Unlink } from 'lucide-react';
 import { toast } from 'sonner';
-import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, exitActions, exitActionsFromNodes, withExitActions, type ExitAction, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
+import { AI_PRESETS, APPLY_PALETTE_ORDER, INPUT_TYPES, NODE_TYPES, type BatchConfig, functionGroup, APPLY_TARGETS, FUNCTIONS, FUNCTION_NAMES, functionTakes, presetTakes, workflowInput, PALETTE_FUNCTION_NAMES, nodeName, nodePorts, syncEntryEdges, workflowNodeSchema, exitActions, withExitActions, type ExitAction, type FunctionName, type WorkflowDefinition, type WorkflowGroup, type WorkflowIssue, type WorkflowNode } from '@tw/shared';
 import { Page, StatusBarItem } from '@/components/page';
 import { autoLayout } from '@/components/workflow/auto-layout';
 import { shiftRoute } from '@/components/workflow/route-shift';
@@ -132,9 +132,7 @@ interface Draft {
 const draftKey = (id: string) => `tw.workflow.draft.${id}`;
 const readDraft = (id: string): Draft | null => {
   try {
-    const draft = JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
-    // A draft kept from before tags and statuses became exit actions is converted as the saved workflows were (0122).
-    return draft && { ...draft, definition: exitActionsFromNodes(draft.definition) };
+    return JSON.parse(sessionStorage.getItem(draftKey(id)) ?? 'null') as Draft | null;
   } catch {
     return null;
   }

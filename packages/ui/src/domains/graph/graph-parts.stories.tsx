@@ -13,8 +13,6 @@ import { FloatingZoomBar } from "./canvas-toolbar"
 import { FloatingCard } from "./floating-card"
 import { ColumnResizeHandle, FlowLine, FlowRow } from "./flow-pane"
 import { ForkOptionItem } from "./fork-menu"
-import { ArmChip, SeamStateChip } from "./path-chips"
-import { ForkNodeFrame, PathEdgeLabel, PathNodeButton, PathNodeCard } from "./path-node"
 import { PersonNodeFrame, RelationLabelFrame } from "./relationship-node"
 import { ListRow } from "../../patterns/list-row"
 
@@ -91,27 +89,6 @@ export const FlowRows: Story = {
       </Box>
     )
   },
-}
-
-export const PathNodes: Story = {
-  render: () => (
-    <Stack gap="condensed">
-      <Inline gap="condensed">
-        <SeamStateChip state="checked" /><SeamStateChip state="stale" /><SeamStateChip state={undefined} /><SeamStateChip state="stale" compact />
-        <ArmChip arm={{ index: 1, count: 3 }} />
-      </Inline>
-      <PathNodeCard here selected style={{ width: 260, height: 76 }}>
-        <Text variant="caption" tone="muted">하윤</Text>
-        <Text as="p" lines={2} variant="body" leading="snug">…여기 있었구나.</Text>
-      </PathNodeCard>
-      <ForkNodeFrame selected style={{ width: 130, height: 28 }}>
-        <Inline height="control-sm" width="full" justify="center" gap="tight" radius="full" border="all" background="sunken" paddingX="condensed" variant="caption" nowrap tone="muted">조건 <ArmChip arm={{ index: 2, count: 3 }} plain /></Inline>
-      </ForkNodeFrame>
-      <Box style={{ width: 260, height: 36 }}><PathNodeButton>번역함 · 12줄 <ArmChip arm={{ index: 1, count: 2 }} spaced /></PathNodeButton></Box>
-      <Box style={{ width: 56, height: 28 }}><PathNodeButton round>…</PathNodeButton></Box>
-      <Box position="relative" style={{ height: 28 }}><PathEdgeLabel style={{ width: 200 }}>이음새 <SeamStateChip state="checked" compact /></PathEdgeLabel></Box>
-    </Stack>
-  ),
 }
 
 export const RelationshipNodes: Story = {
