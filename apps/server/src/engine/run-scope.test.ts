@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { and, eq } from 'drizzle-orm';
-import { importFileSchema } from '@tw/shared';
+import { importFileSchema, linesById, type ResolvedLineFilter } from '@tw/shared';
 import { realistic } from '../../../../scripts/realistic-sample.ts';
 import { openDatabase } from '../db/index.ts';
 import { translateOnlyWorkflow } from './test-workflows.ts';
@@ -26,15 +26,16 @@ describe('run scope by marks', () => {
     const tag = db.insert(s.tags).values({ projectId, name: '시험', color: '#888888' }).returning().get();
     db.insert(s.unitTags).values([{ unitId: noted.id, tagId: tag.id }, { unitId: plain.id, tagId: tag.id }]).run();
 
-    const pick = (scope: s.RunScope) => selectRunUnits(db, projectId, { ...scope }).sort();
+    const pick = (filter: ResolvedLineFilter) => selectRunUnits(db, projectId, { filter }).sort();
     expect(pick({ noted: true })).toEqual([noted.id, notedByAi.id].sort());
     // The row facts are ANDed with each other.
     expect(pick({ noted: true, decidedBy: 'ai' })).toEqual([notedByAi.id]);
     // A tag narrows them (tags themselves are "any of"); a tag alone ignores them.
     expect(pick({ noted: true, tagIds: [tag.id] })).toEqual([noted.id]);
     expect(pick({ tagIds: [tag.id] })).toEqual([noted.id, plain.id].sort());
-    // No marks: the scope is unchanged (every line for translation; 번역 제외 lines never run).
-    expect(pick({ marks: [] })).toEqual(translatable(db, projectId).sort());
+    // No filter: every line for translation (번역 제외 lines never run).
+    expect(pick({})).toEqual(translatable(db, projectId).sort());
+    expect(selectRunUnits(db, projectId, {}).sort()).toEqual(translatable(db, projectId).sort());
   });
 
   it('a status filter picks exactly the lines in those statuses, including ones a person already translated', () => {
@@ -47,12 +48,12 @@ describe('run scope by marks', () => {
     db.update(s.units).set({ translation: '사람 번역', statusBy: 'human' }).where(eq(s.units.id, written.id)).run();
     db.update(s.units).set({ translation: null, statusBy: 'human' }).where(eq(s.units.id, blank.id)).run();
 
-    const picked = selectRunUnits(db, projectId, { statusIds: [initial.id] });
+    const picked = selectRunUnits(db, projectId, { filter: { statusIds: [initial.id] } });
     expect(picked).toContain(written.id);
     expect(picked).toContain(blank.id);
     const inInitial = db.select({ id: s.units.id }).from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.statusId, initial.id), translatableSql(projectId))).all().map((row) => row.id);
     expect(picked.sort()).toEqual(inInitial.sort());
-    expect(selectRunUnits(db, projectId, { unitIds: [written.id] })).toEqual([written.id]);
+    expect(selectRunUnits(db, projectId, { filter: { lineIds: [written.id] } })).toEqual([written.id]);
   });
 
   it('runs exactly the named lines, however many, and never another project\'s', () => {
@@ -65,7 +66,7 @@ describe('run scope by marks', () => {
     const foreign = db.select().from(s.units).where(eq(s.units.projectId, other.projectId)).all()[0];
     // A route's untranslated lines: more than the 500 ids an IN list binds one by one.
     const route = units.slice(100, 900).map((unit) => unit.id);
-    const picked = selectRunUnits(db, first.projectId, { unitIds: [...route, foreign.id] });
+    const picked = selectRunUnits(db, first.projectId, { filter: linesById([...route, foreign.id]) });
     const forTranslation = new Set(translatable(db, first.projectId));
     expect(picked.sort()).toEqual(route.filter((id) => forTranslation.has(id)).sort());
   });
@@ -79,9 +80,9 @@ describe('run scope by marks', () => {
     const untranslated = statuses.find((s) => s.kind === 'initial')!;
     const draft = statuses.find((s) => s.kind === 'normal')!;
 
-    const untranslatedUnits = selectRunUnits(db, projectId, { statusIds: [untranslated.id] });
-    const draftUnits = selectRunUnits(db, projectId, { statusIds: [draft.id] });
-    const bothUnits = selectRunUnits(db, projectId, { statusIds: [untranslated.id, draft.id] });
+    const untranslatedUnits = selectRunUnits(db, projectId, { filter: { statusIds: [untranslated.id] } });
+    const draftUnits = selectRunUnits(db, projectId, { filter: { statusIds: [draft.id] } });
+    const bothUnits = selectRunUnits(db, projectId, { filter: { statusIds: [untranslated.id, draft.id] } });
     expect(untranslatedUnits.length).toBeGreaterThan(0);
     expect(draftUnits.length).toBeGreaterThan(0);
     expect(bothUnits.length).toBe(untranslatedUnits.length + draftUnits.length);

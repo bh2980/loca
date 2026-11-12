@@ -1,4 +1,4 @@
-import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE , DECIDED_BY, CHECK_KINDS, type CheckKind, type ToolName } from '@tw/shared';
+import { agentToolAvailable, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName } from '@tw/shared';
 import { checkAgentPermission, projectAgentSettings } from './agent-permission-check.ts';
 import { HTTPException } from 'hono/http-exception';
 import { and, asc, count, desc, eq, inArray, isNull, like, ne, or, sql } from 'drizzle-orm';
@@ -72,6 +72,11 @@ export interface ToolDef<S extends z.ZodType = z.ZodType, R = unknown> {
 }
 const tool = <S extends z.ZodType, R>(definition: ToolDef<S, R>) => definition;
 
+/** The scope of plan_run and start_run, said once for both. */
+const RUN_SCOPE_HELP =
+  'Scope of a lines workflow: filter, the same line filter find_lines takes (q, speakers, listeners, mentions, groups, sections, groupKind, kind, statuses, tags, marks, unfinished, decidedBy, noted, review, the hide… fields, translated, keys, ids, view), every condition combined with AND; no filter = every line. 번역 제외 lines never run. A terms workflow (entry input "terms") takes terms instead: { terms (ids or sources), statuses (후보/확정/버림), marks (' +
+  TERM_MARK_IDS.join(', ') +
+  '), tags, decidedBy, emptyTarget }, most used first; none = every term not rejected, and the totals under lines are terms. A filter is refused for a terms workflow and terms for a lines workflow; a status, tag, group, section, line key, view or term the project does not have is an error naming it (찾지 못함), never a wider run.';
 /** How a run picks other models than its nodes' own (start_run, plan_run). */
 const MODELS_HELP = 'Optional: this run only, other models than the AI nodes\' own. Key = AI node id or name, or "*" for every AI node; value = { connection (id or name, see harness_reference), model, effort? }. The workflow is not changed.';
 
@@ -273,7 +278,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     find_lines: tool({
       description:
-        'Find lines with any combination of filters: q (text as written; % and _ are plain characters), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = 청자 모름, said to someone whose listener is unknown or an unsure AI guess), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags (all of which the line carries), marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), unfinished (true: status not final, the work left; false: final), decidedBy (ai = status set by AI, ✦; human), noted (with / without a memo), excluded (hide = leave 번역 제외 lines out, only = only them), translated, keys. Returns total and one page with each line\'s key, rev, statusBy, note, excluded and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
+        'Find lines with any combination of filters: q (text as written; % and _ are plain characters), speakers (character name/alias/speaker key — all their lines), listeners (lines addressed to them; "-" = 청자 모름, said to someone whose listener is unknown or an unsure AI guess), mentions (lines that mention a character, incl. {ALIAS} placeholders), groups (scene/group key, id or title), sections (chapter/folder), groupKind, kind, statuses, tags (all of which the line carries), marks (automatic marks all of which the line has: ' + LINE_MARK_IDS.join(', ') + '), unfinished (true: status not final, the work left; false: final), decidedBy (ai = status set by AI, ✦; human), noted (with / without a memo), excluded (hide = leave 번역 제외 lines out, only = only them), review (true: only lines whose status is shown in the review inbox), hideSpeakers / hideStatuses / hideTags / hideMarks (lines with any of these are left out), translated, keys, ids, view (a saved graph view by id or label). A status, tag, group, section, line key or view the project does not have is an error naming it, not an empty or wider result. Returns total and one page with each line\'s key, rev, statusBy, note, excluded and marks (the automatic marks it carries); page with offset until total. Prefer one broad call over many small ones.',
       inputSchema: lineFilterSchema,
       execute: (filter) => findLines(db, projectId, filter, { diverged: true }),
     }),
@@ -442,8 +447,8 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     plan_run: tool({
       description:
-        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule), and suggestedLimits: the caps start_run uses unless told otherwise (the run pauses there). workflow is an id or name; scope of a lines workflow: groups (key/id/title), keys (line keys), tags (all), marks (all), statuses (names or ids), unfinished, decidedBy, noted, speakers, listeners, kinds, q (source text) — combined with AND like the dialog; none = every line. A terms workflow (entry input "terms") counts glossary terms instead (the totals under lines are terms) and takes terms (ids or sources), statuses (후보/확정/버림) and term marks, most used first; none = every term. Line scopes are refused for it and terms for a lines workflow. Use it before proposing start_run.',
-      inputSchema: z.object({ workflow: z.string().min(1), groups: z.array(z.string()).optional(), keys: z.array(z.string()).optional(), tags: z.array(z.string()).optional(), marks: z.array(z.string()).optional().describe('Automatic marks the items must all have: line marks, or term marks for a terms workflow.'), terms: z.array(z.string()).optional().describe('A terms workflow: glossary terms by id or source.'), statuses: z.array(z.string()).optional().describe('Statuses the items must be in (none = any): status names or ids for lines, 후보/확정/버림 for terms.'), speakers: z.array(z.string()).optional().describe('Lines said by these speakers (names, aliases or speaker keys).'), listeners: z.array(z.string()).optional().describe("Lines said to these listeners; '-' = listener not known."), kinds: z.array(z.string()).optional().describe('Line kinds: dialogue, ui, …'), q: z.string().optional().describe('Text in the source.'), unfinished: z.boolean().optional(), noted: z.boolean().optional(), decidedBy: z.enum(DECIDED_BY).optional(), emptyTarget: z.boolean().optional(), models: runModelInput.optional().describe(MODELS_HELP) }),
+        'The run dialog\'s preview for a workflow and scope, without starting anything or calling a model: lines in scope, batches, requests and tokens per AI node, and readiness (dialogue lines with unknown listener, speech rules and glossary terms no person has confirmed, with their names, and frequent speaker pairs without a rule), and suggestedLimits: the caps start_run uses unless told otherwise (the run pauses there). workflow is an id or name. ' + RUN_SCOPE_HELP + ' Use it before proposing start_run.',
+      inputSchema: runScopeInputSchema.omit({ changeHuman: true }).extend({ workflow: z.string().min(1), models: runModelInput.optional().describe(MODELS_HELP) }),
       execute: (input) => planRun(db, projectId, input),
     }),
     harness_reference: tool({
@@ -456,7 +461,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           entry: 'Entry config { input }: what the workflow takes in. Which items a run takes is its scope (the run dialog / start_run: statuses, marks, scenes, lines, terms), not the workflow.',
           table: Object.fromEntries(Object.entries(INPUT_TYPES).map(([input, type]) => [input, { batchModes: type.batchModes, contextFields: type.contextFields, conditionRows: type.conditionRows, nodes: Object.keys(FUNCTIONS).filter((name) => functionTakes(name, input as 'lines' | 'terms') && !functionTakes(name, input === 'lines' ? 'terms' : 'lines')) }])),
           rules: 'A node of the other input, or a batch mode the input does not have, is a validation error (the table above is the only source). Conditions read unit.* for lines and term.* for terms.',
-          scope: 'start_run / plan_run: a lines workflow takes groups/lines/tags/marks; a terms workflow takes terms (ids or sources), term statuses and term marks. A scope of the other kind is refused.',
+          scope: 'start_run / plan_run: a lines workflow takes filter (the line filter of find_lines); a terms workflow takes terms { terms (ids or sources), statuses, marks, tags, decidedBy, emptyTarget }. A scope of the other kind is refused.',
           usage: 'Typical terms workflow: entry input terms → AI node (json: target, note) → 용어 표기 저장.',
         },
         definitionShape: 'nodes: [{id, type: entry|ai|function|condition|gather|call, position:{x,y}, label?, config, exits? (exit id → exit actions: tags and statuses, see exitActions)}], edges: [{id, source, sourceHandle (exit id), target}], settings: {maxVisitsPerNode, maxConsecutiveFailures, retries (the retry rules of every AI node whose config.retries is null)}, groups?: [{id, label, nodeIds, box?: {x,y,width,height}}] (frames drawn around steps in reading order, display only: the runner ignores them; a node in at most one; keep them when editing, and put a new node in the frame of the step it belongs to; box is where the app stands the frame: keep it as it is, the app grows a frame to hold a node outside it; a frame may be empty, drawn by a person to put nodes in: keep it)',
@@ -751,23 +756,9 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     start_run: tool({
       description:
-        'Start a workflow run (AI calls cost money/quota, so the user approves it first). Scope of a lines workflow: groupIds (scenes/groups), unitIds (lines), tagIds (lines with all of these tags), marks (automatic marks the lines must all have: ' + LINE_MARK_IDS.map((id) => `${id} = ${AUTO_MARKS[id].description}`).join(', ') + '); statuses (status names or ids), unfinished (최종 아님), decidedBy (정한 쪽), noted (메모), speakers, listeners, kinds and q (source text) narrow it; none = every line. A terms workflow (entry input "terms") takes termIds (term ids or sources), statuses (후보/확정/버림) and marks (term marks) instead; none = every term. Line scopes are refused for a terms workflow and termIds for a lines workflow. Read project_overview for workflow ids; tell the user how many lines (or terms) it will run.',
-      inputSchema: z.object({
+        'Start a workflow run (AI calls cost money/quota, so the user approves it first). The scope is given exactly as to plan_run, and a name the project does not have is refused the same way. ' + RUN_SCOPE_HELP + ' Read project_overview for workflow ids; tell the user how many lines (or terms) it will run.',
+      inputSchema: runScopeInputSchema.extend({
         workflowId: z.string(),
-        groupIds: z.array(z.string()).optional(),
-        unitIds: z.array(z.string()).optional(),
-        tagIds: z.array(z.string()).optional(),
-        marks: z.array(z.string()).optional().describe('Automatic marks the items must all have: line marks, or term marks for a terms workflow.'),
-        termIds: z.array(z.string()).optional().describe('A terms workflow: glossary terms by id or source.'),
-        statuses: z.array(z.string()).optional().describe('Statuses the items must be in (none = any): status names or ids for lines, 후보/확정/버림 for terms.'),
-        speakers: z.array(z.string()).optional().describe('Lines said by these speakers (names, aliases or speaker keys).'),
-        listeners: z.array(z.string()).optional().describe("Lines said to these listeners; '-' = listener not known."),
-        kinds: z.array(z.string()).optional().describe('Line kinds: dialogue, ui, …'),
-        q: z.string().optional().describe('Text in the source.'),
-        unfinished: z.boolean().optional().describe('Lines whose status is not final (true: 최종 아님, the work left) or final (false).'),
-        noted: z.boolean().optional().describe('Lines with (true) or without (false) a memo.'),
-        decidedBy: z.enum(DECIDED_BY).optional().describe('Who decided it (정한 쪽): ai (✦, no person has checked it) or human; a line\'s status, or a term\'s decision.'),
-        emptyTarget: z.boolean().optional().describe('A terms workflow: terms with no Korean form (true) or with one (false).'),
         changeHuman: z.boolean().optional().describe('Also change a status a person set and take off tags a person put on. Without it the run leaves what a person decided and notes it in the run detail.'),
         models: runModelInput.optional().describe(MODELS_HELP),
         limits: z

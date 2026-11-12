@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@tw/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest } from '@tw/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest } from '@tw/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -185,31 +185,6 @@ async function resolveGroups(refs: string[] | undefined) {
   });
 }
 
-/** The groups of these sections (장·출처), by id, for run scopes that take groups; with `--group` too, both must hold. */
-async function sectionGroups(sections: string[] | undefined, groups: string[] | undefined) {
-  if (!sections?.length) return groups;
-  const all = await unwrap(api().projects[':projectId'].groups.$get({ param: { projectId: await projectId() }, query: {} }));
-  const inSections = all.filter((group) => group.section && sections.includes(group.section));
-  if (!inSections.length) throw new CliError(`구역을 찾지 못했습니다: ${sections.join(', ')} (loca stats sections로 확인)`);
-  const picked = groups?.length ? (await resolveGroups(groups))!.map((group) => group.id) : null;
-  const ids = inSections.map((group) => group.id).filter((id) => !picked || picked.includes(id));
-  if (!ids.length) throw new CliError('고른 장면·묶음이 그 구역에 없습니다.');
-  return ids;
-}
-
-/** Every line of a saved view (id and key), for run scopes that take lines. */
-async function viewLines(view: string) {
-  const rows: { id: string; key: string }[] = [];
-  for (let offset = 0; ; ) {
-    const page = await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { view, offset, limit: 1000 } }));
-    rows.push(...page.rows.map((row) => ({ id: row.id, key: row.key })));
-    offset += page.rows.length;
-    if (!page.rows.length || offset >= page.total) break;
-  }
-  if (!rows.length) throw new CliError(`보기에 대사가 없습니다: ${view}`);
-  return rows;
-}
-
 /** A file's text, or stdin for "-"; a file that cannot be read is said plainly, not as a stack trace. */
 function readText(file: string): string {
   try {
@@ -303,6 +278,7 @@ interface FilterOptions {
   noted?: boolean;
   withoutNote?: boolean;
   excluded?: ExcludedFilter;
+  review?: boolean;
   hideSpeaker?: string[];
   hideStatus?: string[];
   hideTag?: string[];
@@ -315,8 +291,9 @@ interface FilterOptions {
   offset?: string;
 }
 
-function withFilters(command: Command) {
-  return command
+/** The line filter's flags (lineFilterSchema, one flag per field), for every command that picks lines. `paging: false` for a command that takes them all (a run's scope). */
+function withFilters(command: Command, { marks = LINE_MARK_IDS as readonly string[], paging = true } = {}) {
+  const filters = command
     .option('-q, --q <글자>', '원문·번역·화자·키에 들어 있는 글자 (%·_·\\도 그 글자 그대로)')
     .option('-s, --speaker <names...>', '이 인물이 하는 대사 (이름·별칭·화자 키)')
     .option('-l, --listener <names...>', '이 인물에게 하는 대사 (청자). "-"는 청자 모름(청자를 모르거나 AI 추정이 불확실한 대사)')
@@ -327,13 +304,14 @@ function withFilters(command: Command) {
     .addOption(new Option('--group-kind <종류>', '묶음 종류').choices(['scene', 'document', 'ui']))
     .option('--status <statuses...>', '상태 이름')
     .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-    .addOption(new Option('--mark <marks...>', '자동 태그가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(LINE_MARK_IDS))
+    .addOption(new Option('--mark <marks...>', '자동 태그가 모두 붙은 대사. 앱 목록의 필터와 같은 규칙').choices(marks))
     .option('--unfinished', '상태가 최종이 아닌 대사 (남은 일. 번역 제외 대사는 빠짐)')
     .option('--finished', '상태가 최종인 대사')
     .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
     .option('--noted', '메모가 있는 대사')
     .option('--without-note', '메모가 없는 대사')
     .addOption(new Option('--excluded <방식>', '번역 제외 대사: hide = 뺌, only = 그것만 (없으면 함께)').choices(EXCLUDED_FILTERS))
+    .option('--review', '검토함에 보이는 상태의 대사만')
     .option('--hide-speaker <names...>', '숨기기: 이 인물이 하는 대사는 뺌')
     .option('--hide-status <statuses...>', '숨기기: 이 상태의 대사는 뺌')
     .option('--hide-tag <tags...>', '숨기기: 이 태그 중 하나라도 붙은 대사는 뺌')
@@ -341,9 +319,8 @@ function withFilters(command: Command) {
     .option('--translated', '번역이 있는 대사만')
     .option('--untranslated', '번역이 없는 대사만')
     .option('--key <keys...>', '대사 키')
-    .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사. export는 보기의 흐름 순서로')
-    .option('--limit <n>', '한 번에 가져올 수 (최대 1000)')
-    .option('--offset <n>', '건너뛸 수');
+    .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사. export는 보기의 흐름 순서로');
+  return paging ? filters.option('--limit <n>', '한 번에 가져올 수 (최대 1000)').option('--offset <n>', '건너뛸 수') : filters;
 }
 
 function filterFrom(options: FilterOptions): LineFilterInput {
@@ -363,6 +340,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
     decidedBy: options.by,
     noted: options.noted ? true : options.withoutNote ? false : undefined,
     excluded: options.excluded,
+    review: options.review || undefined,
     hideSpeakers: options.hideSpeaker,
     hideStatuses: options.hideStatus,
     hideTags: options.hideTag,
@@ -1098,32 +1076,45 @@ runs
     await followRun(await proposeTool('continue_run', { runId: id, retryFailed: Boolean(options.retryFailed), models: runModels(options.model) }), options, '실행 이어 하기');
   });
 
-runs
-  .command('plan <워크플로>')
-  .description('실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). 범위 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term으로 범위를 정하고 대사 범위 옵션은 쓸 수 없습니다')
-  .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
-  .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
-  .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
-  .option('--status <statuses...>', '이 상태인 것만 (대사: 상태 이름·id, 용어: 후보·확정·버림). 없으면 모든 상태')
-  .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다')
-  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
-  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
-  .option('-s, --speaker <names...>', '이 화자의 대사만 (이름·별칭·화자 키)')
-  .option('--listener <names...>', '이 청자에게 하는 대사만 (- = 청자 모름)')
-  .option('--unfinished', '상태가 최종이 아닌 대사만')
-  .option('--noted', '메모가 있는 대사만')
-  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
-  .option('--empty-target', '용어 입력 워크플로만: 번역어가 비어 있는 용어만')
-  .option('--kind <kinds...>', '대사 종류만 (dialogue, ui …)')
-  .option('-q, --q <글자>', '원문에 이 글자가 있는 대사만')
-  .action(async (workflow: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean }) => {
-    const groups = await sectionGroups(options.section, options.group);
-    const keys = options.view ? (await viewLines(options.view)).map((row) => row.key).filter((key) => !options.key || options.key.includes(key)) : options.key;
-    if (keys && !keys.length) throw new CliError('고른 대사가 보기에 없습니다.');
+/** What `runs plan` and `runs start` take as a run's scope: the line filter's flags, and the two a terms workflow adds. */
+interface RunScopeOptions extends FilterOptions {
+  term?: string[];
+  emptyTarget?: boolean;
+  hasTarget?: boolean;
+  model?: string[];
+}
+
+/** One option set for `runs plan` and `runs start`: every line filter flag (withFilters), the terms of a terms workflow, and this run's models. */
+function withRunScope(command: Command) {
+  return withFilters(command, { marks: [...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])], paging: false })
+    .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 조건에 맞는 모든 용어(많이 쓰인 순)')
+    .option('--empty-target', '용어 입력 워크플로만: 번역어가 비어 있는 용어만')
+    .option('--has-target', '용어 입력 워크플로만: 번역어가 있는 용어만')
+    .option('--model <specs...>', '이번 실행만 다른 모델로: "연결:모델"(모든 AI 단계) 또는 "노드=연결:모델" (연결·노드는 이름이나 id). 워크플로는 바뀌지 않습니다');
+}
+
+/**
+ * The flags as the scope plan_run and start_run take (names; the server resolves them and refuses what it does not find).
+ * A lines workflow: the line filter. A terms workflow: --status, --tag, --mark and --by are about the terms; any other
+ * filter flag goes along as a line filter, which the server refuses for a terms workflow.
+ */
+function runScopeFrom(subject: 'lines' | 'terms', options: RunScopeOptions): Pick<RunScopeInput, 'filter' | 'terms'> {
+  const { limit: _limit, offset: _offset, ...filter } = filterFrom(options);
+  const given = <T extends object>(value: T) => (Object.values(value).some((item) => item !== undefined) ? value : undefined);
+  const own = { terms: options.term, emptyTarget: options.emptyTarget ? true : options.hasTarget ? false : undefined };
+  if (subject === 'lines') return { filter: given(filter), terms: given(own) };
+  const { statuses, tags, marks, decidedBy, ...rest } = filter;
+  return { filter: given(rest), terms: given({ ...own, statuses, tags, marks: marks as AutoMark[] | undefined, decidedBy }) };
+}
+
+const RUN_SCOPE_HELP = '범위는 대사 필터(loca lines와 같은 플래그)이고 조건은 모두 만족해야 합니다. 용어 입력 워크플로(진입 input이 terms)는 --term·--status(후보·확정·버림)·--mark(용어 표시)·--tag·--by·--empty-target·--has-target만 받습니다. 없는 상태·태그·묶음·구역·대사 키·보기·용어 이름은 오류입니다';
+
+withRunScope(runs.command('plan <워크플로>'))
+  .description(`실행 전 미리보기(실행 대화상자와 같은 계산, 모델은 부르지 않고 아무것도 시작하지 않음). 워크플로는 이름·id: 범위의 대사 수(용어 입력이면 용어 수), 묶음·요청 수 추정, 준비 상태(청자 미상, 확인 안 한 말투 규칙·용어, 말투 규칙 없는 쌍). ${RUN_SCOPE_HELP}`)
+  .action(async (ref: string, options: RunScopeOptions) => {
+    const workflow = await resolveWorkflow(ref);
     type Names = { count: number; examples: string[]; names: string[]; more: boolean };
-    const data = await readTool('plan_run', { workflow, groups, keys, tags: options.tag, marks: options.mark, terms: options.term, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, models: runModels(options.model) });
+    const data = await readTool('plan_run', { workflow: workflow.id, ...runScopeFrom(workflow.input, options), models: runModels(options.model) });
     if (globals().json) return print(data);
     const range = (value: { min: number; expected: number | null; max: number }) => (value.expected !== null ? `약 ${value.expected.toLocaleString()} (${value.min.toLocaleString()}~${value.max.toLocaleString()})` : `${value.min.toLocaleString()}~${value.max.toLocaleString()}`);
     console.log(`${data.workflow.name} 실행 미리보기`);
@@ -1146,59 +1137,31 @@ runs
     console.log(`  말투 규칙 없는 화자 쌍 ${ready.pairsWithoutRule.count}개${ready.pairsWithoutRule.count ? `: ${ready.pairsWithoutRule.examples.join(', ')}${ready.pairsWithoutRule.count > ready.pairsWithoutRule.examples.length ? ' …' : ''}` : ''}`);
   });
 
-runs
-  .command('start <워크플로>')
-  .description('실행 시작 (AI 호출에 비용이 들어 터미널 권한 모드를 따름: 바로 반영이면 시작, 아니면 앱에서 수락할 때까지 제안으로 기다림). 범위는 plan과 같고(대사 입력 워크플로는 대사 범위, 용어 입력 워크플로는 --term), 먼저 plan으로 확인하세요. --wait이면 끝날 때까지 기다린 뒤 요약')
-  .option('-g, --group <groups...>', '장면·묶음 (키·id·제목)')
-  .option('--key <keys...>', '대사 키')
-  .addOption(new Option('--mark <marks...>', '자동 표시가 모두 붙은 것 (대사 입력: 대사 표시, 용어 입력: 용어 표시)').choices([...new Set([...LINE_MARK_IDS, ...TERM_MARK_IDS])]))
-  .option('--tag <tags...>', '태그 이름 (모두 붙은 대사)')
-  .option('--term <terms...>', '용어 입력 워크플로만: 이 용어(원문·id)만. 없으면 진입 노드의 용어 상태·표시 조건(많이 쓰인 순)')
-  .option('--status <statuses...>', 'plan과 같은 상태 조건')
-  .option('--model <specs...>', 'plan과 같은 "연결:모델" 또는 "노드=연결:모델"')
-  .option('--view <보기>', '대사 그래프의 저장된 보기(이름·id) 안의 대사만')
-  .option('--section <sections...>', '구역(장·출처)의 장면·묶음만')
-  .option('-s, --speaker <names...>', 'plan과 같은 화자 조건')
-  .option('--listener <names...>', 'plan과 같은 청자 조건 (- = 청자 모름)')
-  .option('--unfinished', 'plan과 같은 최종 아님 조건')
-  .option('--noted', 'plan과 같은 메모 조건')
-  .addOption(new Option('--by <누구>', '정한 쪽: ai = AI가 정하고 사람이 아직 안 봄(✦), human = 사람이 정함').choices(DECIDED_BY))
-  .option('--empty-target', 'plan과 같은 번역어 비어 있음 조건')
-  .option('--kind <kinds...>', 'plan과 같은 대사 종류 조건')
-  .option('-q, --q <글자>', 'plan과 같은 원문 글자 조건')
+withRunScope(runs.command('start <워크플로>'))
+  .description(`실행 시작 (AI 호출에 비용이 들어 터미널 권한 모드를 따름: 바로 반영이면 시작, 아니면 앱에서 수락할 때까지 제안으로 기다림). 범위는 plan과 같은 플래그로 주고, 먼저 plan으로 확인하세요. ${RUN_SCOPE_HELP}. --wait이면 끝날 때까지 기다린 뒤 요약`)
   .option('--rerun-errors <실행id>', '그 실행에서 실패했거나 오류 출구로 빠진 대사·용어만 (다른 범위 조건과 함께 쓰면 모두 만족)')
   .option('--change-human', '사람이 정한 상태·붙인 태그도 바꾸기 (없으면 그대로 두고 실행 상세에 남김)')
   .option('--max-calls <n>', '호출 상한 (없으면 plan의 권장 상한, 실행 창과 같음; none이면 상한 없이)')
   .option('--max-input-tokens <n>', '입력 토큰 상한 (없으면 plan의 권장 상한; none이면 상한 없이)')
   .option('--wait', '(제안이면 결정을 기다린 뒤) 실행이 끝날 때까지 기다리고 요약. 깨끗하게 끝나지 않으면 종료 코드 1')
   .option('--timeout <분>', '--wait을 이만큼만')
-  .action(async (ref: string, options: { group?: string[]; key?: string[]; mark?: string[]; tag?: string[]; term?: string[]; status?: string[]; model?: string[]; view?: string; section?: string[]; speaker?: string[]; listener?: string[]; kind?: string[]; q?: string; unfinished?: boolean; noted?: boolean; by?: DecidedBy; emptyTarget?: boolean; rerunErrors?: string; changeHuman?: boolean; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
+  .action(async (ref: string, options: RunScopeOptions & { rerunErrors?: string; changeHuman?: boolean; maxCalls?: string; maxInputTokens?: string; wait?: boolean; timeout?: string }) => {
     const workflow = await resolveWorkflow(ref);
-    const groupIds = options.section?.length ? await sectionGroups(options.section, options.group) : (await resolveGroups(options.group))?.map((group) => group.id);
-    let unitIds: string[] | undefined;
-    // A page of keys at a time: one request is capped at 1000 lines.
-    for (let at = 0; options.key?.length && at < options.key.length; at += 1000)
-      unitIds = [...(unitIds ?? []), ...(await unwrap(api().projects[':projectId'].lines.find.$post({ param: { projectId: await projectId() }, json: { keys: options.key.slice(at, at + 1000), limit: 1000 } }))).rows.map((row) => row.id)];
-    let termIds = options.term;
-    if (options.view) {
-      const ids = new Set((await viewLines(options.view)).map((row) => row.id));
-      unitIds = unitIds ? unitIds.filter((id) => ids.has(id)) : [...ids];
-    }
+    const scope = runScopeFrom(workflow.input, options);
     if (options.rerunErrors) {
       const earlier = await unwrap(api().projects[':projectId'].runs[':runId'].errors.$get({ param: { projectId: await projectId(), runId: options.rerunErrors } }));
       const what = earlier.subject === 'terms' ? '용어' : '대사';
       if (!earlier.items.length) throw new CliError(`그 실행에는 실패했거나 오류로 빠진 ${what}가 없습니다.`);
       log(`${earlier.workflow} 실행에서 다시 할 ${what} ${earlier.items.length.toLocaleString()}개`);
-      // Like every other scope option, it narrows what the rest picked.
-      if (earlier.subject === 'terms') termIds = termIds ? earlier.items.filter((item) => termIds!.includes(item.unitId) || termIds!.includes(item.key ?? '')).map((item) => item.unitId) : earlier.items.map((item) => item.unitId);
-      else unitIds = unitIds ? unitIds.filter((id) => earlier.items.some((item) => item.unitId === id)) : earlier.items.map((item) => item.unitId);
+      // Like every other scope option, it narrows what the rest picked: lines by id beside the filter, terms among those named.
+      if (earlier.subject === 'terms') {
+        const named = scope.terms?.terms;
+        const terms = earlier.items.filter((item) => !named || named.includes(item.unitId) || named.includes(item.key ?? '')).map((item) => item.unitId);
+        if (!terms.length) throw new CliError('고른 용어 중 그 실행에서 실패한 것이 없습니다.');
+        scope.terms = { ...scope.terms, terms };
+      } else scope.filter = { ...scope.filter, ids: earlier.items.map((item) => item.unitId) };
     }
-    // An empty list reads as "no condition" on the server: refuse it here instead of running everything.
-    if ((unitIds && !unitIds.length) || (termIds && !termIds.length)) throw new CliError('범위 조건을 모두 만족하는 대사·용어가 없습니다.');
-    const tagIds = options.tag?.length
-      ? (await readTool('list_tags')).tags.filter((tag) => options.tag!.includes(tag.name)).map((tag) => tag.id)
-      : undefined;
-    const outcome = await proposeTool('start_run', { workflowId: workflow.id, groupIds, unitIds, tagIds, marks: options.mark, termIds, statuses: options.status, speakers: options.speaker, listeners: options.listener, kinds: options.kind, q: options.q, unfinished: options.unfinished || undefined, noted: options.noted || undefined, decidedBy: options.by, emptyTarget: options.emptyTarget || undefined, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
+    const outcome = await proposeTool('start_run', { workflowId: workflow.id, ...scope, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
     await followRun(outcome, options, '실행 시작');
   });
 

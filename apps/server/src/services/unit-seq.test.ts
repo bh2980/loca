@@ -60,7 +60,7 @@ describe('unit seq', () => {
     }).route('/', sourceRoutes);
     // The list's page is ids (the browser reads the lines by id).
     const keyOf = (id: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.id, id)).get()!.key;
-    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units/ids?limit=4&offset=${offset}`)).json()) as { total: number; ids: string[] });
+    const page = async (offset: number) => ((await (await app.request(`/projects/${projectId}/units/ids`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ filter: { limit: 4, offset } }) })).json()) as { total: number; ids: string[] });
     const first = await page(0);
     expect(first.total).toBe(6);
     expect([...first.ids, ...(await page(4)).ids].map(keyOf)).toEqual(expected);

@@ -53,8 +53,6 @@ const NOT_BATCH: Partial<Record<ToolName, Record<string, string>>> = {
   order_settings: { names: 'one ordering of the statuses or tags' },
   tag_items: { add: 'the tags put on each of `ids`', remove: 'the tags taken off each of `ids`' },
   pull_app_defaults: { sections: 'the settings sections pulled, six at most' },
-  // The scope of one run. A run always asks in auto review (class run), whatever its size.
-  start_run: Object.fromEntries(['groupIds', 'unitIds', 'tagIds', 'marks', 'termIds', 'statuses', 'speakers', 'listeners', 'kinds'].map((field) => [field, 'the scope of one run'])),
 };
 
 /** The class and route every tool derives to. A change here is a change in what asks, so it shows as a diff. */

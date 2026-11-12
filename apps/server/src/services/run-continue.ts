@@ -1,5 +1,5 @@
 import { and, eq, inArray } from 'drizzle-orm';
-import { choiceKey, withRunModels, type AiNode, type RunModels } from '@tw/shared';
+import { choiceKey, linesById, someOf, withRunModels, type AiNode, type RunModels, type RunScope } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { workflowIssues } from './workflow-issues.ts';
@@ -48,7 +48,8 @@ export async function continuePreflight(db: Db, run: Run, models: RunModels | un
   if (!switched.ok) return switched;
   const unitIds = remainingLines(db, run.id, retryFailed);
   // The run's items as they are: lines by id regardless of status, or terms by id.
-  const scope = run.subject === 'terms' ? { termIds: unitIds } : { unitIds };
+  const ids = someOf(unitIds);
+  const scope: RunScope = run.subject === 'terms' ? { terms: ids ? { ids } : { nothing: true } } : { filter: linesById(unitIds) };
   const plan = await preflight(db, { id: run.workflowId, projectId: run.projectId, definition: switched.definition }, scope);
   // On the same models, this run's own record says how long a line takes better than recent calls do.
   const own = switched.changes.length ? null : ownPace(db, run, switched.definition, unitIds.length);

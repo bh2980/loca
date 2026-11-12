@@ -1,14 +1,15 @@
-import { and, count, eq, inArray, like, or, sql } from 'drizzle-orm';
+import { and, count, eq, inArray, sql } from 'drizzle-orm';
 import { alias } from 'drizzle-orm/sqlite-core';
-import { batchConfigSchema, decidedBy, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type AutoMark, type LineMark, type WorkflowDefinition } from '@tw/shared';
+import { batchConfigSchema, decidedBy, isWholeScriptWorkflow, matchesMarks, termMarksOf, withDuplicateTargets, workflowInput, type AiNode, type RunScope, type WorkflowDefinition } from '@tw/shared';
 import { tagsOf } from '../services/knowledge-tags.ts';
 import { fillTermUsage } from '../services/term-usage.ts';
-import { inChunks, inList } from '../db/chunk.ts';
+import { inChunks } from '../db/chunk.ts';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import type { ItemData } from '../db/schema.ts';
 import { events } from '../events.ts';
-import { excludedSql, knownListenerSql, lineFactConditions, markConditions, translatableSql, unknownListenerSql } from '../services/line-marks.ts';
+import { lineConditions } from '../services/line-filter.ts';
+import { excludedSql, translatableSql } from '../services/line-marks.ts';
 import { resolveBudgets } from '../services/budgets.ts';
 import { snapshotWorkflowModels } from '../services/routes.ts';
 import { expandedDefinition } from './expand-calls.ts';
@@ -22,56 +23,33 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * run without importing the scheduler (and the scheduler can use preflight's overhead estimate).
  */
 
-/** The lines a scope names, before 번역 제외 is taken out. */
-function scopeConditions(db: Db, projectId: string, scope: s.RunScope) {
-  const statusIds = scope.statusIds ?? [];
-  const conditions = [eq(s.units.projectId, projectId)];
-  // Exactly the lines in those statuses, like the line list's filter.
-  if (statusIds.length) conditions.push(inArray(s.units.statusId, statusIds));
-  // A scope can name every line of a large project; long lists travel as one JSON parameter.
-  if (scope.groupIds?.length) conditions.push(inList(s.units.groupId, scope.groupIds));
-  if (scope.unitIds?.length) conditions.push(inList(s.units.id, scope.unitIds));
-  // Tags and marks combine with AND, like the line list's filter: a line must carry every one picked.
-  for (const tagId of scope.tagIds ?? []) conditions.push(inArray(s.units.id, db.select({ id: s.unitTags.unitId }).from(s.unitTags).where(eq(s.unitTags.tagId, tagId))));
-  // A lines run only carries line marks (scopeMismatch refuses the others before a run or preview).
-  conditions.push(...markConditions(projectId, scope.marks as LineMark[] | undefined), ...lineFactConditions(projectId, scope));
-  // Who says it, to whom, what kind of line, what text: the line list's rules (services/script-query.ts findLines).
-  if (scope.speakers?.length) conditions.push(inList(s.units.speaker, scope.speakers));
-  if (scope.listeners?.length) {
-    const names = scope.listeners.filter((name) => name !== '-');
-    conditions.push(or(...(names.length ? [and(inList(s.units.listener, names), knownListenerSql)!] : []), ...(scope.listeners.includes('-') ? [unknownListenerSql(projectId)] : []))!);
-  }
-  if (scope.kinds?.length) conditions.push(inList(s.units.kind, scope.kinds));
-  if (scope.q?.trim()) conditions.push(like(s.units.source, `%${scope.q.trim()}%`));
-  return conditions;
-}
-
-/** Selects the lines a run starts with: what the scope names. 번역 제외 lines never enter a run, whatever the scope names. */
-export function selectRunUnits(db: Db, projectId: string, scope: s.RunScope): string[] {
-  return db.select({ id: s.units.id }).from(s.units).where(and(...scopeConditions(db, projectId, scope), translatableSql(projectId))).all().map((row) => row.id);
+/** Selects the lines a run starts with: what the scope's filter names (the line filter every list uses). 번역 제외 lines never enter a run, whatever the scope names. */
+export function selectRunUnits(db: Db, projectId: string, scope: RunScope): string[] {
+  return db.select({ id: s.units.id }).from(s.units).where(and(...lineConditions(projectId, scope.filter ?? {}), translatableSql(projectId))).all().map((row) => row.id);
 }
 
 /**
- * The terms a run of a terms workflow starts with, most used first: the scope's termIds, narrowed by its
+ * The terms a run of a terms workflow starts with, most used first: the scope's terms, narrowed by its
  * statuses, who decided them, an empty Korean form, marks (the glossary's rules: matchesMarks) and tags (all of them). Rejected terms are hidden like in the glossary: only a scope that asks for them
  * (statuses include rejected) takes them. Usage counts are filled first, so "most used" and the 미사용 mark are current.
  */
-export function selectRunTerms(db: Db, projectId: string, scope: s.RunScope): string[] {
+export function selectRunTerms(db: Db, projectId: string, scope: RunScope): string[] {
+  const wanted = scope.terms ?? {};
+  if (wanted.nothing) return [];
   fillTermUsage(db, projectId);
-  const named = scope.termIds?.length ? new Set(scope.termIds) : null;
-  const statuses = scope.statusIds ?? [];
-  const marks = (scope.marks ?? []) as AutoMark[];
+  const named = wanted.ids ? new Set<string>(wanted.ids) : null;
+  const statuses: readonly string[] | undefined = wanted.statuses;
   const rows = withDuplicateTargets(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all());
-  const tags = scope.tagIds?.length ? tagsOf(db, 'terms', rows.map((term) => term.id)) : null;
+  const tags = wanted.tagIds ? tagsOf(db, 'terms', rows.map((term) => term.id)) : null;
   return rows
-    .filter((term) => (!named || named.has(term.id)) && (statuses.length ? statuses.includes(term.status) : term.status !== 'rejected') && (!scope.decidedBy || decidedBy(term, scope.decidedBy)) && (scope.emptyTarget === undefined || !term.target.trim() === scope.emptyTarget) && matchesMarks(termMarksOf(term), marks) && (!tags || scope.tagIds!.every((id) => tags.get(term.id)?.some((tag) => tag.id === id))))
+    .filter((term) => (!named || named.has(term.id)) && (statuses ? statuses.includes(term.status) : term.status !== 'rejected') && (!wanted.decidedBy || decidedBy(term, wanted.decidedBy)) && (wanted.emptyTarget === undefined || !term.target.trim() === wanted.emptyTarget) && matchesMarks(termMarksOf(term), wanted.marks) && (!tags || wanted.tagIds!.every((id) => tags.get(term.id)?.some((tag) => tag.id === id))))
     .sort((a, b) => (b.lines ?? 0) - (a.lines ?? 0) || a.source.localeCompare(b.source))
     .map((term) => term.id);
 }
 
 /** Lines the scope names that 번역 제외 keeps out of the run (the run dialog says how many). */
-export function excludedInScope(db: Db, projectId: string, scope: s.RunScope): number {
-  return db.select({ count: count() }).from(s.units).where(and(...scopeConditions(db, projectId, scope), excludedSql(projectId))).get()!.count;
+export function excludedInScope(db: Db, projectId: string, scope: RunScope): number {
+  return db.select({ count: count() }).from(s.units).where(and(...lineConditions(projectId, scope.filter ?? {}), excludedSql(projectId))).get()!.count;
 }
 
 /**
@@ -141,7 +119,7 @@ export function planRun(db: Db | Tx, definition: WorkflowDefinition, unitIds: st
   return new Map(batches.flatMap((batch, index) => batch.map((line) => [line.id, index] as const)));
 }
 
-type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: s.RunScope; limits?: s.RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
+type RunInput = { projectId: string; workflow: typeof s.workflows.$inferSelect; models: Record<string, s.AiSnapshot>; scope: RunScope; limits?: s.RunLimits; /** The conversation it starts from: hears its end. */ sessionId?: string | null };
 
 /** The project's tags that the definition's exit actions name. */
 function exitTags(db: Db, projectId: string, definition: WorkflowDefinition): s.RunTag[] {

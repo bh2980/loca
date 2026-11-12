@@ -11,7 +11,7 @@ const plan = (over: Partial<RunCardPlan> = {}): RunCardPlan => ({
   suggestedLimits: { maxCalls: 120, maxInputTokens: 900_000 },
   ...over,
 });
-const card = (id: string, over: Partial<RunCard> = {}): RunCard => ({ id, workflowId: 'w1', workflowName: '번역', input: 'lines', chips: [{ kind: '장면', id: 'g1', label: 'Greywater Ferry' }], scope: { groupIds: ['g1'] }, plan: plan(), state: 'pending', createdAt: 1, ...over });
+const card = (id: string, over: Partial<RunCard> = {}): RunCard => ({ id, workflowId: 'w1', workflowName: '번역', input: 'lines', chips: [{ kind: '장면', id: 'g1', label: 'Greywater Ferry' }], scope: { filter: { groupIds: ['g1'] } }, plan: plan(), state: 'pending', createdAt: 1, ...over });
 const text = (id: string, role: 'user' | 'assistant' = 'user'): UIMessage => ({ id, role, parts: [{ type: 'text', text: id }] });
 const message = (value: RunCard) => runCardMessage(value) as unknown as UIMessage;
 

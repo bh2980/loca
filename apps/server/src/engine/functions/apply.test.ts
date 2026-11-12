@@ -149,7 +149,7 @@ describe('apply nodes', () => {
   it('writes a candidate into the line unless a person saved the translation', () => {
     const ctx = setup();
     const params = { map: { text: 'text' } };
-    ctx.db.update(s.runs).set({ scope: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } }).run();
+    ctx.db.update(s.runs).set({ scope: { filter: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } } }).run();
     const fresh = apply(ctx, 'saveCandidate', params, { text: '늦었군.' }, 'a1');
     expect(fresh.output).toMatchObject({ applied: true });
     expect(ctx.db.select().from(s.units).where(eq(s.units.key, 'a1')).get()).toMatchObject({ translation: '늦었군.', statusBy: 'ai' });
@@ -174,7 +174,7 @@ describe('apply nodes', () => {
   it('says a revision changed nothing by the text the AI node was given, not by a person\'s translation it never replaced', () => {
     const ctx = setup();
     const params = { map: { text: 'text' } };
-    ctx.db.update(s.runs).set({ scope: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } }).run();
+    ctx.db.update(s.runs).set({ scope: { filter: { statusIds: [ctx.db.select().from(s.statuses).get()!.id] } } }).run();
     const save = (text: string, textBefore?: string) => {
       ctx.db.update(s.units).set({ translation: '사람이 씀', statusBy: 'human' }).where(eq(s.units.key, 'a2')).run();
       return apply(ctx, 'saveCandidate', params, { text }, 'a2', textBefore === undefined ? {} : { textBefore }).output;

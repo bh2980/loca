@@ -1,6 +1,7 @@
 import { TOOL_SPECS, APP_DEFAULT_SECTION_LABELS, TAG_SCOPES, TAG_SCOPE_LABELS, TERM_LINE_KIND_LABELS, type AppDefaultSection, type AgeBand, type AutoMark, type Gender, personLabel, CHARACTER_ROLE_LABELS, type CharacterRole, type RunCardPlan, type TermLineKind } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { cardSummary } from '@/lib/chat-run';
+import { GROUP_KIND } from '@/lib/labels';
 import { startCaps, type CapEdits } from '@/lib/run-limits';
 import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
@@ -235,15 +236,31 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
       );
     }
     case 'start_run': {
-      const list = (key: string) => (input[key] as string[] | undefined) ?? [];
+      // The scope as it was asked (runScopeInputSchema): the line filter of a lines run, or the terms of a terms run.
+      const filter = ((input.filter as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+      const asked = ((input.terms as Record<string, unknown> | undefined) ?? {}) as Record<string, unknown>;
+      const list = (from: Record<string, unknown>, key: string) => (from[key] as string[] | undefined) ?? [];
       // A long list reads as its first names and how many more.
-      const some = (key: string) => {
-        const names = list(key).map((value) => String(named(value)));
+      const some = (from: Record<string, unknown>, key: string) => {
+        const names = list(from, key).map((value) => String(named(value)));
         return names.length > 3 ? `${names.slice(0, 3).join(', ')} 외 ${names.length - 3}개` : names.join(', ');
       };
+      const count = (from: Record<string, unknown>, key: string) => (list(from, key).length ? `${list(from, key).length.toLocaleString()}개` : undefined);
+      const people = (key: string) => list(filter, key).map((name) => (name === '-' ? '청자 모름' : name)).join(', ');
       const terms = run?.input === 'terms';
-      const marks = list('marks') as AutoMark[];
-      const narrowed = ['groupIds', 'unitIds', 'kinds', 'statuses', 'speakers', 'listeners', 'tagIds', 'termIds', 'marks'].some((key) => list(key).length > 0) || ['q', 'unfinished', 'decidedBy', 'noted', 'emptyTarget'].some((key) => input[key] !== undefined);
+      const marks = [...list(filter, 'marks'), ...list(asked, 'marks')] as AutoMark[];
+      const hiddenMarks = list(filter, 'hideMarks') as AutoMark[];
+      const chips = (label: string, shown: AutoMark[]) =>
+        shown.length > 0 && (
+          <Grid columns="field" gap="condensed">
+            <Text as="dt" variant="caption" tone="muted">{label}</Text>
+            <Inline as="dd" minWidth={0} wrap gap="tight">
+              {shown.map((mark) => <MarkChip key={mark} mark={mark} />)}
+            </Inline>
+          </Grid>
+        );
+      const narrowed = Object.keys(filter).length > 0 || Object.keys(asked).length > 0;
+      const decidedBy = filter.decidedBy ?? asked.decidedBy;
       const summary = run && cardSummary(run.input, run.plan);
       const models = Object.entries((input.models as Record<string, { connection?: string; model?: string }> | undefined) ?? {});
       return (
@@ -252,27 +269,31 @@ export function ChangePreview({ name, input, pending = true, details, run }: { n
           {summary && field('대상', [summary.targets, `AI 요청 ${summary.requests}`, summary.time && `약 ${summary.time}`, summary.money].filter(Boolean).join(' · '))}
           {summary && summary.excluded > 0 && field('빠지는 줄', `번역 제외 ${summary.excluded.toLocaleString()}줄`)}
           {!narrowed && field('범위', terms ? '용어집 전체' : '프로젝트 전체')}
-          {field('장면', some('groupIds'))}
-          {list('unitIds').length > 0 && field('대사', `${list('unitIds').length.toLocaleString()}개`)}
-          {field('종류', list('kinds').map((kind) => TERM_LINE_KIND_LABELS[kind as TermLineKind] ?? kind).join(', '))}
-          {field('상태', some('statuses'))}
-          {field('화자', some('speakers'))}
-          {field('청자', list('listeners').map((listener) => (listener === '-' ? '청자 모름' : listener)).join(', '))}
-          {field('태그', some('tagIds'))}
-          {field('용어', some('termIds'))}
-          {marks.length > 0 && (
-            <Grid columns="field" gap="condensed">
-              <Text as="dt" variant="caption" tone="muted">표시</Text>
-              <Inline as="dd" minWidth={0} wrap gap="tight">
-                {marks.map((mark) => <MarkChip key={mark} mark={mark} />)}
-              </Inline>
-            </Grid>
-          )}
-          {field('원문', input.q)}
-          {input.unfinished !== undefined && field('진행', input.unfinished ? '최종 아님' : '최종')}
-          {input.decidedBy !== undefined && field('정한 쪽', input.decidedBy === 'ai' ? 'AI' : '사람')}
-          {input.noted !== undefined && field('메모', input.noted ? '있음' : '없음')}
-          {input.emptyTarget !== undefined && field('번역', input.emptyTarget ? '비어 있음' : '있음')}
+          {field('장면', some(filter, 'groups'))}
+          {field('구역', some(filter, 'sections'))}
+          {field('묶음 종류', filter.groupKind && GROUP_KIND[filter.groupKind as keyof typeof GROUP_KIND])}
+          {field('보기', filter.view)}
+          {field('대사', count(filter, 'ids') ?? count(filter, 'keys'))}
+          {field('종류', filter.kind && (TERM_LINE_KIND_LABELS[filter.kind as TermLineKind] ?? filter.kind))}
+          {field('상태', some(filter, 'statuses') || some(asked, 'statuses'))}
+          {field('숨긴 상태', some(filter, 'hideStatuses'))}
+          {filter.review === true && field('검토함', '검토함에 보이는 상태만')}
+          {field('화자', people('speakers'))}
+          {field('숨긴 화자', people('hideSpeakers'))}
+          {field('청자', people('listeners'))}
+          {field('언급', people('mentions'))}
+          {field('태그', some(filter, 'tags') || some(asked, 'tags'))}
+          {field('숨긴 태그', some(filter, 'hideTags'))}
+          {field('용어', some(asked, 'terms'))}
+          {chips('표시', marks)}
+          {chips('숨긴 표시', hiddenMarks)}
+          {field('검색', filter.q)}
+          {filter.unfinished !== undefined && field('진행', filter.unfinished ? '최종 아님' : '최종')}
+          {decidedBy !== undefined && field('정한 쪽', decidedBy === 'ai' ? 'AI' : '사람')}
+          {filter.noted !== undefined && field('메모', filter.noted ? '있음' : '없음')}
+          {filter.translated !== undefined && field('번역', filter.translated ? '있는 줄만' : '없는 줄만')}
+          {filter.excluded === 'only' && field('번역 제외', '번역 제외인 줄만 (실행에서는 빠짐)')}
+          {asked.emptyTarget !== undefined && field('번역', asked.emptyTarget ? '비어 있음' : '있음')}
           {!terms && field('사람이 정한 것', input.changeHuman ? '상태·태그도 바꿈' : '그대로 두고 실행 상세에 남김')}
           {models.length > 0 && field('모델', models.map(([node, pick]) => `${node === '*' ? '모든 AI 노드' : String(named(node))} → ${String(named(pick.connection))} · ${pick.model}`).join(', '))}
           {(run || input.limits !== undefined) && field('상한', startCaps(input.limits as CapEdits | undefined, run?.plan.suggestedLimits))}

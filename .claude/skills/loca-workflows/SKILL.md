@@ -87,17 +87,19 @@ loca connections test <연결> <모델> "짧은 원문"               # 모델�
 AI 호출은 비용이 들어 시작·이어 하기는 터미널 권한 모드를 따릅니다. "바로 반영"이면 바로 시작되고, 아니면 사람이 수락할 때까지 제안으로 기다립니다(`loca` 스킬).
 ```
 loca runs plan <워크플로> -g <장면>               # 읽기만: 대사 수, 묶음·요청 수 추정, 권장 상한, 준비 상태
-loca runs plan <워크플로> --section "03 · 본편" -s Alice --kind dialogue   # 화자(-s)·청자(--listener, - = 청자 미상)·종류(--kind)·원문 글자(-q)로도 좁힘
+loca runs plan <워크플로> --section "03 · 본편" -s Alice --kind dialogue   # 범위는 loca lines와 같은 필터 플래그 전부: 화자(-s)·청자(--listener, - = 청자 미상)·종류(--kind)·글자(-q)·상태·태그·--unfinished …
 loca runs start <워크플로> -g <장면> --wait       # 시작(제안이면 결정을 기다림) → 끝날 때까지 기다린 뒤 요약
 ```
 - 범위(대사 입력):
-  - 옵션: `-g` 장면·묶음, `--section` 구역(장), `--key` 대사, `--view` 대사 그래프 보기, `--status` 상태(이름·id), `--unfinished` 최종 아님, `--by ai|human` 정한 쪽, `--noted` 메모 있음, `--listener -` 청자 모름, `--mark` 자동 태그, `--tag` 태그. 모두 만족해야 합니다. 상태나 최종 아님으로 고른 실행은 사람이 저장한 번역을 덮어쓰지 않습니다.
+  - 옵션: `loca lines`와 같은 대사 필터 전부입니다(`loca` 스킬의 필터 표). 자주 쓰는 것: `-g` 장면·묶음, `--section` 구역(장), `--key` 대사, `--view` 대사 그래프 보기, `--status` 상태(이름·id), `--unfinished` 최종 아님, `--by ai|human` 정한 쪽, `--noted` 메모 있음, `-s` 화자, `--listener -` 청자 모름, `--mark` 자동 태그, `--tag` 태그, `--hide-…` 숨기기. 모두 만족해야 합니다. 상태로 고른 실행(`--status`·`--hide-status`·`--unfinished`·`--finished`·`--review`)은 사람이 저장한 번역을 덮어쓰지 않습니다.
+  - 없는 이름(상태·태그·묶음·구역·대사 키·보기)은 plan도 start도 오류로 답합니다(`찾지 못함: …`). 조건이 빠진 채 더 넓게 도는 일은 없습니다.
+  - 채팅 도구도 같습니다: `plan_run`과 `start_run`은 `filter`(`find_lines`와 같은 대사 필터)를 받습니다. 예: `{"workflowId": "…", "filter": {"groups": ["c1.ferry"], "statuses": ["미번역"]}}`.
   - 아무것도 없으면 모든 대사입니다. 워크플로에는 대상 상태가 없고, 범위는 실행할 때 정합니다.
 - 범위(용어 입력):
-  - 옵션: `--term <원문|id...>` 용어, `--status` 상태, `--by ai|human` 정한 쪽, `--empty-target` 번역어 없음, `--mark` 용어 자동 태그(`unused` 대본 미등장, `duplicateTarget` 번역어 중복), `--tag` 용어 태그.
+  - 옵션: `--term <원문|id...>` 용어, `--status` 상태, `--by ai|human` 정한 쪽, `--empty-target` 번역어 없음(`--has-target` 있음), `--mark` 용어 자동 태그(`unused` 대본 미등장, `duplicateTarget` 번역어 중복), `--tag` 용어 태그. 도구로는 `terms`: `{"workflowId": "…", "terms": {"statuses": ["후보"], "emptyTarget": true}}`.
   - `--status`는 후보·확정이고, 버림은 넣을 때만 명시합니다. 용어집의 상태 열과 같습니다.
   - 아무것도 없으면 모든 용어입니다(많이 쓰인 순).
-  - 대사 범위 옵션(`-g`·`--key`·`--view`)은 용어 입력 워크플로에, `--term`은 대사 입력 워크플로에 쓸 수 없고 서버가 거절합니다.
+  - 그 밖의 대사 필터(`-g`·`--key`·`--view`·`-s` …)는 용어 입력 워크플로에, `--term`·`--empty-target`은 대사 입력 워크플로에 쓸 수 없고 서버가 거절합니다.
   - plan의 개수는 용어 수이고, 청자·말투 규칙 준비 상태는 나오지 않습니다.
 - 이번 실행만 다른 모델을 쓰려면 `--model "연결:모델"`(모든 AI 단계) 또는 `--model "노드=연결:모델"`(한 단계)을 씁니다. 워크플로는 바뀌지 않습니다.
 - **상한:** 실행은 plan이 보여 주는 권장 상한(예상 요청·입력 토큰의 1.3배와 재시도 여유)에서 일시정지합니다. 앱의 실행 창, 채팅에서 시작한 실행과 같은 값입니다. 사용자가 원할 때만 `--max-calls <n>`·`--max-input-tokens <n>`으로 바꾸거나 `none`으로 없앱니다. 상한에 닿아 멈추면 이유를 알리고 `runs resume --max-calls`로 올릴지 묻습니다.

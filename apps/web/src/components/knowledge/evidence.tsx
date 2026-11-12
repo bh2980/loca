@@ -290,7 +290,7 @@ export function PairLines({ projectId, lines }: { projectId: string; lines: Retu
 
 /** This pair's lines (by listener), to pick the one where the speech changes or starts. */
 export function StretchPicker({ projectId, from, to, taken, onPick, onCancel }: { projectId: string; from: string; to: string; taken: Set<string>; onPick: (key: string) => void; onCancel: () => void }) {
-  const lines = useLinePage(projectId, { speaker: from, listener: to, limit: 300 });
+  const lines = useLinePage(projectId, { speakers: [from], listeners: [to], limit: 300 });
   return (
     <Box spaceY="tight">
       <Inline gap="condensed" minHeight="control-sm">

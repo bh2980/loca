@@ -153,12 +153,17 @@ function refsOf(db: Db, proposal: Proposal): Record<string, string> {
       named('workflows', [...ids('id'), ...ids('workflowId')]);
       break;
     case 'start_run': {
+      // The scope names things by id or by name (runScopeInputSchema): ids get their names, names are shown as written.
+      const part = (key: 'filter' | 'terms') => (isRecord(input[key]) ? input[key] : {});
+      const listed = (from: Record<string, unknown>, key: string) => (Array.isArray(from[key]) ? (from[key] as unknown[]).filter((value): value is string => typeof value === 'string') : []);
+      const [filter, terms] = [part('filter'), part('terms')];
       named('workflows', ids('workflowId'));
-      named('groups', ids('groupIds'));
-      named('tags', ids('tagIds'));
-      named('statuses', ids('statuses'));
-      for (const value of ids('statuses')) if (value in KNOWLEDGE_STATUS_LABELS) refs[value] = KNOWLEDGE_STATUS_LABELS[value as KnowledgeStatus];
-      if (ids('termIds').length) for (const term of db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(and(eq(s.terms.projectId, proposal.projectId), inArray(s.terms.id, ids('termIds')))).all()) refs[term.id] = term.source;
+      named('groups', listed(filter, 'groups'));
+      named('tags', [...listed(filter, 'tags'), ...listed(filter, 'hideTags'), ...listed(terms, 'tags')]);
+      named('statuses', [...listed(filter, 'statuses'), ...listed(filter, 'hideStatuses')]);
+      for (const value of listed(terms, 'statuses')) if (value in KNOWLEDGE_STATUS_LABELS) refs[value] = KNOWLEDGE_STATUS_LABELS[value as KnowledgeStatus];
+      const termIds = listed(terms, 'terms');
+      if (termIds.length) for (const term of db.select({ id: s.terms.id, source: s.terms.source }).from(s.terms).where(and(eq(s.terms.projectId, proposal.projectId), inArray(s.terms.id, termIds))).all()) refs[term.id] = term.source;
       modelRefs(db.select({ definition: s.workflows.definition }).from(s.workflows).where(and(eq(s.workflows.id, ids('workflowId')[0] ?? ''), eq(s.workflows.projectId, proposal.projectId))).get()?.definition);
       break;
     }

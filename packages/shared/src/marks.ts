@@ -76,7 +76,7 @@ export type ExcludedFilter = (typeof EXCLUDED_FILTERS)[number];
 
 /**
  * What a line filter, a run scope and the CLI can ask of a line besides statuses, tags and marks:
- * the facts its row shows. One shape everywhere (lineFilterSchema, runScopeSchema, the list route).
+ * the facts its row shows. One shape everywhere (lineFilterSchema and what is resolved from it).
  */
 export const lineFactsShape = {
   /** Lines whose status is not final (true: 최종 아님, the work left; 번역 제외 lines are not work) or final (false). */

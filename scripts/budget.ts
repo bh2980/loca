@@ -118,7 +118,7 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   if (!workflow) throw new Error(`workflow "${scenario.workflow}" is not among the imported templates`);
   // The run takes its definition from here (a snapshot), so the override needs no write.
   if (scenario.settings) workflow = { ...workflow, definition: { ...workflow.definition, settings: { ...workflow.definition.settings, ...scenario.settings } } };
-  const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: { ignoreStatus: true } });
+  const { runId } = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} });
 
   const started = performance.now();
   // A 재요청 node's wait (rate limits, dropped connections) is skipped, not slept: the clock jumps to when the first waiting line is due.

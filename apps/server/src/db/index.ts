@@ -2,7 +2,7 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync } from 'node:f
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import Database from 'better-sqlite3';
-import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
+import { DEFAULT_RETRY_RULES, exclusionRulesSchema, formatRulesSchema, lineExclusion, mentions, needsListener, retryRuleSchema, type LineTranslate } from '@tw/shared';
 import { drizzle } from 'drizzle-orm/better-sqlite3';
 import { migrate } from 'drizzle-orm/better-sqlite3/migrator';
 import * as schema from './schema.ts';
@@ -174,6 +174,15 @@ export function openDatabase(file: string, folder = migrationsFolder) {
       const rulesKey = typeof rules === 'string' ? rules : '';
       if (!exclusionsOf.has(rulesKey)) exclusionsOf.set(rulesKey, exclusionRulesSchema.parse(rulesKey ? JSON.parse(rulesKey) : {}));
       return lineExclusion({ source: String(source ?? ''), translate: (translate as LineTranslate | null) ?? null }, rulesOf.get(formatKey), exclusionsOf.get(rulesKey), typeof language === 'string' ? language : null);
+    });
+    // mentions_any(source, names json): the source mentions one of the names as a whole word or as a {NAME} placeholder
+    // (mentions in shared itself), so a line filter's mentions are a condition like the others (services/line-filter.ts).
+    let named: { json: string; names: string[] } | undefined;
+    sqlite.function('mentions_any', { deterministic: true }, (source: unknown, names: unknown) => {
+      const json = typeof names === 'string' ? names : '[]';
+      if (named?.json !== json) named = { json, names: JSON.parse(json) as string[] };
+      const text = String(source ?? '');
+      return named.names.some((name) => mentions(text, name) || text.includes(`{${name}}`)) ? 1 : 0;
     });
     registerMigrationFunctions(sqlite);
     const backup = existed ? backupBeforeMigration(sqlite, file, folder) : null;

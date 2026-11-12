@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { keepPreviousData, queryOptions, useQuery } from '@tanstack/react-query';
 import { createCollection, createOptimisticAction, useLiveQuery, type Collection } from '@tanstack/react-db';
 import type { InferResponseType } from 'hono/client';
-import type { FeedChanges, FeedRows } from '@tw/shared';
+import type { FeedChanges, FeedRows, LineFilterInput } from '@tw/shared';
 import { client, unwrap } from './api';
 import { sent } from './collections';
 import { feed } from './feed';
@@ -11,7 +11,7 @@ import { queryClient } from './query-client';
 /**
  * The lines the screens show, one collection per project: unlike the other collections it holds only
  * the lines asked for (POST units/by-ids), not all of them, and the row feed keeps those current. A
- * list asks the server for its page as ids (GET units/ids) and reads the rows from here, so a changed
+ * list asks the server for its page as ids (POST units/ids) and reads the rows from here, so a changed
  * line comes as its own row and only that line is drawn again. The open lines' candidates and run
  * history (POST units/extras) are held the same way, beside them.
  */
@@ -267,22 +267,20 @@ export function useLineRow(projectId: string, unitId: string | undefined) {
   return useLines(projectId, ids).rows?.[0];
 }
 
-export type LineQuery = { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string; decidedBy?: 'ai' | 'human'; excluded?: 'hide' | 'only'; focus?: string; offset?: number; limit?: number };
-
-/** A page of a line filter as ids, its total and lines per scene (units topic: a change may move lines in or out). */
-export const lineIds = (projectId: string, query: LineQuery) =>
+/** A page of a line filter as ids, its total and lines per scene (units topic: a change may move lines in or out). `focus`: open the page holding this line. */
+export const lineIds = (projectId: string, filter: LineFilterInput, focus?: string) =>
   queryOptions({
-    queryKey: ['units', 'ids', projectId, query],
-    queryFn: () => unwrap(client.projects[':projectId'].units.ids.$get({ param: { projectId }, query: { ...query, offset: query.offset?.toString(), limit: query.limit?.toString() } as never })),
+    queryKey: ['units', 'ids', projectId, filter, focus ?? null],
+    queryFn: () => unwrap(client.projects[':projectId'].units.ids.$post({ param: { projectId }, json: { filter, focus } })),
     placeholderData: keepPreviousData,
   });
 
-/** A page of lines: which lines and in what order from the server, the lines themselves from the collection. */
-export function useLinePage(projectId: string, query: LineQuery, { enabled = true }: { enabled?: boolean } = {}) {
-  const page = useQuery({ ...lineIds(projectId, query), enabled });
+/** A page of lines: which lines and in what order from the server (the one line filter, as JSON), the lines themselves from the collection. */
+export function useLinePage(projectId: string, filter: LineFilterInput, { enabled = true, focus }: { enabled?: boolean; focus?: string } = {}) {
+  const page = useQuery({ ...lineIds(projectId, filter, focus), enabled });
   const lines = useLines(projectId, enabled ? page.data?.ids : undefined);
   const data = useMemo(() => (page.data && lines.rows ? { total: page.data.total, offset: page.data.offset, scenes: page.data.scenes, rows: lines.rows } : undefined), [page.data, lines.rows]);
-  return { data, isPlaceholderData: page.isPlaceholderData || lines.loading, isError: page.isError };
+  return { data, isPlaceholderData: page.isPlaceholderData || lines.loading, isError: page.isError, error: page.error };
 }
 
 /** Lines by key in script order (evidence, where a speech rule starts): the keys' ids are a question, the lines come from the collection. */

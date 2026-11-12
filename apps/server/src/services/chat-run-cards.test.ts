@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { eq } from 'drizzle-orm';
 import { describe, expect, it } from 'vitest';
 import type { UIMessage } from 'ai';
-import { importFileSchema, runCardMessage, runCardOf, type RunCard } from '@tw/shared';
+import { importFileSchema, linesById, runCardMessage, runCardOf, type RunCard } from '@tw/shared';
 import type { Env } from '../context.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -26,13 +26,13 @@ const setup = () => {
   return { db, projectId, workflow, group, sessionId, post, stored, make };
 };
 const user = (id: string, text: string): UIMessage => ({ id, role: 'user', parts: [{ type: 'text', text }] });
-const card = (over: Partial<RunCard> = {}): RunCard => ({ id: 'c1', workflowId: 'w1', workflowName: '번역', input: 'lines', chips: [{ kind: '장면', id: 'g1', label: 'Ferry' }], scope: { groupIds: ['g1'] }, plan: { lines: { total: 12, excluded: 0 }, totals: { calls: { min: 1, expected: 2, max: 3 } }, pace: { seconds: null, costUsd: null, subscription: false } }, state: 'pending', createdAt: 1, ...over });
+const card = (over: Partial<RunCard> = {}): RunCard => ({ id: 'c1', workflowId: 'w1', workflowName: '번역', input: 'lines', chips: [{ kind: '장면', id: 'g1', label: 'Ferry' }], scope: { filter: { groupIds: ['g1'] } }, plan: { lines: { total: 12, excluded: 0 }, totals: { calls: { min: 1, expected: 2, max: 3 } }, pace: { seconds: null, costUsd: null, subscription: false } }, state: 'pending', createdAt: 1, ...over });
 
 describe('the run card is stored in the conversation', () => {
   it('is made from the picks with the preflight numbers, as a pending message at the end', async () => {
     const { make, stored, workflow, group } = setup();
     const made = await make();
-    expect(made).toMatchObject({ workflowId: workflow.id, workflowName: '번역', input: 'lines', state: 'pending', scope: { groupIds: [group.id] }, plan: { lines: { total: 2, excluded: 0 } } });
+    expect(made).toMatchObject({ workflowId: workflow.id, workflowName: '번역', input: 'lines', state: 'pending', scope: { filter: { groupIds: [group.id] } }, plan: { lines: { total: 2, excluded: 0 } } });
     expect(made.runId).toBeUndefined();
     expect(made.plan.totals.calls.max).toBeGreaterThan(0);
     const messages = stored();
@@ -73,7 +73,7 @@ describe('the run card is stored in the conversation', () => {
     const started = (await (first.status === 200 ? first : second).json()) as RunCard;
     expect(started).toMatchObject({ id: made.id, state: 'started' });
     const run = db.select().from(s.runs).where(eq(s.runs.id, started.runId!)).get()!;
-    expect(run).toMatchObject({ workflowId: workflow.id, scope: { groupIds: [group.id] } });
+    expect(run).toMatchObject({ workflowId: workflow.id, scope: { filter: { groupIds: [group.id] } } });
     expect(db.select().from(s.runs).all()).toHaveLength(1);
     expect(runCardOf(stored()[0]!)).toMatchObject({ state: 'started', runId: run.id });
     expect((await post(`run-cards/${made.id}/cancel`)).status).toBe(400);
@@ -120,7 +120,7 @@ describe('what the agent is told about a card', () => {
   });
 
   it('costs its line in the compaction estimate, not the scope ids it carries', () => {
-    const big = card({ scope: { unitIds: Array.from({ length: 5_000 }, (_, i) => `unit-${i}-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`) } });
+    const big = card({ scope: { filter: linesById(Array.from({ length: 5_000 }, (_, i) => `unit-${i}-aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa`)) } });
     expect(partsTokens((runCardMessage(big) as unknown as UIMessage).parts)).toBeLessThan(200);
   });
 });

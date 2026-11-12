@@ -21,7 +21,7 @@ describe('the card of a proposed run', () => {
   afterEach(() => { document.body.innerHTML = ''; });
 
   it('says how much it takes in and what narrows it', async () => {
-    const shown = await text({ name: 'start_run', input: { workflowId: 'w1', kinds: ['ui'], statuses: ['s1'], speakers: ['MIRA'], listeners: ['-'], q: 'tide' }, details, run: { input: 'lines', plan } });
+    const shown = await text({ name: 'start_run', input: { workflowId: 'w1', filter: { kind: 'ui', statuses: ['s1'], speakers: ['MIRA'], listeners: ['-'], q: 'tide' } }, details, run: { input: 'lines', plan } });
     expect(shown).toContain('번역');
     expect(shown).toContain('40줄 · AI 요청 2~9회');
     expect(shown).toContain('번역 제외 3줄');
@@ -37,7 +37,7 @@ describe('the card of a proposed run', () => {
   });
 
   it('names a few scenes and counts the rest', async () => {
-    const shown = await text({ name: 'start_run', input: { workflowId: 'w1', groupIds: ['g1', 'g2', 'g3', 'g4'] }, details });
+    const shown = await text({ name: 'start_run', input: { workflowId: 'w1', filter: { groups: ['g1', 'g2', 'g3', 'g4'] } }, details });
     expect(shown).toContain('부두, 창고, 등대 외 1개');
   });
 

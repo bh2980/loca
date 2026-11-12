@@ -33,10 +33,13 @@ export async function downloadResults(projectId: string, json: ResultRequest) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-/** The statuses whose translation goes in at first: all of the lines someone picked; those the list is filtered to; else the final ones. */
-export function startStatuses(target: 'view' | 'units' | 'groups', statuses: readonly { id: string; kind: string }[], filter?: { statuses?: string[] }) {
+/** The statuses whose translation goes in at first: all of the lines someone picked; those the list is filtered to (the review inbox: the statuses it shows); else the final ones. */
+export function startStatuses(target: 'view' | 'units' | 'groups', statuses: readonly { id: string; kind: string; inReview?: boolean }[], filter?: { statuses?: string[]; review?: true }) {
   if (target === 'units') return new Set(statuses.map((status) => status.id));
-  if (target === 'view' && filter?.statuses?.length) return new Set(filter.statuses);
+  if (target === 'view' && (filter?.statuses?.length || filter?.review)) {
+    const listed = filter.review ? statuses.filter((status) => status.inReview).map((status) => status.id) : statuses.map((status) => status.id);
+    return new Set(filter.statuses?.length ? filter.statuses.filter((id) => !filter.review || listed.includes(id)) : listed);
+  }
   return new Set(statuses.filter((status) => status.kind === 'final').map((status) => status.id));
 }
 

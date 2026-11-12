@@ -10,7 +10,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { exportDialog, type ExportView } from '@/lib/export-dialog';
 import { lineTags, q, useMarkStyles } from '@/lib/queries';
 import { markColor, type LineMark } from '@tw/shared';
-import { hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, lineQueryParams, type LinesSearch } from '@/components/script/line-filters';
+import { exportFilterOf, hasLineFilter, lineFilterCount, lineFilterOf, LineFilters, filterChips, speakerChoices, type LinesSearch } from '@/components/script/line-filters';
 import { LineHeadRow, useLineBulk } from '@/components/script/line-bulk';
 import { LineRow } from '@/components/script/line-row';
 import { sceneSelectionState } from '@/components/script/scene-selection';
@@ -156,15 +156,12 @@ export function LineList({
     if (search.line && search.line !== pickedHere.current) setFocusing(search.line);
   }, [search.line]);
   // Which lines and in what order from the server; the lines themselves from the units collection.
-  const lines = useLinePage(
-    projectId,
-    find
-      ? { groupId, focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE }
-      : { groupId, section, kind, review: review ? '1' : undefined, ...lineQueryParams(search), focus: focusing, offset: page * PAGE_SIZE, limit: PAGE_SIZE },
-  );
+  // Walking a filter inside a scene shows the whole scene; otherwise the list is its place and the URL's filters.
+  const listed = useMemo(() => (find ? { groups: groupId ? [groupId] : undefined } : lineFilterOf(search, { groupId, section, kind, review })), [find, search, groupId, section, kind, review]);
+  const lines = useLinePage(projectId, { ...listed, offset: page * PAGE_SIZE, limit: PAGE_SIZE }, { focus: focusing });
   // Scene checkboxes act on the scene's whole filtered result, not just this page: its lines are asked for when it is picked.
   const showScene = !groupId;
-  const sceneFilter = { section, kind, review: review ? ('1' as const) : undefined, ...lineQueryParams(search) };
+  const sceneFilter = (scene: string | undefined) => lineFilterOf(search, { groupId: scene, section, kind, review });
   const sceneCounts = useMemo(() => new Map((lines.data?.scenes ?? []).map((scene) => [scene.groupId, scene.count])), [lines.data?.scenes]);
   // Each scene picked whole: its matching lines then, for its checkbox's state.
   const [sceneIds, setSceneIds] = useState(() => new Map<string, string[]>());
@@ -178,7 +175,7 @@ export function LineList({
   const statusList = useMemo(() => taxonomy.statuses ?? [], [taxonomy.statuses]);
   const statusById = new Map(statusList.map((status) => [status.id, status]));
   // What 내보내기 starts from: this list, as it is filtered. Walking a filter inside a scene shows the whole scene.
-  const exportView: ExportView | undefined = exportLabel ? { filter: lineFilterOf(find ? {} : search, { groupId, section, kind, reviewStatuses: review ? statusList.filter((status) => status.inReview).map((status) => status.id) : undefined }), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
+  const exportView: ExportView | undefined = exportLabel ? { filter: exportFilterOf(find ? lineFilterOf({ excluded: 'show' }, { groupId, section, kind, review }) : listed), label: exportLabel, filters: find ? 0 : lineFilterCount(search) } : undefined;
   const tagById = new Map(taxonomy.tags?.map((tag) => [tag.id, tag]));
   const rows = lines.data?.rows;
   const total = lines.data?.total ?? 0;
@@ -200,7 +197,7 @@ export function LineList({
   const { picked, pick } = bulk;
   const pickScene = async (scene: string, on: boolean) => {
     try {
-      const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, { ...sceneFilter, groupId: scene }), staleTime: 0 });
+      const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(scene)), staleTime: 0 });
       bulk.remember(matching);
       setSceneIds((now) => new Map(now).set(scene, matching.map((row) => row.id)));
       pick(matching.map((row) => row.id), on);
@@ -337,7 +334,7 @@ export function LineList({
   }, [filterKey]); // eslint-disable-line react-hooks/exhaustive-deps
   // Everything on this page picked: the rest of the list (every line the filter keeps) is one click away.
   const pickAllMatching = async () => {
-    const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, { ...sceneFilter, groupId }), staleTime: 0 });
+    const { rows: all } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(groupId)), staleTime: 0 });
     bulk.remember(all);
     pick(all.map((row) => row.id), true);
   };
@@ -380,7 +377,7 @@ export function LineList({
           projectId={projectId}
           statuses={statusList}
           tags={lineTags(taxonomy.tags)}
-          speakers={(speakers.data ?? []).flatMap((row) => (row.speaker ? [{ name: row.speaker, lines: row.lines }] : []))}
+          speakers={speakerChoices(speakers.data ?? [])}
           listeners={listeners.data?.listeners ?? []}
           unknownListenerCount={listeners.data?.unknownCount ?? 0}
           listenersPending={listeners.isPending}
@@ -402,7 +399,13 @@ export function LineList({
       {banner}
       {!!rows?.length && <LineHeadRow projectId={projectId} rows={rows} bulk={bulk} statusList={statusList} tags={lineTags(taxonomy.tags)} allMatching={{ total, filtered, onPick: () => void pickAllMatching() }} />}
       <Box minHeight={0} grow overflow="y">
-        {!rows ? (
+        {lines.isError ? (
+          // A filter that names what the project no longer has (a deleted status, tag or scene in a kept link) is refused by name.
+          <Box spaceY="condensed" padding="comfortable">
+            <Text as="p" variant="body" tone="danger">{lines.error instanceof Error ? lines.error.message : '대사를 불러오지 못했습니다.'}</Text>
+            {chips.length > 0 && <Button variant="outline" onClick={clearFilters}>필터 끄기</Button>}
+          </Box>
+        ) : !rows ? (
           <Box spaceY="comfortable" padding="comfortable">
             <Skeleton shape="row" count={6} />
           </Box>

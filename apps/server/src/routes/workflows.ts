@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
-import { fitScope, startWorkflowRun } from '../services/start-run.ts';
+import { startWorkflowRun } from '../services/start-run.ts';
+import { askedScope } from '../services/run-plan.ts';
 import { and, asc, desc, eq, getTableColumns, inArray, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeSchema } from '@tw/shared';
+import { AI_OUTPUT_IDS, type AiOutput, choiceKey, httpParams, FUNCTIONS, type FunctionName, isWholeScriptWorkflow, workflowInput, scriptParams, workflowDefinitionSchema, type WorkflowDefinition, runModelsSchema, withRunModels, WORKFLOW_TEMPLATES, EMPTY_MODEL_CHOICE, runScopeInputSchema, type RunScopeInput } from '@tw/shared';
 import { badRequest, found, validate, type Env } from '../context.ts';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -24,9 +25,13 @@ import { connectionName, connectionNames, runItemIds, runNodeExits, runItemRows,
 import { aiCallRows } from '../services/log-rows.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 
-const scopeSchema = runScopeSchema;
-/** A run's scope and, optionally, the models it uses instead of its nodes' own (by AI node id). */
-const runSchema = scopeSchema.extend({ models: runModelsSchema.optional() });
+/** A run's scope as asked (the line filter or the terms, by name or id) and, optionally, the models it uses instead of its nodes' own (by AI node id). */
+const runSchema = runScopeInputSchema.extend({ models: runModelsSchema.optional() });
+/** The scope a request asks for, resolved for this workflow; one that does not fit it or names what the project does not have is a 400. */
+function scopeOf(db: Db, workflow: Pick<typeof s.workflows.$inferSelect, 'projectId' | 'definition'>, asked: RunScopeInput) {
+  const resolved = askedScope(db, workflow.projectId, workflowInput(workflow.definition), asked);
+  return resolved.ok ? resolved.scope : badRequest(resolved.error);
+}
 /** A new run's caps: a number sets one, null runs without it, left out takes the suggested cap (services/start-run.ts runLimits). */
 const runLimitsSchema = z.object({ maxCalls: z.number().int().min(1).nullable().optional(), maxInputTokens: z.number().int().min(1).nullable().optional() });
 const runItemQuery = z.object({ state: z.string().optional(), nodeId: z.string().optional(), through: z.string().optional(), exit: z.string().optional(), offset: z.coerce.number().default(0), limit: z.coerce.number().max(500).default(100) });
@@ -151,19 +156,18 @@ export const workflowRoutes = new Hono<Env>()
     const workflow = found(c.var.deps.db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
     return c.json(found(previewRequest(c.var.deps.db, workflow, c.req.param('nodeId'), c.req.valid('query').sample) ?? undefined, 'AI 노드'));
   })
-  .post('/workflows/:id/preview', validate('json', scopeSchema), (c) => {
+  .post('/workflows/:id/preview', validate('json', runScopeInputSchema), (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    fitScope(workflow.definition, c.req.valid('json'));
     const select = workflowInput(workflow.definition) === 'terms' ? selectRunTerms : selectRunUnits;
-    return c.json({ count: select(db, workflow.projectId, c.req.valid('json')).length });
+    return c.json({ count: select(db, workflow.projectId, scopeOf(db, workflow, c.req.valid('json'))).length });
   })
   /** The run plan and its cost estimate, computed without calling a model (see services/preflight.ts). */
   .post('/workflows/:id/preflight', validate('json', runSchema), async (c) => {
     const { db } = c.var.deps;
     const workflow = found(db.select().from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
-    const { models, ...scope } = c.req.valid('json');
-    fitScope(workflow.definition, scope);
+    const { models, ...asked } = c.req.valid('json');
+    const scope = scopeOf(db, workflow, asked);
     try {
       return c.json(await preflight(db, { ...workflow, definition: withRunModels(workflow.definition, models) }, scope));
     } catch (error) {
@@ -171,8 +175,10 @@ export const workflowRoutes = new Hono<Env>()
     }
   })
   .post('/workflows/:id/runs', validate('json', runSchema.extend({ limits: runLimitsSchema.optional() })), async (c) => {
-    const { limits, models, ...scope } = c.req.valid('json');
-    return c.json(await startWorkflowRun(c.var.deps.db, c.req.param('id'), { scope, models, limits }), 201);
+    const { db } = c.var.deps;
+    const { limits, models, ...asked } = c.req.valid('json');
+    const workflow = found(db.select({ projectId: s.workflows.projectId, definition: s.workflows.definition }).from(s.workflows).where(eq(s.workflows.id, c.req.param('id'))).get(), '워크플로');
+    return c.json(await startWorkflowRun(db, c.req.param('id'), { scope: scopeOf(db, workflow, asked), models, limits }), 201);
   })
 
   /** Try a script node on one real line. Read-only: nothing is stored. */

@@ -1,9 +1,9 @@
 import { randomUUID } from 'node:crypto';
-import { and, eq, sql } from 'drizzle-orm';
+import { and, eq, inArray, sql } from 'drizzle-orm';
 import { lineFilterSchema, nodesBetween } from '@tw/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { inList } from '../db/chunk.ts';
+import { inChunks, inList } from '../db/chunk.ts';
 import { nodeSetLayout, cancelViewLayouts } from './layout.ts';
 import type { LayoutDirection } from './layout-types.ts';
 import { events } from '../events.ts';
@@ -54,13 +54,13 @@ export function pickNodes(db: Db, projectId: string, pick: NodePick) {
     for (const row of db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all())
       if (row.groupId && sceneIds.has(row.groupId)) nodes.add(row.id);
   // Lines → the graph nodes that hold them.
-  const lineFilter = { ...(pick.speakers?.length && { speakers: pick.speakers }), ...(pick.lines?.length && { keys: pick.lines }), ...(pick.q && { q: pick.q }) };
-  if (Object.keys(lineFilter).length) {
+  // Keys that are no line are reported with the other picks not found; the pick goes on with the lines that are.
+  const keys = pick.lines?.length ? inChunks(pick.lines, (slice) => db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), inArray(s.units.key, slice))).all()).map((row) => row.key) : undefined;
+  if (keys) unknown.push(...pick.lines!.filter((key) => !keys.includes(key)));
+  const lineFilter = { ...(pick.speakers?.length && { speakers: pick.speakers }), ...(keys && { keys }), ...(pick.q && { q: pick.q }) };
+  // Named lines of which none exists pick no line (an empty list of keys would be no condition).
+  if (Object.keys(lineFilter).length && keys?.length !== 0) {
     const unitIds = allLines(db, projectId, lineFilterSchema.parse(lineFilter)).map((line) => line.id);
-    if (pick.lines?.length) {
-      const found = new Set(allLines(db, projectId, lineFilterSchema.parse({ keys: pick.lines })).map((line) => line.key));
-      unknown.push(...pick.lines.filter((key) => !found.has(key)));
-    }
     if (unitIds.length)
       for (const row of db.all<{ id: string }>(sql`
         select distinct n.id as id from ${s.graphNodes} n, json_each(n.unit_ids) j

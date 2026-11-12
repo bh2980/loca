@@ -398,7 +398,7 @@ describe('who set the status', () => {
     const final = statuses.find((status) => status.kind === 'final')!;
     const definition = flow({}, ['entry -> end']);
     const call = (candidateText: string) =>
-      db.transaction((tx) => applyExitActions(tx, { id: 'r', projectId, subject: 'lines', scope: { statusIds: [initial.id] }, tags: [], definition }, { subjectId: unit.id, data: { path: [], outputs: {}, candidateText } }, 'entry', 'out', [status(final.id)]));
+      db.transaction((tx) => applyExitActions(tx, { id: 'r', projectId, subject: 'lines', scope: { filter: { statusIds: [initial.id] } }, tags: [], definition }, { subjectId: unit.id, data: { path: [], outputs: {}, candidateText } }, 'entry', 'out', [status(final.id)]));
 
     // A person saved '내 번역' after the run started: the run keeps their text and status (#51).
     db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unit.id)).run();
@@ -416,9 +416,13 @@ describe('who set the status', () => {
 
   it('protects a person\'s translation only in runs that pick lines by status', async () => {
     const { filtersByStatus } = await import('@tw/shared');
-    expect(filtersByStatus({ statusIds: ['untranslated'] })).toBe(true);
+    expect(filtersByStatus({ filter: { statusIds: ['untranslated'] } })).toBe(true);
+    // Every way of picking by status counts: statuses hidden, 최종 아님, the review inbox's statuses.
+    expect(filtersByStatus({ filter: { hideStatusIds: ['done'] } })).toBe(true);
+    expect(filtersByStatus({ filter: { unfinished: true } })).toBe(true);
+    expect(filtersByStatus({ filter: { review: true } })).toBe(true);
     // A run without a status filter (말투만 고치기 on picked lines) is asked to rewrite the lines it names.
-    expect(filtersByStatus({ statusIds: [] })).toBe(false);
+    expect(filtersByStatus({ filter: { lineIds: ['a'] } as never })).toBe(false);
     expect(filtersByStatus({})).toBe(false);
   });
 });

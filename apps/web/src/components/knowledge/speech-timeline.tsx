@@ -204,7 +204,7 @@ function AddChange({ projectId, from, to, rules, spec, characters, addRule, onDo
   addRule: (json: SpeechRuleCreate) => Promise<{ id: string }>;
   onDone: () => void;
 }) {
-  const page = useLinePage(projectId, { speaker: from, listener: to, limit: 300 });
+  const page = useLinePage(projectId, { speakers: [from], listeners: [to], limit: 300 });
   const lines = page.data?.rows;
   const [search, setSearch] = useState('');
   const [picked, setPicked] = useState<string | undefined>();

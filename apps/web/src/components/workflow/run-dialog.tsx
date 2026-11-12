@@ -6,7 +6,7 @@ import { Link, useNavigate } from '@tanstack/react-router';
 import { Play } from 'lucide-react';
 import { Box, ExpandableRow, Heading, Inline, ReadinessDot, Button, Checkbox, Label, RadioGroup, RadioGroupItem, Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger, Skeleton, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, Spinner, StatusIcon, SectionHeading, Text, Bleed, KeyValue, KeyValueRow } from '@loca/ui';
 import { client, unwrap } from '@/lib/api';
-import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, AUTO_MARK_IDS } from '@tw/shared';
+import { INPUT_TYPES, KNOWLEDGE_STATUSES, KNOWLEDGE_STATUS_LABELS, TERM_MARK_IDS, WORKFLOW_SUBJECT_IDS, LINE_MARK_IDS, type AutoMark, type LineMark, type RunScopeInput, AUTO_MARK_IDS } from '@tw/shared';
 import { MarkChip } from '@/components/status';
 import { lineScopeSections, ScopePicker, toggled, type PickSection } from '@/components/scope-picker';
 import type { ModelValue } from '@/components/model-picker';
@@ -174,29 +174,31 @@ export function RunDialog({ projectId, workflowId: fixedWorkflowId, groupIds: gi
     ? [{ key: 'terms', items: (termList.data ?? []).filter((term) => term.status !== 'rejected').map((term) => ({ id: term.id, title: term.source, search: `${term.source} ${term.target}`, total: 1, detail: term.target || '—' })) }]
     : lineScopeSections(groups.data ?? []);
 
-  let computedUnitIds: string[] | undefined;
-  let computedGroupIds: string[] | undefined;
-  if (scopeTarget === 'units') computedUnitIds = unitIds;
-  else if (scopeTarget === 'here') computedGroupIds = groupIds;
-  else if (!wholeProject) computedGroupIds = pickedScenes.size ? [...pickedScenes] : ['__none__'];
-
-  // The filters, the list pages' rules: statuses (a line's project statuses, a term's 후보·확정), automatic marks and tags.
-  const filters = {
-    ...(pickedStatuses.size ? { statusIds: [...pickedStatuses] } : {}),
-    ...(pickedMarks.size ? { marks: [...pickedMarks] as LineMark[] } : {}),
-    ...(pickedTags.size ? { tagIds: [...pickedTags] } : {}),
-    ...(pickedFacts.has('unfinished') && !terms ? { unfinished: true } : {}),
-    ...(pickedFacts.has('noted') && !terms ? { noted: true } : {}),
-    ...(pickedFacts.has('ai') ? { decidedBy: 'ai' as const } : {}),
-    ...(pickedFacts.has('emptyTarget') && terms ? { emptyTarget: true } : {}),
-  };
+  // The scope as the server takes it (runScopeInputSchema): the line filter of a lines workflow, or the terms of a terms
+  // workflow. A list goes out only when it holds something; the server refuses an empty one rather than guess.
+  const some = <T,>(list: readonly T[] | undefined) => (list?.length ? [...list] : undefined);
+  // Only picks the dialog shows as ticked go out: a remembered status or tag the project no longer has is not sent.
+  const statusOptions: readonly string[] = terms ? KNOWLEDGE_STATUSES : (taxonomy.statuses ?? []).map((status) => status.id);
+  const markOptions: readonly string[] = terms ? TERM_MARK_IDS : LINE_MARK_IDS;
+  const statuses = some([...pickedStatuses].filter((id) => statusOptions.includes(id)));
+  const marks = some([...pickedMarks].filter((mark) => markOptions.includes(mark)));
+  const tagPicks = some([...pickedTags].filter((id) => tags.some((tag) => tag.id === id)));
+  const decidedBy = pickedFacts.has('ai') ? ('ai' as const) : undefined;
   const pickedTermIds = scopeTarget === 'units' ? termIds : allTerms ? undefined : [...pickedTerms];
-  const scope = terms
-    ? { ...(pickedTermIds?.length ? { termIds: pickedTermIds } : {}), ...filters }
+  const scope: RunScopeInput = terms
+    ? { terms: { terms: some(pickedTermIds), statuses, marks: marks as AutoMark[] | undefined, tags: tagPicks, decidedBy, emptyTarget: pickedFacts.has('emptyTarget') ? true : undefined } }
     : {
-        ...(computedUnitIds ? { unitIds: computedUnitIds } : {}),
-        ...(computedGroupIds ? { groupIds: computedGroupIds } : {}),
-        ...filters,
+        filter: {
+          // Picked lines, the scenes it was opened in, or the scenes picked here (every scene picked: the whole project, no condition).
+          ids: scopeTarget === 'units' ? some(unitIds) : undefined,
+          groups: scopeTarget === 'here' ? some(groupIds) : scopeTarget === 'groups' && !wholeProject ? some([...pickedScenes]) : undefined,
+          statuses,
+          marks: marks as LineMark[] | undefined,
+          tags: tagPicks,
+          decidedBy,
+          unfinished: pickedFacts.has('unfinished') ? true : undefined,
+          noted: pickedFacts.has('noted') ? true : undefined,
+        },
       };
 
   const ready =

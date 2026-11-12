@@ -79,44 +79,19 @@ export const linesSearchSchema = (raw: Record<string, unknown>): LinesSearch => 
   tab: raw.tab === 'line' || raw.tab === 'history' || raw.tab === 'prompt' ? raw.tab : undefined,
 });
 
-/** The list query's filter params (the server's listQuery): lists of ids comma-joined, names as JSON (a name may hold a comma). */
-export function lineQueryParams(search: LinesSearch) {
-  const names = (list: string[] | undefined) => (list?.length ? JSON.stringify(list) : undefined);
-  return {
-    q: search.q,
-    marks: search.marks?.join(','),
-    hideMarks: search.hideMarks?.join(','),
-    statusIds: search.statuses?.join(','),
-    hideStatusIds: search.hideStatuses?.join(','),
-    tagIds: search.tags?.join(','),
-    hideTagIds: search.hideTags?.join(','),
-    speakers: names(search.speakers),
-    hideSpeakers: names(search.hideSpeakers),
-    listener: search.listener,
-    unfinished: search.unfinished === undefined ? undefined : search.unfinished ? ('1' as const) : ('0' as const),
-    decidedBy: search.decidedBy,
-    noted: search.noted === undefined ? undefined : search.noted ? ('1' as const) : ('0' as const),
-    // 번역 제외 lines are hidden unless the URL asks for them.
-    excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? ('only' as const) : ('hide' as const),
-  };
-}
-
 /**
- * The list's lines as the filter the server shares with the CLI (LineFilter): its scope (a group, a section, a view or the
- * review inbox, whose statuses narrow what is asked) and what the URL filters. What an export of this list starts from:
- * 번역 제외 lines the list hides stay in, because the file decides what becomes of them (the rest of the lines), and a file
- * filled with the source should hold every key.
+ * The list's lines as the one line filter (LineFilter in shared, resolved on the server): where the list is (a group, a
+ * section, a kind of group, the review inbox) and what the URL filters. The list endpoints take it as JSON, and the export
+ * dialog starts from it. 번역 제외 lines are hidden unless the URL asks for them.
  */
-export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; reviewStatuses?: string[] } = {}): LineFilterInput {
-  const inReview = scope.reviewStatuses && (search.statuses?.length ? search.statuses.filter((id) => scope.reviewStatuses!.includes(id)) : scope.reviewStatuses);
-  // An empty list asks for nothing, not for every status.
-  const statuses = inReview ? (inReview.length ? inReview : ['__none__']) : search.statuses;
+export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; section?: string; kind?: 'scene' | 'document' | 'ui'; review?: boolean } = {}): LineFilterInput {
   return {
     ...(scope.groupId && { groups: [scope.groupId] }),
     ...(scope.section && { sections: [scope.section] }),
     ...(scope.kind && { groupKind: scope.kind }),
+    ...(scope.review && { review: true as const }),
     q: search.q,
-    statuses,
+    statuses: search.statuses,
     tags: search.tags,
     speakers: search.speakers,
     listeners: search.listener ? [search.listener] : undefined,
@@ -128,8 +103,25 @@ export function lineFilterOf(search: LinesSearch, scope: { groupId?: string; sec
     unfinished: search.unfinished,
     decidedBy: search.decidedBy,
     noted: search.noted,
-    excluded: search.excluded === 'only' ? 'only' : undefined,
+    excluded: search.excluded === 'show' ? undefined : search.excluded === 'only' ? 'only' : 'hide',
   };
+}
+
+/**
+ * What an export of a list starts from: the list's filter with the 번역 제외 lines it hides kept in. The file decides what
+ * becomes of them (the rest of the lines), and a file filled with the source should hold every key.
+ */
+export const exportFilterOf = (filter: LineFilterInput): LineFilterInput => ({ ...filter, excluded: filter.excluded === 'hide' ? undefined : filter.excluded });
+
+/**
+ * The speaker filter's choices. A picked speaker stands for the person (the server finds their lines under every
+ * spelling), so the spellings of one character are one choice, under the character's name, with their lines added up;
+ * a speaker no character goes by stays as the script writes it.
+ */
+export function speakerChoices(rows: readonly { speaker: string | null; lines: number; character: string | null }[]): { name: string; lines: number }[] {
+  const lines = new Map<string, number>();
+  for (const row of rows) if (row.speaker) lines.set(row.character ?? row.speaker, (lines.get(row.character ?? row.speaker) ?? 0) + row.lines);
+  return [...lines].map(([name, count]) => ({ name, lines: count })).sort((a, b) => b.lines - a.lines);
 }
 
 /** How many filters narrow the list (what a person set, not the default hiding of 번역 제외). */

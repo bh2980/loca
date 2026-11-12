@@ -76,13 +76,14 @@ description: Common rules for working on a loca translation project from the ter
 
 줄이나 항목에 이미 보이는 사실은 그 칸의 필터로 겁니다.
 
-| 무엇 | 대사 (`lines`·`export`·`results`·`check`·`runs`) | 용어 (`terms`·`runs`) | 자료 (`knowledge`) |
+| 무엇 | 대사 (`lines`·`export`·`results`·`check`·`runs plan/start`) | 용어 (`terms`·`runs plan/start`) | 자료 (`knowledge`) |
 |---|---|---|---|
 | 상태가 최종 아님 (남은 일) / 최종 | `--unfinished` / `--finished` | | |
 | 정한 쪽: AI가 정하고 사람이 아직 안 봄(✦) / 사람 | `--by ai` / `--by human` | `--by ai` / `--by human` | `--by ai` / `--by human` |
 | 청자 모름 (청자를 모르거나 AI 추정이 불확실) | `--listener -` | | |
 | 메모 있음 / 없음 | `--noted` / `--without-note` | | |
 | 번역 제외 뺌 / 그것만 | `--excluded hide` / `--excluded only` | | |
+| 검토함에 보이는 상태만 | `--review` | | |
 | 번역어 비어 있음 / 있음 | | `--empty-target` / `--has-target` | |
 
 - **번역 제외**는 번역 대상이 아닌 줄입니다: 빈 원문, 서식만 있는 줄, 글자 없는 줄, 프로젝트의 제외 규칙에 걸린 줄, 사람이 직접 뺀 줄. 진행률·최종 아님·실행·`export --untranslated`/`--translated`·`check`에서 빠지고, 번역은 건드리지 않습니다. `results`에서는 번역 없이 나머지 줄로 처리합니다. `loca lines`는 상태 옆에 `· 번역 제외`, AI가 정한 상태에 `✦`를 붙여 보여 줍니다.
@@ -90,6 +91,10 @@ description: Common rules for working on a loca translation project from the ter
 - 자동 태그를 걸 때는 `--mark`를 씁니다. 반대로 빼려면 `--hide-mark`·`--hide-tag`·`--hide-status`·`--hide-speaker`를 씁니다(하나라도 해당하면 뺌).
 - 앱의 대사 목록은 번역 제외를 기본으로 숨깁니다(필터 바의 숨김 칩). CLI의 `lines`는 숨기지 않으니 필요하면 `--excluded hide`를 붙입니다.
 - 자동 태그를 여러 개 주면 모두 만족해야 합니다. 모든 필터는 함께 주면 모두 만족해야 합니다.
+- 대사 필터는 하나입니다. `lines`·`export`·`results`·`check`·`runs plan/start`가 같은 플래그를 받고, 앱의 대사 목록·`find_lines`·실행 범위도 같은 필터로 같은 줄을 고릅니다. `runs plan/start`만 `--limit`·`--offset`이 없습니다(범위 전체를 돌림). 실행은 번역 제외 줄을 언제나 뺍니다.
+- 필터에 없는 이름을 주면 오류입니다(`찾지 못함: 태그 …`): 상태·태그(`--status`, `--tag`, `--hide-status`, `--hide-tag`), 묶음(`-g`), 구역(`--section`), 대사 키(`--key`), 보기(`--view`), 실행의 용어(`--term`). 조건이 조용히 빠져 더 많은 줄이 잡히는 일은 없습니다. 이름을 `loca statuses`·`loca tags`·`loca scenes list`로 확인하고 다시 주세요.
+- 화자·청자·언급(`-s`, `-l`, `-m`, `--hide-speaker`)은 인물 기준입니다: 이름·별칭·화자 키 어느 것으로 주어도 그 인물의 모든 표기를 찾습니다(앱의 화자 필터도 같음). 인물로 등록되지 않은 이름은 그 글자 그대로의 화자만 찾습니다.
+- `-q`는 어디서나 원문·번역·화자·키에서 찾습니다(실행 범위도 같음).
 - `--unreviewed`는 사람이 아직 안 본 것(후보 또는 AI가 정한 것)입니다.
 - 자료·용어의 상태:
   - `status`: confirmed(번역 문맥에 쓰임) · candidate(아직 안 쓰임)

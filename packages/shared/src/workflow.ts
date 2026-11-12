@@ -946,8 +946,9 @@ export function readinessUses(definition: WorkflowDefinition) {
   };
 }
 
-/** Whether a run picks its lines by status (the run dialog's status filter, 최종 아님 included): such a run never overwrites a translation a person saved (#51). */
-export const filtersByStatus = (scope: { statusIds?: string[]; unfinished?: boolean }) => Boolean(scope.statusIds?.length || scope.unfinished !== undefined);
+/** Whether a run picks its lines by status (a status filter of its scope: statuses shown or hidden, 최종 아님, 검토함): such a run never overwrites a translation a person saved (#51). */
+export const filtersByStatus = (scope: { filter?: { statusIds?: readonly string[]; hideStatusIds?: readonly string[]; unfinished?: boolean; review?: boolean } }) =>
+  Boolean(scope.filter?.statusIds || scope.filter?.hideStatusIds || scope.filter?.review || scope.filter?.unfinished !== undefined);
 
 /**
  * Keeps the entry node and its connections to the root work node(s) in sync:

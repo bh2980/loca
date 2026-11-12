@@ -1,5 +1,5 @@
 import { infiniteQueryOptions, keepPreviousData, queryOptions } from '@tanstack/react-query';
-import { ATTACH_PAGE, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type MarkStyles, type TagScope } from '@tw/shared';
+import { ATTACH_PAGE, type AttachKind, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type LineFilterInput, type MarkStyles, type TagScope } from '@tw/shared';
 import { client, unwrap } from './api';
 import { useProject } from './project';
 
@@ -23,8 +23,8 @@ export const q = {
     queryFn: () => unwrap(client.projects[':projectId']['reading-route'].$get({ param: { projectId }, query })),
   }),
   /** Every line a filter matches (id and scene, script order), for walking them inside their scenes. */
-  unitMatches: (projectId: string, query: { groupId?: string; kind?: 'scene' | 'document' | 'ui'; section?: string; statusId?: string; tagIds?: string; q?: string; speaker?: string; listener?: string; review?: '1'; marks?: string }) =>
-    queryOptions({ queryKey: ['units', 'matches', projectId, query], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$get({ param: { projectId }, query })) }),
+  unitMatches: (projectId: string, filter: LineFilterInput) =>
+    queryOptions({ queryKey: ['units', 'matches', projectId, filter], queryFn: () => unwrap(client.projects[':projectId'].units.matches.$post({ param: { projectId }, json: { filter } })) }),
   /** Other lines with the same source, translated or not (a confirmed translation may be applied to them). */
   sameSource: (unitId: string) => queryOptions({ queryKey: ['units', 'same-source', unitId], queryFn: () => unwrap(client.units[':unitId'].same.$get({ param: { unitId } })) }),
   /** Translated lines with the same or a similar source (the editor's suggestions). */

@@ -131,7 +131,7 @@ describe('exit actions in a run', () => {
     const ctx = setup(1);
     const { initial, confirmed, urgent } = ctx;
     const definition = flow({ c: cond(always, { true: [tag([urgent.id]), status(confirmed.id)] }) }, ['entry -> c', 'c.true -> end']);
-    const runId = start(ctx, definition, { statusIds: [initial.id] });
+    const runId = start(ctx, definition, { filter: { statusIds: [initial.id] } });
     // A person saved '내 번역' after the run started (#51).
     ctx.db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unitOf(ctx, 'a1').id)).run();
     const { items, runner } = await drain(ctx, runId);
@@ -244,7 +244,7 @@ describe('exit actions in a run', () => {
     const { initial, confirmed } = ctx;
     // a1 (Alice) leaves by true, a2 and a3 (Bob) by false; a person saved a2 meanwhile.
     const definition = flow({ c: cond({ '==': [{ var: 'unit.speaker' }, 'Alice'] }, { true: [status(confirmed.id)], false: [status(confirmed.id)] }) }, ['entry -> c', 'c.true -> end', 'c.false -> end']);
-    const runId = start(ctx, definition, { statusIds: [initial.id] });
+    const runId = start(ctx, definition, { filter: { statusIds: [initial.id] } });
     ctx.db.update(s.units).set({ translation: '내 번역', statusBy: 'human' }).where(eq(s.units.id, unitOf(ctx, 'a2').id)).run();
     const { runner } = await drain(ctx, runId);
     const { exits } = runProgress(ctx.db, runner, ctx.projectId, [runId])[0]!;

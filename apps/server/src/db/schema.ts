@@ -1,6 +1,6 @@
 import { sql } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan } from '@tw/shared';
+import type { AppDefaults, RunCardPlan, RunScope } from '@tw/shared';
 import { type DecidedBy, AGE_BANDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type AutoMark, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, WORKFLOW_SUBJECT_IDS, type WorkflowSubject, ALL_TERM_KINDS, type TermScope } from '@tw/shared';
 import type { Usage } from '@tw/ai';
 
@@ -554,35 +554,7 @@ export const workflows = sqliteTable('workflows', {
 });
 
 export type RunStatus = 'running' | 'paused' | 'cancelled' | 'completed';
-export interface RunScope {
-  groupIds?: string[];
-  unitIds?: string[];
-  /** Lines carrying every one of these tags. */
-  tagIds?: string[];
-  /** Automatic marks the items must all have: line marks (services/line-marks.ts) or term marks. */
-  marks?: AutoMark[];
-  /** Statuses the items must be in: a lines workflow's status ids, a terms workflow's candidate / confirmed / rejected. None = any. */
-  statusIds?: string[];
-  /** Lines: 최종 아님 (true) / 최종 (false); with or without a memo (the line list's filters). */
-  unfinished?: boolean;
-  noted?: boolean;
-  /** Who decided it (정한 쪽): a line's status maker, or a term's decision (shared decidedBy). */
-  decidedBy?: DecidedBy;
-  /** Terms: whether the Korean form is empty. */
-  emptyTarget?: boolean;
-  /** A run of a terms workflow: these terms (instead of the entry node's term statuses and marks). */
-  termIds?: string[];
-  /** Lines said by any of these speakers (as stored: names and aliases already expanded). */
-  speakers?: string[];
-  /** Lines said to any of these listeners (known listeners only, as the line list shows them; '-' = 청자 모름). */
-  listeners?: string[];
-  /** Line kinds (dialogue, ui, …). */
-  kinds?: string[];
-  /** Text in the source. */
-  q?: string;
-  /** Also change a status a person set and take off tags a person put on (off: they stay, and the run says so). */
-  changeHuman?: boolean;
-}
+export type { RunScope };
 /** The connection + model a call goes to, frozen with the connection's details. */
 export interface RouteSnapshot {
   connectionId: string;
@@ -616,6 +588,7 @@ export const runs = sqliteTable(
     models: json<Record<string, AiSnapshot>>('models').notNull().default(sql`'{}'`),
     /** What the run's items are (WORKFLOW_SUBJECTS): lines or terms. */
     subject: text('subject', { enum: WORKFLOW_SUBJECT_IDS as [WorkflowSubject, ...WorkflowSubject[]] }).notNull().default('lines'),
+    /** What it runs on, resolved when it started (runScopeSchema in shared). */
     scope: json<RunScope>('scope').notNull(),
     status: text('status', { enum: ['running', 'paused', 'cancelled', 'completed'] }).notNull(),
     total: integer('total').notNull(),
