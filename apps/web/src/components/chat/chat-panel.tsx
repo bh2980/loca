@@ -316,7 +316,24 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   };
 
   const pin = useCallback(() => void (pinned.current = true), []);
-  const send = (message: OutgoingMessage) => void sendMessage(message);
+  // A message written while /compact runs waits for the summary (the turn would read it anyway), shown as waiting,
+  // not as a reply that is thinking; it goes out when the summary is stored, or when the summary failed or was cancelled.
+  const [afterCompact, setAfterCompact] = useState<OutgoingMessage | null>(null);
+  const send = (message: OutgoingMessage) => (compact.isPending ? setAfterCompact(message) : void sendMessage(message));
+  useEffect(() => {
+    if (compact.isPending || !afterCompact) return;
+    setAfterCompact(null);
+    void sendMessage(afterCompact);
+  }, [compact.isPending, afterCompact]); // eslint-disable-line react-hooks/exhaustive-deps
+  // How long the summary has taken, so a slow one is seen to be going on.
+  const [compactSeconds, setCompactSeconds] = useState(0);
+  useEffect(() => {
+    if (!compact.isPending) return;
+    const started = Date.now();
+    setCompactSeconds(0);
+    const timer = setInterval(() => setCompactSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [compact.isPending]);
   const queue = (text: string) => {
     setQueued((list) => [...list, text]);
     const giveBack = () => {
@@ -408,6 +425,15 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
               <SteerBubble key={`queued-${index}`} text={text} waiting onEdit={() => void takeBack(text, true)} onCancel={() => void takeBack(text, false)} />
             ))}
             {marker?.index === messages.length && <CompactionNotice summary={marker.summary} />}
+            {afterCompact && (
+              <SteerBubble
+                text={afterCompact.text}
+                waiting
+                label="요약이 끝나면 보냄"
+                onEdit={() => { composer.current?.mergeDraft([afterCompact.text]); setAfterCompact(null); }}
+                onCancel={() => setAfterCompact(null)}
+              />
+            )}
             {busy && (
               <Inline as="p" gap="condensed" variant="body" tone="muted">
                 <Spinner /> {status === 'submitted' ? '생각하는 중…' : '작업 중…'}
@@ -415,7 +441,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
             )}
             {compact.isPending && (
               <Inline gap="condensed" variant="body" tone="muted">
-                <Spinner /> 대화를 요약하는 중…
+                <Spinner /> 대화를 요약하는 중…{compactSeconds > 0 && ` ${compactSeconds}초`}
                 <Button variant="ghost" size="inline" onClick={() => compactRequest.current?.abort()}>취소</Button>
               </Inline>
             )}

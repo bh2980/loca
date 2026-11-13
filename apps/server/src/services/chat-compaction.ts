@@ -75,6 +75,13 @@ const SUMMARY_SYSTEM = `당신은 번역 작업실 채팅의 앞부분을 요약
 - 이후에 다시 필요할 사실(대사·인물·용어 id, 수치, 인용할 원문)
 이전 요약이 주어지면 그 내용도 새 요약에 합칩니다. 지어내지 마세요.`;
 
+/**
+ * How much of each tool's result the summary reads: what was called on what and how it ended (ids, counts, errors come
+ * first), not the data it returned. Whole results made a long conversation's summary read the project many times over.
+ */
+export const SUMMARY_TOOL_CHARS = 400;
+const briefTokens = (message: UIMessage) => estimateTokens(transcript([message], { clip: SUMMARY_TOOL_CHARS }));
+
 /** One summary of `messages` (and the summary before them), in pieces when they do not fit the model at once. */
 async function summarize(db: Db, chat: { id: string; projectId: string }, target: ai.ModelTarget, window: number, previous: string | null, messages: UIMessage[], signal?: AbortSignal): Promise<string> {
   const room = Math.max(8_000, window - RESERVE_TOKENS - estimateTokens(SUMMARY_SYSTEM) - 2_000);
@@ -84,8 +91,8 @@ async function summarize(db: Db, chat: { id: string; projectId: string }, target
     // As many messages as fit beside the summary so far (at least one).
     let end = start;
     let used = summary ? estimateTokens(summary) : 0;
-    while (end < messages.length && (end === start || used + partsTokens(messages[end]!.parts) <= room)) used += partsTokens(messages[end++]!.parts);
-    const prompt = [summary ? `이전 요약:\n${summary}` : '', `요약할 대화:\n${transcript(messages.slice(start, end))}`].filter(Boolean).join('\n\n');
+    while (end < messages.length && (end === start || used + briefTokens(messages[end]!) <= room)) used += briefTokens(messages[end++]!);
+    const prompt = [summary ? `이전 요약:\n${summary}` : '', `요약할 대화:\n${transcript(messages.slice(start, end), { clip: SUMMARY_TOOL_CHARS })}`].filter(Boolean).join('\n\n');
     const result = await logged(db, { projectId: chat.projectId, kind: 'chat', refId: chat.id, label: '대화 압축' }, target, () =>
       ai.generate(target, { system: SUMMARY_SYSTEM, prompt, schema: z.object({ summary: z.string().min(1) }), timeoutMs: 300_000, signal }),
     );

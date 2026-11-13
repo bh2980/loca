@@ -97,10 +97,10 @@ function MessageActions({ text, chips = [], onReuse }: { text: string; chips?: C
 }
 
 /** A message sent while a reply was running: where the reply took it, or still waiting for its next step. */
-export function SteerBubble({ text, waiting = false, onEdit, onCancel }: { text: string; waiting?: boolean; onEdit?: () => void; onCancel?: () => void }) {
+export function SteerBubble({ text, waiting = false, label, onEdit, onCancel }: { text: string; waiting?: boolean; /** What it waits for, when not the running reply. */ label?: string; onEdit?: () => void; onCancel?: () => void }) {
   return (
     <SteerBubbleView
-      label={waiting ? '전달 대기 중' : '진행 중에 보냄'}
+      label={label ?? (waiting ? '전달 대기 중' : '진행 중에 보냄')}
       waiting={waiting}
       actions={
         <>

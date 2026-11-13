@@ -40,3 +40,17 @@ describe('chat context from the one record (#46)', () => {
 });
 
 const textOfLast = (messages: UIMessage[]) => (messages.at(-1)!.parts[0] as { text: string }).text;
+
+describe('transcript for a summary', () => {
+  it('cuts each tool result to the clip and says how much it left out', () => {
+    const big = { lines: Array.from({ length: 500 }, (_, i) => ({ id: `u${i}`, source: 'Some long source line here.' })) };
+    const reply = { id: 'a', role: 'assistant', parts: [{ type: 'tool-find_lines', toolCallId: 't', state: 'output-available', input: { speakers: ['MIRA'] }, output: big }] } as unknown as UIMessage;
+    const full = transcript([reply]);
+    const brief = transcript([reply], { clip: 400 });
+    expect(full.length).toBeGreaterThan(10_000);
+    expect(brief.length).toBeLessThan(700);
+    expect(brief).toContain('find_lines');
+    expect(brief).toContain('"speakers":["MIRA"]');
+    expect(brief).toMatch(/자 생략\)/);
+  });
+});

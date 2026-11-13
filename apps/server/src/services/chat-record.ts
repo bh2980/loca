@@ -35,10 +35,13 @@ interface ToolPart {
 }
 
 /** A tool call and its result on one line, for a reader that cannot take the structured parts. */
-function toolLine(part: ToolPart) {
+/** Text cut to `max` characters, saying how much was left out. */
+const cut = (text: string, max?: number) => (max !== undefined && text.length > max ? `${text.slice(0, max)}…(${(text.length - max).toLocaleString()}자 생략)` : text);
+
+function toolLine(part: ToolPart, clip?: number) {
   const name = part.toolName ?? part.type.replace(/^tool-/, '');
-  const result = part.state === 'output-error' ? ` → 실패: ${json(part.errorText)}` : part.state === 'output-available' ? ` → ${json(part.output)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
-  return `[도구 ${name} ${json(part.input)}${result}]`;
+  const result = part.state === 'output-error' ? ` → 실패: ${cut(json(part.errorText), clip)}` : part.state === 'output-available' ? ` → ${cut(json(part.output), clip)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
+  return `[도구 ${name} ${cut(json(part.input), clip === undefined ? undefined : Math.ceil(clip / 2))}${result}]`;
 }
 
 /**
@@ -70,13 +73,13 @@ const cardLine = (part: { type: string }) => {
 };
 
 /** One message as text: what was said plus the tools it used and what they returned. */
-export function messageText(message: UIMessage) {
+export function messageText(message: UIMessage, clip?: number) {
   const pieces: string[] = [];
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim()) pieces.push(part.text);
     else if (part.type === 'file') pieces.push('[이미지 첨부]');
     else if (part.type === RUN_CARD_PART || part.type === RUN_END_PART) pieces.push(cardLine(part));
-    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart));
+    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart, clip));
   }
   return pieces.join('\n');
 }
@@ -129,9 +132,9 @@ const speaker = (message: UIMessage) => {
 };
 
 /** The conversation as text, every message whole, naming who answered. */
-export function transcript(messages: UIMessage[]) {
+export function transcript(messages: UIMessage[], { clip }: { /** Each tool's input and result cut to about this many characters (a summary needs what was done, not the data). */ clip?: number } = {}) {
   return expandRecord(messages)
-    .map((message) => ({ who: isCard(message) ? null : speaker(message), text: messageText(message) }))
+    .map((message) => ({ who: isCard(message) ? null : speaker(message), text: messageText(message, clip) }))
     .filter((line) => line.text)
     .map((line) => (line.who ? `${line.who}: ${line.text}` : `[${line.text}]`))
     .join('\n');
