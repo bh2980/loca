@@ -220,21 +220,6 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
 
   // The line picked in this list itself: it is already where the person is looking, so the list keeps it in place instead of centring it.
   const pickedHere = useRef<{ unitId: string; top: number } | null>(null);
-  // The line that was open above the one picked keeps its height until the person scrolls: at the top of the list
-  // nothing above could take up the space it gives back, and the picked line would move up under the pointer.
-  const [held, setHeld] = useState<{ unitId: string; height: number } | null>(null);
-  useEffect(() => {
-    const box = parent.current;
-    if (!box || !held) return;
-    const release = () => setHeld(null);
-    box.addEventListener('wheel', release, { passive: true });
-    box.addEventListener('touchmove', release, { passive: true });
-    return () => {
-      box.removeEventListener('wheel', release);
-      box.removeEventListener('touchmove', release);
-    };
-  }, [held]);
-  useEffect(() => setHeld(null), [routeKey]);
   const [focusTick, setFocusTick] = useState(0);
   const select = useCallback((unitId: string | undefined, editing: boolean) => {
     const box = parent.current;
@@ -242,15 +227,12 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     if (unitId && box && row) {
       const r = row.getBoundingClientRect(), b = box.getBoundingClientRect();
       pickedHere.current = r.top >= b.top && r.top < b.bottom - 24 ? { unitId, top: r.top - b.top } : null;
-      const open = edit && edit !== unitId ? box.querySelector<HTMLElement>(`[data-unit="${CSS.escape(edit)}"]`) : null;
-      const openItem = open?.closest<HTMLElement>('[data-index]');
-      setHeld(open && openItem && open.getBoundingClientRect().top < r.top ? { unitId: edit!, height: openItem.offsetHeight } : null);
     } else {
       pickedHere.current = null;
     }
     setFocusTick((tick) => (editing ? tick + 1 : 0));
     onEdit(unitId);
-  }, [onEdit, edit]);
+  }, [onEdit]);
 
   const currentIndex = editIndex ?? virtualizer.range?.startIndex ?? 0;
   const adjacentUntranslated = (direction: 1 | -1) => {
@@ -429,7 +411,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
         {sequence.length === 0 ? <Text as="p" variant="body" tone="muted" padding="spacious">이 길에는 대사가 없습니다.</Text> : (
           <Box role="list" position="relative" width="full" style={{ height: virtualizer.getTotalSize() }}>
             {virtual.map((entry) => (
-              <VirtualItem key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} style={{ transform: `translateY(${entry.start}px)`, ...(held && sequence[entry.index]?.unitId === held.unitId && { minHeight: held.height }) }}>
+              <VirtualItem key={entry.key} data-index={entry.index} ref={virtualizer.measureElement} style={{ transform: `translateY(${entry.start}px)` }}>
                 {renderLine(entry.index)}
               </VirtualItem>
             ))}
