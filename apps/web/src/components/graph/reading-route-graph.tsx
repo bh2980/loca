@@ -87,7 +87,7 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
     if (previous.edit !== edit) {
       if (selectedNodeId) {
         previousEdit.current = { routeKey, edit };
-        canvas.current?.focus(selectedNodeId);
+        canvas.current?.reveal(selectedNodeId, 0);
       } else if (!edit) previousEdit.current = { routeKey, edit };
     }
   }, [routeKey, edit, selectedNodeId]);

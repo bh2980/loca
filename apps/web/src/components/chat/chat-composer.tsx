@@ -8,12 +8,13 @@ import { CHAT_IMAGES_MAX, imageDecision, IMAGE_UNSUPPORTED_NOTE, type ChatChip, 
 import { ModelPicker, type ModelValue } from '@/components/model-picker';
 import { agentRequests, usePendingAgentRequest } from '@/lib/agent';
 import { chatDock } from '@/lib/chat-dock';
+import { chipHref } from '@/lib/chat-links';
 import { imageFilesOf, prepareImage, type PendingImage } from '@/lib/chat-image-file';
 import { NO_HISTORY, stepHistory, type HistoryState } from '@/lib/chat-input-history';
 import { mergeIntoDraft } from '@/lib/chat-queue';
 import { makeRunCard } from '@/lib/chat-sessions';
 import type { chatFor } from '@/lib/chat-store';
-import type { AppCommand } from '@/lib/chat-triggers';
+import { APP_COMMANDS, type AppCommand } from '@/lib/chat-triggers';
 import { keyLabel } from '@/lib/keys';
 import { useViewState, type ViewItem } from '@/lib/reported-view';
 import { AttachChip } from './attach-chip';
@@ -77,7 +78,9 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   // Chips from the page (reported by useReportView) and ones the person picked with @ for the next message
   // (these stay on the message they were sent with).
   const [picked, setPicked] = useState<ChatChip[]>([]);
-  const reported: ViewItem[] = Object.values(view.items).flat();
+  const reported: ViewItem[] = Object.values(view.items)
+    .flat()
+    .filter((item, index, list) => list.findIndex((other) => other.kind === item.kind && other.id === item.id) === index);
   const onPage: ViewItem[] = reported.filter((item) => !excluded.has(`${item.kind}:${item.id}`) && !picked.some((other) => other.kind === item.kind && other.id === item.id));
   const attached: ViewItem[] = [...onPage, ...picked.map((chip): ViewItem => ({ kind: chip.kind, id: chip.id, label: chip.label, ...(chip.detail && { detail: chip.detail }), attached: true }))];
   const viewRef = useRef({ page: view.page, path: pathname, items: attached });
@@ -97,6 +100,21 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
         if (target !== projectId) return;
         chatDock.takePrefill(projectId);
         setInput(text);
+      }),
+    [projectId],
+  );
+  useEffect(
+    () =>
+      chatDock.onAttach((target, chips) => {
+        if (target !== projectId) return;
+        setPicked((list) => [
+          ...list,
+          ...chips.filter(
+            (chip, index) =>
+              chips.findIndex((other) => other.kind === chip.kind && other.id === chip.id) === index &&
+              !list.some((other) => other.kind === chip.kind && other.id === chip.id),
+          ),
+        ]);
       }),
     [projectId],
   );
@@ -165,7 +183,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
     mergeDraft: (texts) => setInput((current) => mergeIntoDraft(current, texts)),
     reuse: (text, chips) => {
       setInput(text);
-      setPicked(chips);
+      setPicked(chips.filter((chip) => !chip.screen));
       setHistory(NO_HISTORY);
       box.current?.focus();
     },
@@ -193,6 +211,8 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
     // A /workflow waiting for its target: Enter makes the confirm card instead of sending a message.
     if (run) return confirmRun();
     const text = input.trim();
+    const app = APP_COMMANDS.find((command) => text === `/${command.name}`);
+    if (app) { setInput(''); onApp(app.id); return; }
     const files = imageSupport.send ? images.map((image) => ({ type: 'file' as const, mediaType: image.mediaType, url: image.url, filename: image.name })) : [];
     if (!text && !files.length) return;
     if (!ready) return;
@@ -203,8 +223,10 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
       frozenView.current = viewRef.current;
       setTimeout(() => (frozenView.current = null), 2000);
       stored.setView(viewRef.current);
-      // What the person pointed at with @ is kept on the message, to read (and open) later.
-      onSend({ text, ...(files.length && { files }), ...(picked.length && { metadata: { chips: picked } }) });
+      // Both picked (@) and on-screen items are kept with the message, to read (and open) later.
+      const screenChips: ChatChip[] = onPage.map((item) => ({ kind: item.kind, id: item.id, label: item.label, ...(chipHref(projectId, item) && { href: chipHref(projectId, item) }), screen: true }));
+      const chips = [...picked, ...screenChips].slice(0, 40);
+      onSend({ text, ...(files.length && { files }), ...(chips.length && { metadata: { chips } }) });
       setPicked([]);
       setImages([]);
       return;
@@ -301,6 +323,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
             setHistory(NO_HISTORY);
           }}
           onSelect={(event) => setCaret(event.currentTarget.selectionStart)}
+          onBlur={() => menu.dismiss()}
           onPaste={(event) => {
             // A pasted picture (a screenshot) becomes a chip; text pastes as usual.
             const files = imageFilesOf(event.clipboardData);

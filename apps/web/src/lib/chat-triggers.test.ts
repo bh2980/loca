@@ -9,11 +9,18 @@ describe('@ trigger', () => {
     expect(findAtTrigger('이 대사 @미', 7)).toEqual({ start: 5, query: '미' });
     expect(findAtTrigger('줄\n@x', 4)).toEqual({ start: 2, query: 'x' });
   });
-  it('does not open mid-word, after a space in the query, or with the caret before it', () => {
+  it('does not open mid-word, with a leading space, or with the caret before it', () => {
     expect(findAtTrigger('mira@home', 9)).toBeNull();
-    expect(findAtTrigger('@미라 가', 5)).toBeNull();
+    expect(findAtTrigger('@ 안녕', 4)).toBeNull();
+    expect(findAtTrigger('@ ', 2)).toBeNull();
     expect(findAtTrigger('hello @abc', 3)).toBeNull();
     expect(findAtTrigger('no mention', 10)).toBeNull();
+  });
+  it('stays open when the query contains spaces, until a newline', () => {
+    expect(findAtTrigger('@안녕 하세요', 7)).toEqual({ start: 0, query: '안녕 하세요' });
+    expect(findAtTrigger('@대사 안녕 하세요', 10)).toEqual({ start: 0, query: '대사 안녕 하세요' });
+    expect(parseAtQuery('대사 안녕 하세요')).toEqual({ kind: '대사', term: '안녕 하세요' });
+    expect(findAtTrigger('@안녕\n하세요', 7)).toBeNull();
   });
   it('counts a half-composed Hangul query as typed text (IME)', () => {
     expect(findAtTrigger('@ㅁ', 2)).toEqual({ start: 0, query: 'ㅁ' });
@@ -102,8 +109,8 @@ describe('/ commands', () => {
     expect(findSlashTrigger('hi /mo', 6)).toBeNull();
     expect(findSlashTrigger('/a\nb', 4)).toBeNull();
   });
-  it('lists the project workflows, then saved prompts, then the app\'s own commands for the conversation', () => {
-    expect(commands.map((command) => `${command.kind}:${command.name}`)).toEqual(['workflow:번역', 'workflow:청자 추정', 'workflow:용어 추출', 'prompt:요약', 'prompt:번역투', 'app:new', 'app:compact']);
+  it('lists the app\'s own commands for the conversation, then the project workflows, then saved prompts', () => {
+    expect(commands.map((command) => `${command.kind}:${command.name}`)).toEqual(['app:new', 'app:compact', 'workflow:번역', 'workflow:청자 추정', 'workflow:용어 추출', 'prompt:요약', 'prompt:번역투']);
     expect(allCommands([], []).map((command) => command.name)).toEqual(['new', 'compact']);
   });
   it('a workflow with errors is listed but says why it cannot run', () => {

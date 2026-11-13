@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import type { ChatChip } from '@loca/shared';
 import { stored, STORED } from './storage';
 
 /** Chat dock visibility is a per-browser preference, kept outside the URL so it never adds history entries. */
@@ -7,6 +8,8 @@ type SessionListener = (projectId: string, sessionId: string) => void;
 const sessionListeners = new Set<SessionListener>();
 type PrefillListener = (projectId: string, text: string) => void;
 const prefillListeners = new Set<PrefillListener>();
+type AttachListener = (projectId: string, chips: ChatChip[]) => void;
+const attachListeners = new Set<AttachListener>();
 /** A prefill nobody has taken yet (the panel was not listening); the panel takes it when it mounts or on its next look. */
 let pendingPrefill: { projectId: string; text: string } | null = null;
 
@@ -37,6 +40,18 @@ export const chatDock = {
     pendingPrefill = { projectId, text };
     chatDock.set(true);
     prefillListeners.forEach((listener) => listener(projectId, text));
+  },
+  /** Adds chips to the chat composer's picked list (the project's chat composer listens). */
+  onAttach(listener: AttachListener) {
+    attachListeners.add(listener);
+    return () => {
+      attachListeners.delete(listener);
+    };
+  },
+  /** Opens the chat dock and keeps `chips` in the composer across page changes. */
+  attach(projectId: string, chips: ChatChip[]) {
+    chatDock.set(true);
+    attachListeners.forEach((listener) => listener(projectId, chips));
   },
   get: () => openSlot.read(),
   set: (next: boolean) => openSlot.write(next),

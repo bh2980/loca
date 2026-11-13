@@ -88,3 +88,8 @@ export async function answerRunCard(db: Db, sessionId: string, cardId: string, a
     starting(db).delete(card.id);
   }
 }
+
+/** 감시 끊기: the conversation stops following this run; it goes on, and its end is no longer recorded or reported there. */
+export function unwatchRun(db: Db, runId: string) {
+  db.update(s.runs).set({ sessionId: null }).where(eq(s.runs.id, runId)).run();
+}

@@ -51,15 +51,16 @@ type Finder = (search: Search) => AttachItem[];
 const finders: Record<AttachKind, Finder> = {
   대사: ({ db, projectId, q, limit, offset }) =>
     db
-      .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, speaker: s.units.speaker, source: s.units.source })
+      .select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, speaker: s.units.speaker, source: s.units.source, scene: s.groups.title })
       .from(s.units)
+      .leftJoin(s.groups, eq(s.groups.id, s.units.groupId))
       .where(and(eq(s.units.projectId, projectId), q ? lineTextFilter(q) : undefined))
       // A key that is the text is the line asked for; otherwise script order (empty: what was edited last).
       .orderBy(...(q ? [asc(rank(q, [s.units.key])), asc(s.units.seq)] : [desc(s.units.updatedAt)]))
       .limit(limit)
       .offset(offset)
       .all()
-      .map((line) => ({ kind: '대사', id: line.id, label: `${line.speaker?.trim() ? `${line.speaker.trim()}: ` : ''}${clip(one(line.source), 40)}`, detail: line.key, href: path(projectId, 'script', { group: line.groupId, line: line.id, detail: true }) })),
+      .map((line) => ({ kind: '대사', id: line.id, label: `${line.speaker?.trim() ? `${line.speaker.trim()}: ` : ''}${clip(one(line.source), 40)}`, detail: line.scene ? `${line.scene} · ${line.key}` : line.key, href: path(projectId, 'script', { group: line.groupId, line: line.id, detail: true }) })),
 
   장면: ({ db, projectId, q, limit, offset }) =>
     db

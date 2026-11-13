@@ -7,7 +7,7 @@ import { ReadingRouteGraph } from '@/components/graph/reading-route-graph';
 import { RouteList } from '@/components/graph/route-list';
 import { useViewActions } from '@/components/graph/view-inspector';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Button, CanvasDirectionControl, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { useReportView } from '@/lib/reported-view';
@@ -115,7 +115,6 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
         {toggle}
         {viewMenu}
         {layoutToggle}
-        <CanvasDirectionControl direction={direction} onDirectionChange={onDirectionChange} />
         {!view && start && end && found && onSaved && <SaveRouteButton projectId={projectId} route={{ start, end, ...(activeVia && { via: activeVia }) }} onSaved={onSaved} />}
         {found && data.sequence.length > 0 && <RunDialog projectId={projectId} unitIds={data.sequence.map((line) => line.unitId)} unitsLabel={view ? `보기 "${view.label}"` : '경로 대사'} />}
       </HeaderActions>

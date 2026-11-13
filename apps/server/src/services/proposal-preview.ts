@@ -248,3 +248,123 @@ export function continueRunDetails(db: Db, projectId: string, input: Values, nam
     onAccept('수락하면 실행이 이어지고 AI 호출 비용이 듭니다.', 'muted'),
   ];
 }
+
+// ── nested object & workflow diffs ──────────────────────────────────────────────
+
+const full = (value: unknown): string => {
+  if (value === null || value === undefined || value === '') return '(비어 있음)';
+  if (Array.isArray(value)) return value.join(', ');
+  if (typeof value === 'boolean') return value ? '예' : '아니오';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const CONFIG_LABELS: Record<string, string> = {
+  instructions: '지시문',
+  model: '모델',
+  connectionId: '연결',
+  expression: '조건식',
+  code: '코드',
+  label: '이름',
+  description: '설명',
+  presets: '프리셋',
+  custom: '직접 만든 규칙',
+};
+
+function flatten(value: unknown, path: string[] = [], out = new Map<string, string>()): Map<string, string> {
+  if (isRecord(value)) {
+    for (const [key, entry] of Object.entries(value)) flatten(entry, [...path, key], out);
+    return out;
+  }
+  if (Array.isArray(value)) {
+    if (value.every((entry) => entry === null || typeof entry !== 'object')) {
+      out.set(path.join('.'), full(value));
+    } else {
+      value.forEach((entry, i) => flatten(entry, [...path, String(i + 1)], out));
+    }
+    return out;
+  }
+  out.set(path.join('.'), full(value));
+  return out;
+}
+
+const pathLabel = (top: string, path: string) =>
+  [top, ...(path ? path.split('.').map((part) => CONFIG_LABELS[part] ?? part) : [])].join(' › ');
+
+export function objectChanges(
+  top: string,
+  before: unknown,
+  after: unknown,
+  known: boolean,
+): { field: string; before?: string; after: string }[] {
+  const afterMap = flatten(after);
+  if (!known) {
+    return [...afterMap].map(([path, value]) => ({ field: pathLabel(top, path), after: value }));
+  }
+  const beforeMap = flatten(before);
+  const paths = [...new Set([...afterMap.keys(), ...[...beforeMap.keys()].sort()])];
+  const out: { field: string; before?: string; after: string }[] = [];
+  for (const path of paths) {
+    const b = beforeMap.get(path);
+    const a = afterMap.get(path);
+    if (b === a) continue;
+    out.push({ field: pathLabel(top, path), before: b ?? '(없음)', after: a ?? '(없음)' });
+  }
+  return out;
+}
+
+export function undoInput(of: Previewed): Values | undefined {
+  if (!of.undo || !('calls' in of.undo)) return undefined;
+  return of.undo.calls.find((call) => call.tool === of.tool)?.input;
+}
+
+type WorkflowNodeShape = { id: string; type: string; label?: string; config?: unknown };
+
+export function workflowChanges(
+  before: { name?: unknown; description?: unknown; definition?: unknown } | undefined,
+  input: { name?: string; description?: string; definition?: { nodes?: WorkflowNodeShape[]; edges?: unknown[] } },
+): ProposalDetail[] {
+  const nodes = input.definition?.nodes ?? [];
+  const edges = input.definition?.edges ?? [];
+  if (!before) {
+    return fields(['작업', '새로 만들기'], ['이름', input.name], ['노드', nodes.map((n) => n.label ?? n.type)], ['연결', edges.length]);
+  }
+  const oldDef = isRecord(before.definition) ? before.definition : {};
+  const oldNodes = (Array.isArray(oldDef.nodes) ? oldDef.nodes : []) as WorkflowNodeShape[];
+  const oldEdges = Array.isArray(oldDef.edges) ? oldDef.edges : [];
+  const oldById = new Map(oldNodes.map((n) => [n.id, n]));
+  const newById = new Map(nodes.map((n) => [n.id, n]));
+
+  const headerChanges = [
+    ...objectChanges('이름', before.name, input.name, true),
+    ...objectChanges('설명', before.description, input.description, true),
+  ];
+  const nodeItems: { title: string; changes: { field: string; before?: string; after: string }[] }[] = [];
+  for (const node of nodes) {
+    const old = oldById.get(node.id);
+    if (!old || JSON.stringify(old) === JSON.stringify(node)) continue;
+    const changes = [...objectChanges('이름', old.label, node.label, true), ...objectChanges('설정', old.config, node.config, true)];
+    if (changes.length) nodeItems.push({ title: `노드 수정 · ${node.label ?? node.type}`, changes });
+  }
+
+  const added = nodes.filter((n) => !oldById.has(n.id));
+  const removed = oldNodes.filter((n) => !newById.has(n.id));
+  const lists: ProposalDetail[] = [
+    ...(added.length ? [{ kind: 'list' as const, title: '추가할 노드', items: added.map((n) => `${n.label ?? n.type} (${n.type})`) }] : []),
+    ...(removed.length ? [{ kind: 'list' as const, title: '삭제할 노드', items: removed.map((n) => n.label ?? n.type) }] : []),
+  ];
+
+  const oldEdgeSet = new Set(oldEdges.map((edge) => JSON.stringify(edge)));
+  const newEdgeSet = new Set(edges.map((edge) => JSON.stringify(edge)));
+  const edgeChanged = JSON.stringify([...oldEdgeSet].sort()) !== JSON.stringify([...newEdgeSet].sort());
+  const edgeFields = edgeChanged
+    ? fields([
+        '연결',
+        `${oldEdges.length} → ${edges.length}개 (추가 ${[...newEdgeSet].filter((e) => !oldEdgeSet.has(e)).length} · 삭제 ${[...oldEdgeSet].filter((e) => !newEdgeSet.has(e)).length})`,
+      ])
+    : [];
+
+  const items = [...(headerChanges.length ? [{ title: `워크플로 · ${input.name ?? ''}`, changes: headerChanges }] : []), ...nodeItems];
+  const details: ProposalDetail[] = [...(items.length ? [{ kind: 'changes' as const, items }] : []), ...lists, ...edgeFields];
+  return details.length ? details : [remark('바뀌는 내용이 없습니다.')];
+}

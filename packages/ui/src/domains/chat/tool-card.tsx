@@ -1,5 +1,5 @@
 import type * as React from "react"
-import { Check, CircleAlert, Wrench } from "lucide-react"
+import { Check, CircleAlert, Pencil, Play, Trash2, Wrench } from "lucide-react"
 import { ExpandableRow } from "../../patterns/expandable-row"
 import { Group } from "../../patterns/section"
 import { Spinner } from "../../controls/spinner"
@@ -10,16 +10,22 @@ export function ToolCard({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * A card's header: the title on one line (in a narrow panel the status wraps below instead of breaking the title), a `suffix` beside it, and
- * the status (`children`) pushed to the right.
+ * A card's header: the title on one line (in a narrow panel the status wraps below instead of breaking the title), an optional `summary`,
+ * a `suffix` beside it, and the status (`children`) pushed to the right.
  */
-export function ToolCardHeader({ title, suffix, children }: { title: string; suffix?: React.ReactNode; children?: React.ReactNode }) {
+export function ToolCardHeader({ title, suffix, summary, tone, children }: { title: string; suffix?: React.ReactNode; summary?: React.ReactNode; tone?: "change" | "run" | "delete"; children?: React.ReactNode }) {
+  const icon =
+    tone === "delete" ? <Trash2 className="size-3.5 shrink-0 text-danger" /> :
+    tone === "run" ? <Play className="size-3.5 shrink-0 text-muted" /> :
+    tone === "change" ? <Pencil className="size-3.5 shrink-0 text-muted" /> :
+    <Wrench className="size-3.5 shrink-0 text-muted" />
   return (
     <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-sunken px-3 py-2 text-sm font-semibold">
       <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={title}>
-        <Wrench className="size-3.5 shrink-0 text-muted" />
+        {icon}
         <span className="truncate">{title}</span>
       </span>
+      {summary ? <span className="min-w-0 truncate text-xs font-normal text-muted">{summary}</span> : null}
       {suffix}
       <span className="ml-auto text-right text-xs font-normal">{children}</span>
     </div>

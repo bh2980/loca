@@ -39,6 +39,8 @@ const ATTACH_HOW: Record<string, string> = {
   상태: 'find_lines(statuses: [id])로 이 상태의 대사를 찾습니다',
   워크플로: 'read_workflow(workflowId)',
   '실행 기록': 'read_run(runId)',
+  '고른 대사': 'detail의 unitIds를 read_line(unitId)로 하나씩 읽거나, 많으면 find_lines(ids: unitIds)로 읽습니다',
+  '대사 필터': 'detail은 대사 필터입니다. find_lines에 그대로 넣어 해당 대사를 읽습니다(offset/limit로 나눠 읽기)',
 };
 
 export const describeView = (view: z.infer<typeof viewSchema>) => {
@@ -50,7 +52,7 @@ export const describeView = (view: z.infer<typeof viewSchema>) => {
   return [
     '사용자의 현재 화면 (지시어 "이것/이 대사/이 노드"는 여기를 가리킵니다):',
     `- 페이지: ${view.page} (${view.path})`,
-    ...onScreen.map(line),
+    ...onScreen.map(attachedLine),
     ...(attached.length ? ['사용자가 이 메시지에 직접 첨부한 항목 (@로 고름. "이것/첨부한 것"은 이 항목들도 가리킵니다. 종류·id·이름을 알려 주니 id로 바로 읽으세요):', ...attached.map(attachedLine)] : []),
   ].join('\n');
 };

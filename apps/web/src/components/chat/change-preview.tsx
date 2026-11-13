@@ -1,6 +1,7 @@
 import { TOOL_SPECS, type ProposalDetail } from '@loca/shared';
 import { MarkChip } from '@/components/status';
-import { Box, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
+import { diffRows } from '@/lib/text-diff';
+import { Box, DiffText, Markdown, Grid, Inline, Text, SectionHeading } from '@loca/ui';
 
 export const LABEL: Record<string, string> = Object.fromEntries(Object.entries(TOOL_SPECS).map(([name, spec]) => [name, spec.label]));
 
@@ -30,8 +31,11 @@ function Detail({ detail, pending }: { detail: ProposalDetail; pending: boolean 
                     <Grid key={change.field} columns="field" gap="condensed">
                       <Text as="dt" variant="caption" tone="muted">{change.field}</Text>
                       <Box as="dd" minWidth={0}>
-                        {change.before !== undefined && <Text as="p" tone="muted" breakWords preserveLines>{change.before}</Text>}
-                        <Text as="p" breakWords preserveLines>{change.before !== undefined ? '→ ' : ''}{change.after}</Text>
+                        {change.before !== undefined ? (
+                          <DiffText rows={diffRows(change.before, change.after)} />
+                        ) : (
+                          <Text as="p" breakWords preserveLines>{change.after}</Text>
+                        )}
                       </Box>
                     </Grid>
                   ))}

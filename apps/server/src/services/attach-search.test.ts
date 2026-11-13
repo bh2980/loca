@@ -46,7 +46,7 @@ describe('@ search: every kind', () => {
   it('finds each kind with its page address', () => {
     const { db, projectId, status, run } = setup();
     const hit = (kind: string, q: string) => flat(searchAttach(db, projectId, { q, kind: kind as never })).find((item) => item.kind === kind);
-    expect(hit('대사', 'ticket')).toMatchObject({ label: 'Reeve: Excuse me. I have a ticket for the light…', detail: 'c1.ferry.001' });
+    expect(hit('대사', 'ticket')).toMatchObject({ label: 'Reeve: Excuse me. I have a ticket for the light…', detail: 'Greywater Ferry · c1.ferry.001' });
     expect(hit('대사', 'ticket')!.href).toMatch(new RegExp(`^/p/${projectId}/script\\?group=[^&]+&line=[^&]+&detail=true$`));
     expect(hit('장면', 'Greywater')).toMatchObject({ label: 'Greywater Ferry', detail: '2줄' });
     expect(hit('장면', 'Greywater')!.href).toMatch(/\/script\?group=/);
@@ -139,7 +139,7 @@ describe('@ search: grouping, paging, ranking', () => {
     const { db, projectId } = setup();
     db.insert(s.units).values({ projectId, groupId: db.select().from(s.groups).get()!.id, key: 'mention', sort: 99, seq: 0, kind: 'dialogue', source: 'see c1.dock.001 for details', statusId: db.select().from(s.statuses).get()!.id }).run();
     const labels = flat(searchAttach(db, projectId, { q: 'c1.dock.001', kind: '대사' })).map((item) => item.detail);
-    expect(labels[0]).toBe('c1.dock.001');
+    expect(labels[0]).toBe('Dock · c1.dock.001');
   });
 });
 
@@ -154,11 +154,11 @@ describe('@ search: lines use the full-text index and are never all loaded', () 
     const deep = searchAttach(db, projectId, { q: 'Crate number', kind: '대사', offset: 280 }).groups[0];
     expect(deep.items).toHaveLength(20);
     expect(deep.more).toBe(false);
-    expect(flat(searchAttach(db, projectId, { q: 'number 299', kind: '대사' }))[0].detail).toBe('bulk.00299');
+    expect(flat(searchAttach(db, projectId, { q: 'number 299', kind: '대사' }))[0].detail).toBe('Dock · bulk.00299');
     // two characters: LIKE fallback still limited
     expect(searchAttach(db, projectId, { q: 'Cr', kind: '대사' }).groups[0].items).toHaveLength(ATTACH_PAGE);
     // a typed key
-    expect(flat(searchAttach(db, projectId, { q: 'bulk.00007', kind: '대사' }))[0].detail).toBe('bulk.00007');
+    expect(flat(searchAttach(db, projectId, { q: 'bulk.00007', kind: '대사' }))[0].detail).toBe('Dock · bulk.00007');
   });
 
   it('an empty search lists the most recently edited lines', () => {

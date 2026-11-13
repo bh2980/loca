@@ -101,9 +101,9 @@ export function useComposerMenu(args: {
     const flows = shownCommands.filter((command) => command.kind === 'workflow');
     const saved = shownCommands.filter((command) => command.kind === 'prompt');
     const own = shownCommands.filter((command) => command.kind === 'app');
+    if (own.length) groups.push({ key: 'app', heading: '대화', rows: own.map(rowOf) });
     if (flows.length) groups.push({ key: 'workflows', heading: '워크플로', rows: flows.map(rowOf) });
     if (saved.length) groups.push({ key: 'prompts', heading: '저장한 지시', rows: saved.map(rowOf) });
-    if (own.length) groups.push({ key: 'app', heading: '대화', rows: own.map(rowOf) });
   }
 
   const rows = groups.flatMap((group) => group.rows);
@@ -221,6 +221,8 @@ export function useComposerMenu(args: {
     title: at ? '첨부할 항목' : '명령',
     /** Opens the list again after Esc (the paperclip). */
     reopen: () => setDismissed(null),
+    /** Closes the list until a new trigger starts (Esc, blur). */
+    dismiss: () => setDismissed(triggerKey),
     atOpen: at !== null,
     commands,
   };

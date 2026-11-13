@@ -14,7 +14,7 @@ export const RUNS_LISTED = 200;
  */
 export function runRows(db: Db, projectId: string, ids?: readonly string[]) {
   const query = db
-    .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, subject: s.runs.subject, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt })
+    .select({ id: s.runs.id, workflowId: s.runs.workflowId, workflowName: s.runs.workflowName, workflowVersion: s.runs.workflowVersion, subject: s.runs.subject, status: s.runs.status, notice: s.runs.notice, total: s.runs.total, createdAt: s.runs.createdAt, finishedAt: s.runs.finishedAt, sessionId: s.runs.sessionId })
     .from(s.runs)
     .where(and(eq(s.runs.projectId, projectId), ids ? inList(s.runs.id, ids) : undefined))
     .orderBy(desc(s.runs.createdAt));

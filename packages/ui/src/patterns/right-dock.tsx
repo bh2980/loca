@@ -20,13 +20,25 @@ interface DockContextValue {
   active?: string;
   hasContent: boolean;
   activate?: () => void;
+  autoActivate?: () => void;
   revealDock?: () => void;
 }
 const DockContext = createContext<DockContextValue | null>(null);
 const DockDepth = createContext(0);
 
 /** Portals keep each inspector in its route's React context, but share one physical dock. */
-export function DockProvider({ children, onActivate, onContentChange }: { children: ReactNode; onActivate?: () => void; onContentChange?: (present: boolean) => void }) {
+export function DockProvider({
+  children,
+  onActivate,
+  onAutoActivate,
+  onContentChange,
+}: {
+  children: ReactNode;
+  onActivate?: () => void;
+  /** A new selection's pane asks to be shown; defaults to onActivate. The app passes one that leaves an open chat alone. */
+  onAutoActivate?: () => void;
+  onContentChange?: (present: boolean) => void;
+}) {
   const [target, setTarget] = useState<HTMLDivElement | null>(null);
   const [headerTarget, setHeaderTarget] = useState<HTMLDivElement | null>(null);
   const [entries, setEntries] = useState<Entry[]>([]);
@@ -40,7 +52,8 @@ export function DockProvider({ children, onActivate, onContentChange }: { childr
   const revealDock = useCallback(() => {
     if (hasContent) onActivate?.();
   }, [hasContent, onActivate]);
-  const context = useMemo(() => ({ target, setTarget, headerTarget, setHeaderTarget, register, active, hasContent, activate: onActivate, revealDock }), [target, headerTarget, register, active, hasContent, onActivate, revealDock]);
+  const autoActivate = onAutoActivate ?? onActivate;
+  const context = useMemo(() => ({ target, setTarget, headerTarget, setHeaderTarget, register, active, hasContent, activate: onActivate, autoActivate, revealDock }), [target, headerTarget, register, active, hasContent, onActivate, autoActivate, revealDock]);
   return <DockContext.Provider value={context}>{children}</DockContext.Provider>;
 }
 
@@ -53,10 +66,10 @@ export function DockContent({ children, selectionKey, autoActivate = true }: { c
   const id = useId();
   const register = dock?.register;
   const present = Boolean(children);
-  const activate = dock?.activate;
+  const autoReveal = dock?.autoActivate;
   useEffect(() => present && register ? register({ id, depth }) : undefined, [register, id, depth, present]);
   // A new selection reveals its inspector, but query refreshes and drafts never reopen it.
-  useEffect(() => { if (present && autoActivate) activate?.(); }, [activate, present, selectionKey, autoActivate]);
+  useEffect(() => { if (present && autoActivate) autoReveal?.(); }, [autoReveal, present, selectionKey, autoActivate]);
   return dock?.target && present ? createPortal(
     <div className={cn('h-full min-h-0', dock.active !== id && 'hidden')} aria-hidden={dock.active !== id || undefined}>{children}</div>, dock.target,
   ) : null;

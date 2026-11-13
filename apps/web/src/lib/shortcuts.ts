@@ -29,6 +29,7 @@ const range = (prefix: string, count: number) => Array.from({ length: count }, (
 export const SHORTCUTS = {
   search: spec('어디서나', 'Mod+K', '장면·용어·인물·자료·대사 검색', { global: true }),
   chat: spec('어디서나', 'Mod+I', '에이전트 채팅 열기·닫기', { global: true }),
+  attachToChat: spec('어디서나', 'Mod+Shift+I', '지금 화면의 항목을 채팅에 넣기', { global: true }),
   sidebar: spec('어디서나', 'Mod+B', '사이드바 접기·펴기', { global: true }),
   help: spec('어디서나', '?', '이 단축키 목록', { global: true }),
 

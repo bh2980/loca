@@ -47,3 +47,6 @@ export const controlRun = (projectId: string, runId: string, action: 'pause' | '
       limits === undefined ? undefined : { init: { body: JSON.stringify({ limits }), headers: { 'content-type': 'application/json' } } },
     ),
   );
+
+/** 감시 끊기: the conversation stops following the run (it goes on). */
+export const unwatchRun = (projectId: string, runId: string) => sent(projectId, client.runs[':id'].unwatch.$post({ param: { id: runId } }));

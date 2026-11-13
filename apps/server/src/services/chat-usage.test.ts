@@ -44,6 +44,18 @@ describe('chat usage (문맥 meter)', () => {
     learnImages(other.db, other.connection.id, 'm', false);
     expect(chatUsage(other.db, other.chat)).toMatchObject({ images: 'no', window: 9_000 });
   });
+
+  it('estimates the input from the summary and later messages after /compact until the next answer', () => {
+    const { db, projectId, chat } = setup({ m: { contextWindow: 200_000, by: 'api' } });
+    const t = 10_000;
+    call(db, projectId, chat.id, '채팅', 50_000, t);
+    const messages = [
+      { id: '1', role: 'user', parts: [{ type: 'text', text: 'hello' }] },
+      { id: '2', role: 'assistant', parts: [{ type: 'text', text: 'hi' }] },
+    ];
+    expect(chatUsage(db, { ...chat, messages, compaction: { upTo: messages.length, summary: 'short summary', at: t + 1000 } }).lastInputTokens).toBeLessThan(50_000);
+    expect(chatUsage(db, { ...chat, messages, compaction: { upTo: messages.length, summary: 'short summary', at: t - 1000 } }).lastInputTokens).toBe(50_000);
+  });
 });
 
 describe('message images', () => {

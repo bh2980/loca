@@ -23,10 +23,11 @@ export function parseAtQuery(query: string, allowed: readonly AttachKind[] = ATT
 }
 
 /**
- * The @-mention the caret is in: an @ at the start of the box or after whitespace, with no whitespace
- * between it and the caret, except after a kind's name (`@인물 lo`, a search inside that kind, on one
- * line). Mid-word (a@b, an e-mail) is not a mention. Text still being composed by an IME is part of
- * the value, so a half-typed Hangul query counts.
+ * The @-mention the caret is in: an @ at the start of the box or after whitespace, on one line,
+ * where the query does not begin with whitespace (a lone `@ ` is plain text; otherwise spaces are
+ * allowed so multi-word queries stay open until a pick, Esc or a click elsewhere). Mid-word (a@b,
+ * an e-mail) is not a mention. Text still being composed by an IME is part of the value, so a
+ * half-typed Hangul query counts.
  */
 export function findAtTrigger(value: string, caret: number): AtTrigger | null {
   const before = value.slice(0, caret);
@@ -35,7 +36,8 @@ export function findAtTrigger(value: string, caret: number): AtTrigger | null {
   if (at > 0 && !/\s/.test(before[at - 1])) return null;
   const query = before.slice(at + 1);
   if (/\n/.test(query)) return null;
-  if (/\s/.test(query) && !parseAtQuery(query).kind) return null;
+  // A lone @ followed by a space is a plain @; otherwise the query may have spaces: the list stays until a pick, Esc or a click elsewhere.
+  if (/^\s/.test(query)) return null;
   return { start: at, query };
 }
 
@@ -104,19 +106,19 @@ export const APP_COMMANDS: AppCommand[] = [
 ];
 export type Command = WorkflowCommand | PromptCommand | AppCommand;
 
-/** The list for `/`: the project's workflows, its saved prompts, then the app's own commands for the conversation. */
+/** The list for `/`: the app's own commands for the conversation, then the project's workflows and saved prompts. */
 export function allCommands(
   workflows: readonly { id: string; name: string; description: string; input: Subject; errorCount?: number }[],
   prompts: readonly SavedPrompt[],
 ): Command[] {
   return [
+    ...APP_COMMANDS,
     ...workflows.map((workflow): Command => ({ kind: 'workflow', id: workflow.id, name: workflow.name, description: workflow.description, input: workflow.input, ...(workflow.errorCount ? { blocked: `워크플로에 오류가 ${workflow.errorCount}개 있어 실행할 수 없습니다.` } : {}) })),
     ...prompts.map((prompt): Command => ({ kind: 'prompt', id: `prompt:${prompt.name}`, name: prompt.name, description: prompt.text.replace(/\s+/g, ' ').slice(0, 60), text: prompt.text })),
-    ...APP_COMMANDS,
   ];
 }
 
-/** Commands whose name starts with what was typed first, then those that contain it; the list's order (workflows, saved prompts, the app's) stays within each. */
+/** Commands whose name starts with what was typed first, then those that contain it; the list's order (app commands, workflows, saved prompts) stays within each. */
 export function filterCommands(commands: Command[], query: string): Command[] {
   const needle = query.trim().toLowerCase();
   if (!needle) return commands;

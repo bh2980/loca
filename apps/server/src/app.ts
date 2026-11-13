@@ -19,7 +19,9 @@ import { sourceRoutes } from './routes/source.ts';
 import { workflowRoutes } from './routes/workflows.ts';
 import { proposalRoutes } from './routes/proposals.ts';
 import { scriptRoutes } from './routes/script.ts';
+import { onRunEnded } from './engine/run-end.ts';
 import type { AgentTools } from './services/agent-tools.ts';
+import { continueAfterRunEnd } from './services/chat-turn.ts';
 
 const LOCAL_HOSTS = new Set(['localhost', '127.0.0.1', '[::1]']);
 
@@ -29,6 +31,7 @@ export function createApp(deps: Deps) {
   const events = eventsOf(deps.db);
   rowChangesOf(deps.db).listener = (projectId, seq) => events.rowsChanged(projectId, seq);
   events.rowSource = (projectId) => feedRows(deps.db, deps, projectId);
+  onRunEnded(deps.db, (sessionId, _runId, status) => continueAfterRunEnd(deps, sessionId, status));
   const api = new Hono<Env>()
     .use(async (c, next) => {
       c.set('deps', deps);
