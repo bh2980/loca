@@ -35,13 +35,47 @@ interface ToolPart {
 }
 
 /** A tool call and its result on one line, for a reader that cannot take the structured parts. */
-/** Text cut to `max` characters, saying how much was left out. */
-const cut = (text: string, max?: number) => (max !== undefined && text.length > max ? `${text.slice(0, max)}…(${(text.length - max).toLocaleString()}자 생략)` : text);
-
-function toolLine(part: ToolPart, clip?: number) {
+function toolLine(part: ToolPart) {
   const name = part.toolName ?? part.type.replace(/^tool-/, '');
-  const result = part.state === 'output-error' ? ` → 실패: ${cut(json(part.errorText), clip)}` : part.state === 'output-available' ? ` → ${cut(json(part.output), clip)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
-  return `[도구 ${name} ${cut(json(part.input), clip === undefined ? undefined : Math.ceil(clip / 2))}${result}]`;
+  const result = part.state === 'output-error' ? ` → 실패: ${json(part.errorText)}` : part.state === 'output-available' ? ` → ${json(part.output)}` : part.state === 'output-denied' ? ' → 거절됨' : '';
+  return `[도구 ${name} ${json(part.input)}${result}]`;
+}
+
+/** Long text kept as its start and its end (where a result says what it found, its counts and errors), saying how much of the middle went. */
+export function cutMiddle(text: string, max: number) {
+  if (text.length <= max) return text;
+  const head = Math.ceil(max * 0.6);
+  return `${text.slice(0, head)}\n…(${(text.length - max).toLocaleString()}자 생략)…\n${text.slice(-(max - head))}`;
+}
+
+const isToolPart = (part: { type: string }) => part.type.startsWith('tool-') || part.type === 'dynamic-tool';
+
+/**
+ * The record with each tool result longer than its limit cut to its start and end (cutMiddle). `limitOf(rank)` gives the
+ * limit by age (rank 0: the newest result; undefined: kept whole). `inputs`: the calls' inputs too, for a reader of text
+ * (a transcript); a model reading the structured calls gets them as they were.
+ */
+export function capToolOutputs(messages: UIMessage[], limitOf: (rank: number) => number | undefined, { inputs = false }: { inputs?: boolean } = {}): UIMessage[] {
+  let rank = 0;
+  let out: UIMessage[] | null = null;
+  for (let m = messages.length - 1; m >= 0; m--) {
+    const message = messages[m]!;
+    let parts: UIMessage['parts'] | null = null;
+    for (let p = message.parts.length - 1; p >= 0; p--) {
+      const part = message.parts[p] as ToolPart;
+      if (!isToolPart(part) || part.state !== 'output-available') continue;
+      const limit = limitOf(rank++);
+      if (limit === undefined) continue;
+      const output = json(part.output);
+      const input = inputs ? json(part.input) : '';
+      if (output.length <= limit && input.length <= limit) continue;
+      parts ??= [...message.parts];
+      parts[p] = { ...part, output: cutMiddle(output, limit), ...(inputs && { input: cutMiddle(input, limit) }) } as UIMessage['parts'][number];
+    }
+    if (parts) (out ??= [...messages])[m] = { ...message, parts };
+  }
+  // Nothing over its limit: the same record, so a caller can tell nothing changed.
+  return out ?? messages;
 }
 
 /**
@@ -73,13 +107,13 @@ const cardLine = (part: { type: string }) => {
 };
 
 /** One message as text: what was said plus the tools it used and what they returned. */
-export function messageText(message: UIMessage, clip?: number) {
+export function messageText(message: UIMessage) {
   const pieces: string[] = [];
   for (const part of message.parts) {
     if (part.type === 'text' && part.text.trim()) pieces.push(part.text);
     else if (part.type === 'file') pieces.push('[이미지 첨부]');
     else if (part.type === RUN_CARD_PART || part.type === RUN_END_PART) pieces.push(cardLine(part));
-    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart, clip));
+    else if (part.type.startsWith('tool-') || part.type === 'dynamic-tool') pieces.push(toolLine(part as ToolPart));
   }
   return pieces.join('\n');
 }
@@ -132,9 +166,9 @@ const speaker = (message: UIMessage) => {
 };
 
 /** The conversation as text, every message whole, naming who answered. */
-export function transcript(messages: UIMessage[], { clip }: { /** Each tool's input and result cut to about this many characters (a summary needs what was done, not the data). */ clip?: number } = {}) {
+export function transcript(messages: UIMessage[]) {
   return expandRecord(messages)
-    .map((message) => ({ who: isCard(message) ? null : speaker(message), text: messageText(message, clip) }))
+    .map((message) => ({ who: isCard(message) ? null : speaker(message), text: messageText(message) }))
     .filter((line) => line.text)
     .map((line) => (line.who ? `${line.who}: ${line.text}` : `[${line.text}]`))
     .join('\n');
