@@ -5,6 +5,7 @@ import { Check } from 'lucide-react';
 import { toast } from 'sonner';
 import { Box, Button, Checkbox, Inline, Spinner, Text, Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@loca/ui';
 import type { Proposal } from './proposal-card';
+import { detailsSummary } from '@/lib/proposal-summary';
 import { ChangePreview, LABEL } from './change-preview';
 import { decideProposals } from '@/lib/proposals';
 
@@ -76,7 +77,7 @@ export function ProposalList({ projectId, proposals }: { projectId: string; prop
           <Box as="li" key={proposal.id} paddingX="normal" paddingY="condensed" spaceY="tight">
             <Inline gap="condensed">
               {several && <Checkbox checked={picked.has(proposal.id)} onCheckedChange={(on) => toggle([proposal.id], Boolean(on))} aria-label="선택" />}
-              <Text minWidth={0} grow truncate variant="caption" weight="medium" tone="muted">{LABEL[proposal.tool] ?? proposal.tool}{proposal.source === 'cli' ? ' · CLI' : ''}</Text>
+              <Text minWidth={0} grow truncate variant="caption" weight="medium" tone="muted">{LABEL[proposal.tool] ?? proposal.tool}{proposal.source === 'cli' ? ' · CLI' : ''}{detailsSummary(proposal.details) ? ` · ${detailsSummary(proposal.details)}` : ''}</Text>
               <Button variant="ghost" disabled={decide.isPending} onClick={() => run('reject', [proposal.id])}>거절</Button>
               <Button variant="outline" disabled={decide.isPending} onClick={() => run('accept', [proposal.id])}><Check /> 수락</Button>
             </Inline>

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { CopyButton } from '@/components/copy-button';
 import { createFileRoute, Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
@@ -25,6 +25,7 @@ import { dateTime } from '@/lib/datetime';
 import { useTerms } from '@/lib/terms';
 import { runNodeExits, useRunDetail, useRunItems, useRunSteps, type RunItemRow } from '@/lib/run-detail';
 import { controlRun } from '@/lib/runs';
+import { useRunNotices } from '@/lib/run-notices';
 import { decideItems } from '@/lib/knowledge';
 import { param, searchParams } from '@/lib/search';
 
@@ -69,6 +70,8 @@ function RunDetail() {
   const [continueOpen, setContinueOpen] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const { projectId, runId } = Route.useParams();
+  const { markRead } = useRunNotices(projectId);
+  useEffect(() => markRead(runId), [runId]); // eslint-disable-line react-hooks/exhaustive-deps
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const run = useRunDetail(projectId, runId);

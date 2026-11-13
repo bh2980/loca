@@ -49,7 +49,7 @@ import { findReadingRoute } from './reading-route-tool.ts';
 import { checkDeleteItems, checkLineBatch, checkSaveTerms, checkStartRun, checkTagItems, needsRow, unchecked, type Prepared, type ToolCheck } from './proposal-check.ts';
 import { deleteItemsOrder, deleteItemsTrim, isRecord, knowledgeBatchUndo, knowledgeUndo, lineChangesUndo, noUndo, sentValues, tagItemsUndo, termsUndo, undoCall, undoesRecord, type Inverse } from './proposal-undo.ts';
 import { subjectOf } from '../engine/subjects.ts';
-import { continueRunDetails, fields, KNOWLEDGE_KINDS, knowledgeChanges, lineChanges, onAccept, previewNames, remark, some, startRunDetails, WHAT, type Previewed } from './proposal-preview.ts';
+import { continueRunDetails, fields, KNOWLEDGE_KINDS, knowledgeChanges, lineChanges, objectChanges, onAccept, previewNames, remark, some, startRunDetails, undoInput, WHAT, workflowChanges, type Previewed } from './proposal-preview.ts';
 
 /** Lines of a batch proposal checked and applied per step when it is accepted. */
 const APPLY_CHUNK = 500;
@@ -97,7 +97,7 @@ class KnowledgeRefused extends Error {}
 /** `unrestricted`: every tool whatever the project's agent permissions: to look a tool up by name (its check, its undo), and for a person undoing an accepted change in the app (its inverse may be a delete the agent is not allowed). */
 /** `author.saver`: who an applied change is recorded as (an accepted proposal: AI wrote it, the decider set it); a person in the app without. */
 /** What a started run tells the agent: the run goes on without the conversation. */
-const RUN_APART_NOTE = '실행은 이 대화와 따로 돌아갑니다. 시작을 한 문장으로 알리고 답을 마치세요. 끝나면 이 대화에 결과가 기록됩니다. 기다리거나 read_run으로 반복해서 확인하지 마세요.';
+const RUN_APART_NOTE = '실행은 이 대화와 따로 돌아갑니다. 시작을 한 문장으로 알리고 답을 마치세요. 실행이 끝나면 결과가 이 대화에 기록되고 당신이 다시 불려 결과를 보고하게 됩니다. 기다리거나 read_run으로 반복해서 확인하지 마세요.';
 
 export function agentTools(db: Db, projectId: string, author: { model: string | null; saver?: Saver; /** The conversation asking: a run it starts reports its end there. */ sessionId?: string | null } = { model: null }, options: { unrestricted?: boolean } = {}) {
   const saver = author.saver ?? PERSON;
@@ -662,7 +662,10 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
             ? { calls: [undoCall(proposal.tool, { id: proposal.input.id, name: before.row.name, description: before.row.description, definition: before.row.definition })] }
             : { none: '새 워크플로는 되돌릴 수 없습니다' },
       },
-      preview: (input) => fields(['작업', input.id ? '수정' : '새로 만들기'], ['이름', input.name], ['노드', (input.definition?.nodes ?? []).map((node) => node.label ?? node.type)], ['연결', input.definition?.edges?.length]),
+      preview: (input, of) => {
+        const before = of.status === 'accepted' ? undoInput(of) : input.id ? db.select().from(s.workflows).where(and(eq(s.workflows.id, input.id), eq(s.workflows.projectId, projectId))).get() : undefined;
+        return input.id ? workflowChanges(before ?? undefined, input) : workflowChanges(undefined, input);
+      },
       execute: ({ id, name, description, definition }) => {
         const saved = saveWorkflow(db, projectId, { id, name, description, definition });
         return { ok: true, id: saved.id, issues: workflowIssues(db, projectId, definition, saved.id) };
@@ -1036,7 +1039,10 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         },
         after: (_db, proposal, before) => (isRecord(before.settings) ? { calls: [undoCall(proposal.tool, sentValues(before.settings, Object.keys(proposal.input)))] } : { calls: [] }),
       },
-      preview: (input) => fields(...Object.entries(input).map(([key, value]) => [SETTING_LABELS[key] ?? key, typeof value === 'string' ? value : JSON.stringify(value, null, 2), typeof value === 'string' ? undefined : 'code'] as const)),
+      preview: (input, of) => {
+        const before = of.status === 'accepted' ? undoInput(of) : ((readProjectSettings(db, projectId) as Record<string, unknown> | null) ?? undefined);
+        return [{ kind: 'changes', items: [{ title: '프로젝트 설정', changes: Object.entries(input).flatMap(([key, value]) => objectChanges(SETTING_LABELS[key] ?? key, before?.[key], value, before !== undefined && (key in before))) }] }];
+      },
       execute: (patch) => (updateProjectSettings(db, projectId, patch) ? { ok: true } : { ok: false, error: '프로젝트를 찾을 수 없습니다.' }),
     }),
     read_app_defaults: tool({

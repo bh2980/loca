@@ -4,7 +4,8 @@ import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
-import { acceptedLabel } from '@loca/shared';
+import { acceptedLabel, toolClass } from '@loca/shared';
+import { detailsSummary } from '@/lib/proposal-summary';
 import { decideProposal, type Proposal, undoProposals } from '@/lib/proposals';
 import { ChangePreview, LABEL } from './change-preview';
 
@@ -14,7 +15,7 @@ const STATUS = { running: '적용 중', rejected: '거절함', failed: '실패' 
 const DECIDED_BY = { auto: '자동 검토로', bypass: '바로 반영 모드로' } as const;
 
 /** One undo request and its shared outcome message for cards and whole replies. `sessionId` null: changes the terminal made, which belong to no conversation. */
-export function useUndo(projectId: string, sessionId: string | null) {
+function useUndo(projectId: string, sessionId: string | null) {
   return useMutation({
     mutationFn: (ids: string[]) => undoProposals(projectId, sessionId ?? undefined, ids),
     onSuccess: (rows, ids) => {
@@ -34,6 +35,7 @@ export function useUndo(projectId: string, sessionId: string | null) {
 /** A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that. */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const undo = useUndo(proposal.projectId, proposal.sessionId);
+  const [open, setOpen] = useState(proposal.status === 'pending');
   // Rejecting asks (optionally) why, so the agent can try differently instead of guessing.
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
@@ -46,9 +48,15 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const skipped = proposal.status === 'accepted' ? ((proposal.result as { skipped?: unknown[] } | null)?.skipped?.length ?? 0) : 0;
   // A run this proposal started or went on with.
   const runId = proposal.status === 'accepted' ? (proposal.result as { runId?: string } | null)?.runId : undefined;
+  const kind = toolClass(proposal.tool, proposal.input as Record<string, unknown>);
   return (
     <ToolCard>
-      <ToolCardHeader title={LABEL[proposal.tool] ?? proposal.tool} suffix={proposal.source === 'cli' && <Text weight="normal" tone="muted">· CLI</Text>}>
+      <ToolCardHeader
+        title={LABEL[proposal.tool] ?? proposal.tool}
+        tone={kind === 'read' ? undefined : kind}
+        summary={detailsSummary(proposal.details)}
+        suffix={proposal.source === 'cli' && <Text weight="normal" tone="muted">· CLI</Text>}
+      >
         {proposal.undoneAt ? <Text marginLeft="auto" tone="muted">되돌림</Text> : proposal.status !== 'pending' && (
           <Text tone={proposal.status === 'accepted' ? 'success' : proposal.status === 'failed' ? 'danger' : 'muted'}>
             {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
@@ -61,7 +69,18 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         {decide.isPending && <Spinner size="xs" />}
       </ToolCardHeader>
       <Box paddingX="normal" paddingY="condensed" variant="body">
-        <ChangePreview details={proposal.details} pending={proposal.status === 'pending'} />
+        {open ? (
+          <>
+            {proposal.status !== 'pending' && (
+              <Box marginBottom="tight">
+                <Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>
+              </Box>
+            )}
+            <ChangePreview details={proposal.details} pending={proposal.status === 'pending'} />
+          </>
+        ) : (
+          <Button variant="ghost" size="inline" onClick={() => setOpen(true)}>자세히</Button>
+        )}
         {runId && <Text as="p" marginTop="condensed" variant="caption"><Text asChild underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId: proposal.projectId, runId }}>실행 보기</Link></Text></Text>}
         {proposal.report && <ProposalReport report={proposal.report} />}
         {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}

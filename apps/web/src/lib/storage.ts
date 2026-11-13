@@ -46,6 +46,8 @@ export const STORED = {
   chatSeen: define<number | null, Project>('chat.seen', 'local', z.number().nullable(), null),
   /** When 최근 실행 was last cleared in a project. */
   recentRunsCleared: define<number, Project>('runs.recent.cleared', 'local', z.number(), 0),
+  /** The bell's run notices in a project: since when runs count, which were read and which were dismissed (lib/run-notices.ts). */
+  runNotices: define<{ since: number; read: string[]; dismissed: string[] } | null, Project>('runs.notices', 'local', z.object({ since: z.number(), read: ids, dismissed: ids }).nullable(), null),
   /** What an export did with the lines it left out, the last time. */
   exportRest: define<'source' | 'omit', Project>('export.rest', 'local', z.enum(['source', 'omit']), 'source'),
   gettingStartedHidden: define<boolean, Project>('getting-started.hidden', 'local', z.boolean(), false),

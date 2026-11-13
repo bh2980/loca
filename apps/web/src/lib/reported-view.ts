@@ -63,3 +63,14 @@ export function usePageTitle(page: string) {
     viewStore.setPage(page);
   }, [page]);
 }
+
+/** Lines picked with checkboxes, as one item for the chat: the same set gives the same id wherever it is reported or pinned. */
+export function pickedLinesItem(ids: readonly string[]): ViewItem {
+  const sorted = [...ids].sort();
+  return {
+    kind: '고른 대사',
+    id: `picked:${sorted.length}:${sorted[0] ?? ''}:${sorted.at(-1) ?? ''}`,
+    label: `고른 대사 ${sorted.length.toLocaleString()}개`,
+    detail: JSON.stringify({ unitIds: sorted.slice(0, 200), ...(sorted.length > 200 && { more: sorted.length - 200 }) }),
+  };
+}

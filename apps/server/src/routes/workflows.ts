@@ -21,6 +21,7 @@ import { workflowRows } from '../services/workflow-rows.ts';
 import { runItemIds, runNodeExits, runProgress } from '../services/run-detail.ts';
 import { rowChangesOf } from '../db/row-changes.ts';
 import { tokensSql } from '../db/tokens.ts';
+import { unwatchRun } from '../services/chat-run-cards.ts';
 
 /** A run's scope as asked (the line filter or the terms, by name or id) and, optionally, the models it uses instead of its nodes' own (by AI node id). */
 const runSchema = runScopeInputSchema.extend({ models: runModelsSchema.optional() });
@@ -255,6 +256,10 @@ export const workflowRoutes = new Hono<Env>()
     const result = continueRun(c.var.deps.db, c.req.param('id'), c.req.valid('json'));
     if (!result.ok) badRequest(result.error);
     return c.json({ ok: true, retried: result.retried, changes: result.changes });
+  })
+  .post('/runs/:id/unwatch', (c) => {
+    unwatchRun(c.var.deps.db, c.req.param('id'));
+    return c.json({ ok: true });
   })
   .post('/runs/:id/:action{pause|resume|cancel}', async (c) => {
     const { runner, db } = c.var.deps;

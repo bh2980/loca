@@ -19,7 +19,7 @@ import { ChatComposer, type ComposerHandle, type OutgoingMessage } from './chat-
 import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
-import { useUndo } from './proposal-card';
+import { WatchStrip } from './watch-strip';
 import { compactionMarker, isRunRecord, runCardOf, type ChatChip, type PermissionMode } from '@loca/shared';
 import type { ChatUsage } from './window-meter';
 import { useProposals } from '@/lib/proposals';
@@ -268,9 +268,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // CLI chats store change requests as proposals; their cards are decided through the API.
   const proposals = useProposals(projectId, { session: sessionId });
   const proposalById = useMemo(() => new Map(proposals.data?.map((proposal) => [proposal.id, proposal])), [proposals.data]);
-  const [undoingReply, setUndoingReply] = useState(false);
-  const [replyUndoIds, setReplyUndoIds] = useState<string[]>([]);
-  const undoReply = useUndo(projectId, sessionId);
   // A finished turn whose last part is a tool call said nothing about the result: say so and offer to continue.
   const marker = compactionMarker(compaction, messages.length);
   const lastPart = lastMessage?.parts.filter((part) => part.type !== 'step-start').at(-1);
@@ -307,6 +304,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
       compactRequest.current = controller;
       return chatTurn(sessionId).compact(controller.signal);
     },
+    onSuccess: () => toast.success('앞 대화를 요약했습니다.'),
     onError: (cause) => {
       if (!compactRequest.current?.signal.aborted) toast.error(cause instanceof Error ? cause.message : '대화를 압축하지 못했습니다.');
     },
@@ -342,10 +340,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   // 수정해서 보내기: the old message stays; its text becomes a new draft.
   const reuse = useCallback((text: string, chips: ChatChip[]) => composer.current?.reuse(text, chips), []);
   const focusBox = useCallback(() => composer.current?.focus(), []);
-  const undo = useCallback((ids: string[]) => {
-    setReplyUndoIds(ids);
-    setUndoingReply(true);
-  }, []);
   const toolOutput = useCallback((tool: string, toolCallId: string, output: unknown) => void addToolOutput({ tool: tool as never, toolCallId, output: output as never }), [addToolOutput]);
   // A queued message shows in the reply once the turn has handed it to the model.
   useEffect(() => {
@@ -407,7 +401,6 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
                 summary={marker?.index === firstShown + offset ? marker.summary : null}
                 onToolOutput={toolOutput}
                 onReuse={reuse}
-                onUndo={undo}
                 onCardAnswered={focusBox}
               />
             ))}
@@ -437,16 +430,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
         )}
       </Box>
 
-      <ConfirmDialog
-        open={undoingReply}
-        onOpenChange={setUndoingReply}
-        title="변경을 되돌릴까요?"
-        description={`이 답에서 반영된 변경 ${replyUndoIds.length}개를 되돌리는 제안을 적용합니다. 그사이 바뀐 대사는 건너뜁니다.`}
-        confirmLabel="되돌리기"
-        pending={undoReply.isPending}
-        onConfirm={() => { undoReply.mutate(replyUndoIds); setUndoingReply(false); }}
-      />
-
+      <WatchStrip projectId={projectId} sessionId={sessionId} />
       <ChatComposer
         handle={composer}
         projectId={projectId}

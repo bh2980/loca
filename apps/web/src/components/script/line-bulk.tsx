@@ -1,10 +1,12 @@
 /** Bulk actions on the picked lines: the picks, their mutations, and the head row that offers them. */
 import { useMemo, useState, type ComponentProps } from 'react';
 import { useMutation } from '@tanstack/react-query';
-import { Check } from 'lucide-react';
+import { Check, MessageSquarePlus } from 'lucide-react';
 import { toast } from 'sonner';
 import { listenerLabel, SPECIAL_LISTENERS } from '@loca/shared';
-import { TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
+import { Button, TagMenu, Checkbox, EditorAction, Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue, StatusIcon, Text, TranslationColumnHeader, Input, SelectionBar } from '@loca/ui';
+import { chatDock } from '@/lib/chat-dock';
+import { pickedLinesItem } from '@/lib/reported-view';
 import { usePicked } from '@/lib/use-picked';
 import { useCharacters } from '@/lib/knowledge';
 import { useProject } from '@/lib/project';
@@ -120,6 +122,7 @@ export function LineHeadRow({ projectId, rows, bulk, statusList, tags, allMatchi
                   <SelectItem value="exclude">제외</SelectItem>
                 </SelectContent>
               </Select>
+              <Button variant="ghost" onClick={() => chatDock.attach(projectId, [pickedLinesItem([...picked])])}><MessageSquarePlus /> 채팅에 넣기</Button>
             </SelectionBar>
           ) : undefined}
         />

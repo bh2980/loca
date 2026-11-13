@@ -163,7 +163,7 @@ app.post('/v1/chat/completions', async (c) => {
   // A "워크플로 돌려" request: once the overview answered, start the 번역 workflow.
   if (!call && last?.role === 'tool' && /워크플로\s*돌려/.test(user) && asked?.tool_calls?.[0]?.function.name === 'project_overview' && tools.has('start_run')) {
     const workflowId = /"id":"([^"]+)","name":"번역"/.exec(text(last))?.[1];
-    if (workflowId) call = { name: 'start_run', args: { workflowId, ...(/UI만/.test(user) && { kinds: ['ui'] }) } };
+    if (workflowId) call = { name: 'start_run', args: { workflowId, ...(/UI만/.test(user) && { filter: { kind: 'ui' } }) } };
   }
   // "기다려": read the run again and again instead of ending the reply, as an agent should not (the turn ends for it).
   if (!call && last?.role === 'tool' && /기다려/.test(user) && tools.has('read_run')) {

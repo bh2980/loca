@@ -110,7 +110,7 @@ function RunProgress({ projectId, runId }: { projectId: string; runId: string })
 
 const END_TITLE = { completed: '실행이 끝났습니다', paused: '실행이 멈췄습니다', cancelled: '실행을 취소했습니다' } as const;
 
-/** A run started here has stopped: what came of it and the way to it. Nothing else happens in the conversation until the person writes (the agent reads this then). */
+/** A run started here has stopped: what came of it and the way to it. The agent reports right after it (unless the run was cancelled or the watch was stopped). */
 export function RunEndView({ projectId, end }: { projectId: string; end: RunEnd }) {
   const unit = INPUT_TYPES[end.subject].unit;
   const counts = [['done', '완료'], ['failed', '실패'], ['cancelled', '취소']].flatMap(([state, label]) => ((end.states[state!] ?? 0) > 0 ? [`${label} ${end.states[state!]!.toLocaleString()}${unit}`] : []));

@@ -20,6 +20,7 @@ import { useGroupsById } from '@/lib/groups';
 import { useListeners, useSpeakers } from '@/lib/project';
 import { useProject } from '@/lib/project';
 import { isTyping } from '@/lib/keys';
+import { pickedLinesItem, useReportView } from '@/lib/reported-view';
 import { useShortcuts } from '@/lib/shortcuts';
 
 export { filterChips, isFinding, linesSearchParams, type LinesSearch } from '@/components/script/line-filters';
@@ -199,6 +200,14 @@ export function LineList({
   // Lines picked by their checkboxes; the head row above the lines acts on them.
   const bulk = useLineBulk({ projectId, pickKey: review ? 'review' : (groupId ?? (kind ? `all.${kind}` : 'all')), tagName: (tagId) => tagById.get(tagId)?.name, aiOnly: search.decidedBy === 'ai' });
   const { picked, pick } = bulk;
+  const filtered = !find && hasLineFilter(search);
+  const selectedLine = rows?.find((row) => row.id === search.line);
+  const pickedIds = [...picked];
+  useReportView('script-lines', [
+    selectedLine && { kind: selectedLine.kind === 'ui' ? 'UI 문자열' : selectedLine.kind === 'document' ? '문서' : '대사', id: selectedLine.id, label: `${selectedLine.speaker?.trim() ? `${selectedLine.speaker.trim()}: ` : ''}${selectedLine.source.slice(0, 40)}`, detail: JSON.stringify({ key: selectedLine.key }) },
+    pickedIds.length > 0 && pickedLinesItem(pickedIds),
+    filtered && { kind: '대사 필터', id: `filter:${JSON.stringify(sceneFilter(groupId))}`, label: `필터에 맞는 대사 ${(lines.data?.total ?? 0).toLocaleString()}개`, detail: JSON.stringify(sceneFilter(groupId)) },
+  ]);
   const pickScene = async (scene: string, on: boolean) => {
     try {
       const { rows: matching } = await queryClient.fetchQuery({ ...q.unitMatches(projectId, sceneFilter(scene)), staleTime: 0 });
@@ -310,7 +319,6 @@ export function LineList({
 
   // Set filters show as removable chips; while finding, the find bar shows them instead.
   const chips = find ? [] : filterChips(search, statusList, taxonomy.tags ?? [], markStyles);
-  const filtered = !find && hasLineFilter(search);
   // Gmail's rule: a new filter or search starts a new picking, so no line stays picked out of sight. The lines picked
   // before are let go, and one undo brings them back.
   const filterKey = JSON.stringify({ ...sceneFilter, groupId });

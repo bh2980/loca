@@ -26,7 +26,6 @@ export interface ChatMessageProps {
   summary: string | null;
   onToolOutput: (tool: string, toolCallId: string, output: unknown) => void;
   onReuse: (text: string, chips: ChatChip[]) => void;
-  onUndo: (proposalIds: string[]) => void;
   onCardAnswered: () => void;
 }
 
@@ -35,17 +34,12 @@ export interface ChatMessageProps {
  * progress or the reply growing in the newest message leave every other message alone, and a long conversation
  * costs nothing while they happen. Every prop must therefore keep its identity between draws (ChatBody).
  */
-export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onToolOutput, onReuse, onUndo, onCardAnswered }: ChatMessageProps) {
+export const ChatMessage = memo(function ChatMessage({ message, projectId, sessionId, latest, streaming, waitingCard, proposalById, summary, onToolOutput, onReuse, onCardAnswered }: ChatMessageProps) {
   const card = runCardOf(message);
   if (card) return <RunCardView projectId={projectId} sessionId={sessionId} card={card} controls={waitingCard} onAnswered={onCardAnswered} />;
   const ended = runEndOf(message);
   if (ended) return <RunEndView projectId={projectId} end={ended} />;
   const { stopped, interrupted } = (message.metadata as { stopped?: boolean; interrupted?: boolean } | undefined) ?? {};
-  const undoable = message.role === 'assistant' ? [...new Set(message.parts.flatMap((part) => {
-    const id = ((part as { output?: { proposalId?: string } }).output ?? {}).proposalId;
-    const proposal = id ? proposalById.get(id) : undefined;
-    return proposal?.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt ? [proposal.id] : [];
-  }))] : [];
   const view =
     message.role === 'user' && (message.metadata as { kind?: string } | undefined)?.kind === 'decisions' ? (
       <DecisionNotice text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
@@ -67,7 +61,6 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
           return null;
         })}
         {!streaming && <MessageActions text={messageText(message)} />}
-        {undoable.length > 0 && <Button variant="outline" onClick={() => onUndo(undoable)}>변경 되돌리기 ({undoable.length})</Button>}
       </AssistantMessage>
     );
   return (
@@ -129,12 +122,13 @@ export function SteerBubble({ text, waiting = false, onEdit, onCancel }: { text:
   );
 }
 
-/** What a message pointed at with @, kept with it; each opens its page. */
+/** 이 메시지의 문맥: what the person picked with @ and what the page reported when it was sent; each opens its page. */
 function SentChips({ projectId, chips }: { projectId: string; chips: ChatChip[] }) {
   if (!chips.length) return null;
+  const ordered = [...chips.filter((chip) => !chip.screen), ...chips.filter((chip) => chip.screen)];
   return (
-    <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="첨부한 항목">
-      {chips.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
+    <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="이 메시지의 문맥">
+      {ordered.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
     </Stack>
   );
 }

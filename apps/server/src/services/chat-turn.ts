@@ -1,7 +1,7 @@
 import { convertToModelMessages, stepCountIs, streamText, type ModelMessage, type StopCondition, type ToolSet, type UIMessage } from 'ai';
 import { badRequest } from '../refusal.ts';
 import { eq } from 'drizzle-orm';
-import { CALL_TIMEOUT_MS, chatTitle, estimateTokens } from '@loca/shared';
+import { CALL_TIMEOUT_MS, chatTitle, estimateTokens, imageDecision, runEndOf } from '@loca/shared';
 import * as ai from '@loca/ai';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
@@ -9,7 +9,6 @@ import { startCall } from '../domain/ai-calls.ts';
 import { AGENT_SYSTEM } from './agent-tools.ts';
 import { expandRecord, isRunRecord, lastExchange, mergeIncoming, type AnsweredBy } from './chat-record.ts';
 import { compactNow, compactionSettled, fitRecord } from './chat-compaction.ts';
-import { imageDecision } from '@loca/shared';
 import { incomingImageProblem, withoutImages } from './chat-images.ts';
 import { agentCatalog, jsonSchemaOf } from './agent-catalog.ts';
 import { hasInterjections, takeInterjections, writeInterjections, type Interjection } from './chat-interject.ts';
@@ -81,7 +80,7 @@ export async function runChatTurn(deps: ChatDeps, given: typeof s.chatSessions.$
   // An agent CLI answers through its own agent session; an API connection through the AI SDK with native tool calls.
   if (ai.providerOf(target.kind).chat?.via === 'agent')
     return cliChatResponse({ db, chat: session, target, system: [AGENT_SYSTEM, NO_EDITOR_NOTE].join('\n\n'), view, messages, answeredBy, idleMs: CALL_TIMEOUT_MS.chatIdle, turn });
-  return apiChatResponse({ db, session, target, live, view, messages, answeredBy, turn });
+  return apiChatResponse({ db, session, target, live, view, messages, answeredBy, turn, continueId: request.incoming?.role === 'assistant' ? request.incoming.id : undefined });
 }
 
 /** /compact: the conversation so far becomes its summary now, written by the conversation's own model (chat-compaction.ts). */
@@ -130,6 +129,35 @@ export function continueAfterDecisions(deps: ChatDeps, sessionId: string) {
     });
 }
 
+/**
+ * A run this conversation started has stopped (engine/run-end.ts recorded it as the newest message): the agent reads
+ * it and reports the result without the person having to ask. A cancelled run is not reported (someone stopped it).
+ * Like continueAfterDecisions: after a running turn, and only when the connection is usable.
+ */
+export function continueAfterRunEnd(deps: ChatDeps, sessionId: string, status: string) {
+  const { db } = deps;
+  if (status === 'cancelled' || chatDeleting(db, sessionId)) return;
+  if (turnStartedAt(db, sessionId) !== null) {
+    afterTurn(db, sessionId, () => continueAfterRunEnd(deps, sessionId, status));
+    return;
+  }
+  const session = db.select().from(s.chatSessions).where(eq(s.chatSessions.id, sessionId)).get();
+  if (!session?.connectionId || !session.model) return;
+  // Only when the run's end is still the newest thing said: the person may have written since.
+  const last = (session.messages as UIMessage[]).at(-1);
+  if (!last || !runEndOf(last)) return;
+  try {
+    liveChoice(db, { connectionId: session.connectionId, model: session.model, ...(session.effort && { effort: session.effort }) }, deps.secrets, 'chat');
+  } catch {
+    return;
+  }
+  runChatTurn(deps, session, {})
+    .then((response) => void response.body?.cancel())
+    .catch((error) => {
+      console.warn('chat: could not report a run end:', error instanceof Error ? error.message : error);
+    });
+}
+
 /** What the agent's tool definitions take in a request. */
 export const toolTokens = (db: Db, projectId: string) => estimateTokens(agentCatalog(db, projectId).map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) })));
 
@@ -153,13 +181,14 @@ function apiChatResponse(input: {
   messages: UIMessage[];
   answeredBy: AnsweredBy;
   turn: ChatTurn;
+  continueId?: string;
 }) {
-  const { db, session, target, live, messages, answeredBy, turn } = input;
+  const { db, session, target, live, messages, answeredBy, turn, continueId } = input;
   const tools = apiChatTools(db, session.projectId, session.id, { model: target.model });
   // Run cards are not replies: the reply that carries on is the newest message that is not one.
   const last = lastExchange(messages);
   // A reply sent back with the result of a tool the browser carried out (edit_workflow_node) goes on in the same message.
-  const messageId = last?.role === 'assistant' ? last.id : crypto.randomUUID();
+  const messageId = continueId && last?.role === 'assistant' && last.id === continueId ? last.id : crypto.randomUUID();
   return chatStream({
     db,
     chat: session,

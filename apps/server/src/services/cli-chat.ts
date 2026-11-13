@@ -128,11 +128,13 @@ export async function cliChatResponse(input: {
   if (transport?.via !== 'agent') badRequest('이 연결은 CLI 에이전트로 채팅하지 않습니다.');
   const tools = new Map(agentCatalog(db, chat.projectId, { model: target.model }).map((tool) => [tool.name, tool]));
   const saved = chat.agentSession && chat.agentSession.kind === target.kind && chat.agentSession.model === target.model ? chat.agentSession : null;
-  // The new message is the newest that is not a run card (a regenerate can leave cards after it; they go with the message).
+  // The new message is the newest user message (a regenerate can leave cards after it; they go with the message).
+  // When a run-end stops after an assistant reply, the trailing run record(s) alone are what is new.
   const last = lastExchange(messages);
-  const lastAt = last ? messages.lastIndexOf(last) : messages.length;
+  const trailingRecords = !last || last.role !== 'user';
+  const lastAt = trailingRecords ? (last ? messages.lastIndexOf(last) + 1 : 0) : messages.lastIndexOf(last);
   const earlier = messages.slice(0, lastAt);
-  const cardsAfter = transcript(messages.slice(lastAt + 1));
+  const cardsAfter = transcript(messages.slice(trailingRecords ? lastAt : lastAt + 1));
   // Messages and decisions that came in since the last turn come after the new message.
   const leftover = takeInterjections(db, chat.id);
   let sessionId: string | undefined;
@@ -168,16 +170,18 @@ export async function cliChatResponse(input: {
       await agent.use(sessionId, target.model, target.effort);
       // The CLI's session is told what it missed (another model answered in between); a new one gets the record.
       const known = sessionId === saved?.id;
+      const handoverSkip = new Set(trailingRecords ? messages.slice(lastAt) : last ? [last] : []);
       // A new session gets the whole record, its start summarized only when it would not fit the model.
       const context = known
         ? catchUp(earlier, saved?.seen ?? earlier.length)
-        : handover((await fitRecord({ db, chat, target, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => message !== last));
+        : handover((await fitRecord({ db, chat, target, record: messages, overhead: estimateTokens(input.system) + estimateTokens([...tools.values()].map((tool) => ({ name: tool.name, description: tool.description, input: jsonSchemaOf(tool.schema) }))) + CLI_OVERHEAD, signal: input.turn.signal })).filter((message) => !handoverSkip.has(message)));
       // Images go as prompt blocks when the agent says it takes them; the capability is kept so the composer can warn before sending.
       learnImages(db, target.connectionId, target.model, agent.takesImages());
-      const wanted = acpImages(last);
+      const userMessage = trailingRecords ? undefined : last;
+      const wanted = acpImages(userMessage);
       const decision = imageDecision(agent.takesImages(), wanted.length);
       const images = decision.send ? wanted : [];
-      let prompt = [lead, turnPrompt({ context, view: input.view, text: [last ? textOf(last) : '', cardsAfter, decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
+      let prompt = [lead, turnPrompt({ context, view: input.view, text: [userMessage ? textOf(userMessage) : '', cardsAfter, decision.dropped ? `(이미지 ${decision.dropped}장은 ${IMAGE_UNSUPPORTED_NOTE}: 보내지 않았습니다)` : ''].filter(Boolean).join('\n'), leftover })].filter(Boolean).join('\n\n---\n\n');
       db.update(s.chatSessions).set({ agentSession: { kind: target.kind, model: target.model, id: sessionId, lastTurnAt: Date.now(), seen: known ? saved?.seen : 0 } }).where(eq(s.chatSessions.id, chat.id)).run();
 
       let textId: string | null = null;

@@ -1,12 +1,13 @@
 import type { UIMessage } from 'ai';
 import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import * as ai from '@loca/ai';
 import { importFileSchema, isRunRecord, runEndOf } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { promptEntries } from './prompts.ts';
 import { createRun } from './run-create.ts';
+import { onRunEnded } from './run-end.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { translateOnlyWorkflow } from './test-workflows.ts';
 import { expandRecord, lastExchange, transcript, withStoredCards } from '../services/chat-record.ts';
@@ -102,6 +103,24 @@ describe("a run's end in the conversation that started it", () => {
     // A reply saved after the run ended keeps the record it did not know.
     expect(withStoredCards([question], [question, end]).map((message) => message.id)).toEqual(['u1', 'e1']);
     expect(partsTokens(end.parts)).toBeLessThan(60);
+  });
+
+  it('tells onRunEnded listeners with (sessionId, runId, status) when a session run ends, and skips runs without a session', async () => {
+    const { db, chat, start } = setup();
+    const listener = vi.fn();
+    const stop = onRunEnded(db, listener);
+    try {
+      start(null);
+      await new Runner(db, memoryStore(), model()).drain();
+      expect(listener).not.toHaveBeenCalled();
+
+      const runId = start();
+      await new Runner(db, memoryStore(), model()).drain();
+      expect(listener).toHaveBeenCalledOnce();
+      expect(listener).toHaveBeenCalledWith(chat.id, runId, 'completed');
+    } finally {
+      stop();
+    }
   });
 });
 

@@ -34,7 +34,7 @@ describe('a proposal\'s card draws what the server says the change does', () => 
 
   it('draws every kind of detail by its shape', async () => {
     const shown = await text({ details: Object.values(EVERY) });
-    for (const said of ['워크플로', '번역', '"a": 1', '수정 · 인물 · Alice', '밝은 성격', '→ 조용한 성격', '바뀌는 내용이 없습니다.', '추가 · Relay → 중계소', '외 3개', '{ "from": "a" }', '표시', '#aiSuggestion', '대사 60개 · 번역 30 · 상태 30 · 태그 2', '처음 2개만 표시', 'k0', '→ 완료 +#검수', '번역 1', '수락하면 바로 지워집니다.']) expect(shown).toContain(said);
+    for (const said of ['워크플로', '번역', '"a": 1', '수정 · 인물 · Alice', '−밝은 성격', '+조용한 성격', '바뀌는 내용이 없습니다.', '추가 · Relay → 중계소', '외 3개', '{ "from": "a" }', '표시', '#aiSuggestion', '대사 60개 · 번역 30 · 상태 30 · 태그 2', '처음 2개만 표시', 'k0', '→ 완료 +#검수', '번역 1', '수락하면 바로 지워집니다.']) expect(shown).toContain(said);
   });
 
   it('says what accepting does only while the proposal waits; a plain remark stays', async () => {

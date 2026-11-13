@@ -67,7 +67,15 @@ export const shortLabel = (label: string, max = 24) => {
 };
 
 /** A chip kept with the message it was sent with (message.metadata.chips). */
-export const chatChipSchema = z.object({ kind: z.string(), id: z.string(), label: z.string(), detail: z.string().optional(), href: z.string().optional() });
+export const chatChipSchema = z.object({
+  kind: z.string(),
+  id: z.string(),
+  label: z.string(),
+  detail: z.string().optional(),
+  href: z.string().optional(),
+  /** Reported by the page, not picked with @. */
+  screen: z.boolean().optional(),
+});
 export type ChatChip = z.infer<typeof chatChipSchema>;
 
 /** The chips a stored message carries (none for older messages or anything malformed). */
