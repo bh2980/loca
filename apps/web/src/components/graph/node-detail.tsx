@@ -5,7 +5,7 @@ import { useGraphShow } from '@/lib/graph-show';
 import { Box, ColumnResizeHandle, FlowDisclosure, FlowLine, FlowRow, Icon, Inline, Inspector, InspectorHeader, Button, SegmentedControl, Skeleton, Text, Chip, Section } from '@loca/ui';
 import { LineDetail } from '@/components/line-detail';
 import { CopyButton } from '@/components/copy-button';
-import { useReportView } from '@/lib/reported-view';
+import { pickedLinesItem, useReportView } from '@/lib/reported-view';
 import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/source-parts';
@@ -121,7 +121,16 @@ export function FlowPane({ projectId, nodeIds, ownIds = nodeIds, title, way, ext
   useEffect(() => {
     if (ready && editing) list.current?.querySelector('[data-editing]')?.scrollIntoView({ block: 'nearest' });
   }, [ready, editing]);
-  useReportView('graph-node', [nodes[0] && { kind: '그래프', id: ownIds.join(','), label: title }]);
+  // The chat gets what was picked as lines: one line as that line, several as the picked lines (a node's title says nothing of them).
+  const ownLines = ownNodes.flatMap((node) => (node.kind === 'choice' ? [] : node.units));
+  const onlyLine = ownLines.length === 1 ? ownLines[0] : undefined;
+  useReportView('graph-node', [
+    onlyLine
+      ? { kind: '대사', id: onlyLine.id, label: `${onlyLine.speaker?.trim() ? `${onlyLine.speaker.trim()}: ` : ''}${onlyLine.source.slice(0, 40)}`, detail: JSON.stringify({ key: onlyLine.key }) }
+      : ownLines.length > 1
+        ? { ...pickedLinesItem(ownLines.map((line) => line.id)), label: `${title} · 대사 ${ownLines.length.toLocaleString()}개` }
+        : nodes[0] && { kind: '그래프', id: ownIds.join(','), label: title },
+  ]);
 
   // A table: who | what, one row per line; a choice and a condition are rows of their own. The
   // speaker column fits the longest name until someone drags its edge (then that width is kept).
