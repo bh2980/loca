@@ -8,7 +8,7 @@ import type { Db } from '../db/index.ts';
 import { perDatabase } from '../db/per-database.ts';
 import * as s from '../db/schema.ts';
 import { logged } from '../domain/ai-calls.ts';
-import { runCardLine, runEndLine, transcript } from './chat-record.ts';
+import { capToolOutputs, isRunRecord, runCardLine, runEndLine, transcript } from './chat-record.ts';
 
 /**
  * A conversation is sent whole until it would not fit the model's window; then, as pi does, the
@@ -75,9 +75,30 @@ const SUMMARY_SYSTEM = `당신은 번역 작업실 채팅의 앞부분을 요약
 - 이후에 다시 필요할 사실(대사·인물·용어 id, 수치, 인용할 원문)
 이전 요약이 주어지면 그 내용도 새 요약에 합칩니다. 지어내지 마세요.`;
 
+/**
+ * Tool results as the other agents keep them (Codex's tool output limit, Gemini CLI's truncation before compressing,
+ * Anthropic's clearing of old tool results): a result from an earlier turn goes to the model as its start and end, up
+ * to EARLIER_TOOL_CHARS; the turn's own results stay whole. The summary reads the newest SUMMARY_RECENT results the same
+ * way and older ones down to SUMMARY_OLD_TOOL_CHARS: what was called on what and how it ended, not the data it returned.
+ * The person's messages are never cut.
+ */
+export const EARLIER_TOOL_CHARS = 8_000;
+export const SUMMARY_RECENT = 5;
+export const SUMMARY_OLD_TOOL_CHARS = 600;
+
+/** The record with the results of turns before the current one (the last message the person sent) capped. */
+export function capEarlierResults(record: UIMessage[]): UIMessage[] {
+  const current = record.findLastIndex((message) => message.role === 'user' && !isRunRecord(message));
+  if (current <= 0) return record;
+  const earlier = record.slice(0, current);
+  const capped = capToolOutputs(earlier, () => EARLIER_TOOL_CHARS);
+  return capped === earlier ? record : [...capped, ...record.slice(current)];
+}
+
 /** One summary of `messages` (and the summary before them), in pieces when they do not fit the model at once. */
 async function summarize(db: Db, chat: { id: string; projectId: string }, target: ai.ModelTarget, window: number, previous: string | null, messages: UIMessage[], signal?: AbortSignal): Promise<string> {
   const room = Math.max(8_000, window - RESERVE_TOKENS - estimateTokens(SUMMARY_SYSTEM) - 2_000);
+  messages = capToolOutputs(messages, (rank) => (rank < SUMMARY_RECENT ? EARLIER_TOOL_CHARS : SUMMARY_OLD_TOOL_CHARS), { inputs: true });
   let summary = previous;
   let start = 0;
   while (start < messages.length) {
@@ -100,7 +121,8 @@ async function summarize(db: Db, chat: { id: string; projectId: string }, target
  * turn adds around it (system prompt, tool schemas, a CLI's own prompt).
  */
 export async function fitRecord(input: { db: Db; chat: typeof s.chatSessions.$inferSelect; target: ai.ModelTarget; record: UIMessage[]; overhead: number; signal?: AbortSignal }): Promise<UIMessage[]> {
-  const { db, chat, target, record } = input;
+  const { db, chat, target } = input;
+  const record = capEarlierResults(input.record);
   const window = chatWindow(db, target.connectionId, target.model);
   const stored = chat.compaction && chat.compaction.upTo <= record.length ? chat.compaction : null;
   const current = withCompaction(record, stored);

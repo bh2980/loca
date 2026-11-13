@@ -6,7 +6,7 @@ import { eq } from 'drizzle-orm';
 import { compactionMarker, estimateTokens, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { compactNow, compactionSettled, cutPoint, fitRecord, KEEP_RECENT_TOKENS, withCompaction } from './chat-compaction.ts';
+import { capEarlierResults, compactNow, compactionSettled, cutPoint, EARLIER_TOOL_CHARS, fitRecord, KEEP_RECENT_TOKENS, withCompaction } from './chat-compaction.ts';
 import { compactChat } from './chat-turn.ts';
 import { startTurn } from './chat-turn-registry.ts';
 import { importProject } from './importer.ts';
@@ -131,5 +131,15 @@ describe('/compact', () => {
     const { db, chat, target } = setup(200_000);
     await expect(compactNow({ db, sessionId: chat.id, target })).rejects.toThrow(/압축할 대화가 없습니다/);
     expect(calls(db)).toBe(0);
+  });
+});
+
+describe('capEarlierResults', () => {
+  const big = (id: string) => ({ id, role: 'assistant', parts: [{ type: 'tool-find_lines', toolCallId: id, state: 'output-available', input: {}, output: { rows: 'r'.repeat(30_000) } }] }) as unknown as UIMessage;
+  const ask = (id: string) => ({ id, role: 'user', parts: [{ type: 'text', text: 'q' }] }) as UIMessage;
+  it('caps the results of earlier turns and keeps the current turn whole', () => {
+    const capped = capEarlierResults([ask('1'), big('a'), ask('2'), big('b')]);
+    expect(JSON.stringify((capped[1]!.parts[0] as { output: unknown }).output).length).toBeLessThan(EARLIER_TOOL_CHARS + 100);
+    expect((capped[3]!.parts[0] as { output: { rows: string } }).output.rows.length).toBe(30_000);
   });
 });

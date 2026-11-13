@@ -41,6 +41,43 @@ function toolLine(part: ToolPart) {
   return `[도구 ${name} ${json(part.input)}${result}]`;
 }
 
+/** Long text kept as its start and its end (where a result says what it found, its counts and errors), saying how much of the middle went. */
+export function cutMiddle(text: string, max: number) {
+  if (text.length <= max) return text;
+  const head = Math.ceil(max * 0.6);
+  return `${text.slice(0, head)}\n…(${(text.length - max).toLocaleString()}자 생략)…\n${text.slice(-(max - head))}`;
+}
+
+const isToolPart = (part: { type: string }) => part.type.startsWith('tool-') || part.type === 'dynamic-tool';
+
+/**
+ * The record with each tool result longer than its limit cut to its start and end (cutMiddle). `limitOf(rank)` gives the
+ * limit by age (rank 0: the newest result; undefined: kept whole). `inputs`: the calls' inputs too, for a reader of text
+ * (a transcript); a model reading the structured calls gets them as they were.
+ */
+export function capToolOutputs(messages: UIMessage[], limitOf: (rank: number) => number | undefined, { inputs = false }: { inputs?: boolean } = {}): UIMessage[] {
+  let rank = 0;
+  let out: UIMessage[] | null = null;
+  for (let m = messages.length - 1; m >= 0; m--) {
+    const message = messages[m]!;
+    let parts: UIMessage['parts'] | null = null;
+    for (let p = message.parts.length - 1; p >= 0; p--) {
+      const part = message.parts[p] as ToolPart;
+      if (!isToolPart(part) || part.state !== 'output-available') continue;
+      const limit = limitOf(rank++);
+      if (limit === undefined) continue;
+      const output = json(part.output);
+      const input = inputs ? json(part.input) : '';
+      if (output.length <= limit && input.length <= limit) continue;
+      parts ??= [...message.parts];
+      parts[p] = { ...part, output: cutMiddle(output, limit), ...(inputs && { input: cutMiddle(input, limit) }) } as UIMessage['parts'][number];
+    }
+    if (parts) (out ??= [...messages])[m] = { ...message, parts };
+  }
+  // Nothing over its limit: the same record, so a caller can tell nothing changed.
+  return out ?? messages;
+}
+
 /**
  * What the agent is told a 실행 확인 card is: one short line (a started run carries the id read_run
  * takes). Pending and cancelled cards are told too, so "방금 돌린 거"/"안 돌린 거" can be answered.
