@@ -164,6 +164,25 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     getItemKey: (index) => sequence[index]?.unitId ?? index,
     overscan: 7,
   });
+  // The line picked in the list stays where it was clicked: a row above it that changes height (the line that was open
+  // folds up) moves the scroll by as much in the same step, before the screen is drawn. Without room above (the top of
+  // the list) the lines below simply move up.
+  const anchorAt = useCallback((index: number | null) => {
+    virtualizer.shouldAdjustScrollPositionOnItemSizeChange = index === null ? undefined : (item) => item.index < index;
+  }, [virtualizer]);
+  // Scrolling (or another route) lets go of it: from then on the list's own rule applies.
+  useEffect(() => {
+    const box = parent.current;
+    if (!box) return;
+    const release = () => anchorAt(null);
+    box.addEventListener('wheel', release, { passive: true });
+    box.addEventListener('touchmove', release, { passive: true });
+    return () => {
+      box.removeEventListener('wheel', release);
+      box.removeEventListener('touchmove', release);
+      release();
+    };
+  }, [anchorAt, routeKey]);
   const virtual = virtualizer.getVirtualItems();
   const chunks = new Set(virtual.map((entry) => Math.floor(entry.index / CHUNK)));
   const editIndex = edit ? indexById.get(edit) : undefined;
@@ -192,22 +211,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     if (editIndex === undefined) return;
     const picked = pickedHere.current;
     pickedHere.current = null;
-    if (!picked || picked.unitId !== edit) return jump(editIndex, 'center');
-    // Rows above may collapse and the picked row grows into an editor while they are measured: for a short while, keep the picked row at the height it was clicked at.
-    const box = parent.current;
-    if (!box) return;
-    let frame = 0;
-    const until = performance.now() + 400;
-    const hold = () => {
-      const row = box.querySelector<HTMLElement>(`[data-unit="${CSS.escape(picked.unitId)}"]`);
-      if (row) {
-        const drift = row.getBoundingClientRect().top - box.getBoundingClientRect().top - picked.top;
-        if (Math.abs(drift) >= 1) box.scrollTop += drift;
-      }
-      if (performance.now() < until) frame = requestAnimationFrame(hold);
-    };
-    frame = requestAnimationFrame(hold);
-    return () => cancelAnimationFrame(frame);
+    if (!picked || picked.unitId !== edit) jump(editIndex, 'center');
   }, [editIndex, routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (edit && editIndex === undefined) onEdit(undefined);
@@ -230,9 +234,10 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     } else {
       pickedHere.current = null;
     }
+    anchorAt(pickedHere.current && unitId ? (indexById.get(unitId) ?? null) : null);
     setFocusTick((tick) => (editing ? tick + 1 : 0));
     onEdit(unitId);
-  }, [onEdit]);
+  }, [onEdit, indexById, anchorAt]);
 
   const currentIndex = editIndex ?? virtualizer.range?.startIndex ?? 0;
   const adjacentUntranslated = (direction: 1 | -1) => {
