@@ -1,6 +1,6 @@
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, X } from 'lucide-react';
+import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
@@ -67,24 +67,17 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           </Text>
         )}
         {decide.isPending && <Spinner size="xs" />}
-      </ToolCardHeader>
-      <Box paddingX="normal" paddingY="condensed" variant="body">
-        {open ? (
-          <>
-            {proposal.status !== 'pending' && (
-              <Box marginBottom="tight">
-                <Button variant="ghost" size="inline" onClick={() => setOpen(false)}>접기</Button>
-              </Box>
-            )}
-            <ChangePreview details={proposal.details} pending={proposal.status === 'pending'} />
-          </>
-        ) : (
-          <Button variant="ghost" size="inline" onClick={() => setOpen(true)}>자세히</Button>
+        {/* A decided card is its header: the summary says what it changed, the details open on request. */}
+        {proposal.status !== 'pending' && (
+          <Button variant="ghost" size="icon-xs" aria-label={open ? '접기' : '자세히'} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <ChevronUp /> : <ChevronDown />}</Button>
         )}
+      </ToolCardHeader>
+      {(open || runId || proposal.report) && <Box paddingX="normal" paddingY="condensed" variant="body">
+        {open && <ChangePreview details={proposal.details} pending={proposal.status === 'pending'} />}
         {runId && <Text as="p" marginTop="condensed" variant="caption"><Text asChild underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId: proposal.projectId, runId }}>실행 보기</Link></Text></Text>}
         {proposal.report && <ProposalReport report={proposal.report} />}
-        {proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
-      </Box>
+        {open && proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
+      </Box>}
       {proposal.status === 'pending' && rejecting && (
         <Inline
           as="form"

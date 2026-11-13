@@ -42,6 +42,7 @@ describe('detailsSummary', () => {
 
     expect(detailsSummary([{ kind: 'list', title: '용어', items: ['a', 'b'], more: 10 }])).toBe('12개');
 
-    expect(detailsSummary([{ kind: 'fields', rows: [{ label: '삭제', value: '3개' }] }])).toBeNull();
+    expect(detailsSummary([{ kind: 'fields', rows: [{ label: '삭제', value: '3개' }] }])).toBe('삭제 3개');
+    expect(detailsSummary([{ kind: 'note', tone: 'muted', text: '…' }])).toBeNull();
   });
 });

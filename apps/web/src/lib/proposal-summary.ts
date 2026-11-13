@@ -1,6 +1,7 @@
 import type { ProposalDetail } from '@loca/shared';
 import { diffStats } from './text-diff';
 
+/** What a proposal's card says in one line beside its title, from the details its tool's preview made. */
 export function detailsSummary(details: readonly ProposalDetail[]): string | null {
   const changesDetail = details.find((detail): detail is Extract<ProposalDetail, { kind: 'changes' }> => detail.kind === 'changes');
   if (changesDetail) {
@@ -32,6 +33,13 @@ export function detailsSummary(details: readonly ProposalDetail[]): string | nul
 
   const listDetail = details.find((detail): detail is Extract<ProposalDetail, { kind: 'list' }> => detail.kind === 'list');
   if (listDetail) return `${(listDetail.items.length + (listDetail.more ?? 0)).toLocaleString()}개`;
+
+  // A card of plain fields says its first ones: what the change is about.
+  const fieldsDetail = details.find((detail): detail is Extract<ProposalDetail, { kind: 'fields' }> => detail.kind === 'fields');
+  if (fieldsDetail) {
+    const text = fieldsDetail.rows.filter((row) => !row.code).slice(0, 2).map((row) => `${row.label} ${row.value.replace(/\s+/g, ' ')}`).join(' · ');
+    if (text) return text.length > 80 ? `${text.slice(0, 80)}…` : text;
+  }
 
   return null;
 }
