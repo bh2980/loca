@@ -45,9 +45,9 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
       <DecisionNotice text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
     ) : message.role === 'user' ? (
       <UserMessage actions={<MessageActions text={messageText(message)} chips={messageChips(message)} onReuse={onReuse} />}>
+        <SentChips projectId={projectId} chips={messageChips(message)} />
         {message.parts.map((part, index) => (part.type === 'text' ? <span key={index}>{part.text}</span> : null))}
         <SentImages parts={message.parts} />
-        <SentChips projectId={projectId} chips={messageChips(message)} />
       </UserMessage>
     ) : (
       <AssistantMessage>
@@ -121,18 +121,18 @@ export function SteerBubble({ projectId, text, chips = [], waiting = false, labe
         </>
       }
     >
-      {text}
       <SentChips projectId={projectId} chips={chips} />
+      {text}
     </SteerBubbleView>
   );
 }
 
-/** 이 메시지의 문맥: what the person picked with @ and what the page reported when it was sent; each opens its page. */
+/** 이 메시지의 문맥, above its text (what it is about reads first): what the person picked with @ and what the page reported when it was sent; each opens its page. */
 function SentChips({ projectId, chips }: { projectId: string; chips: ChatChip[] }) {
   if (!chips.length) return null;
   const ordered = [...chips.filter((chip) => !chip.screen), ...chips.filter((chip) => chip.screen)];
   return (
-    <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="이 메시지의 문맥">
+    <Stack direction="row" wrap marginBottom="condensed" gap="tight" aria-label="이 메시지의 문맥">
       {ordered.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
     </Stack>
   );
