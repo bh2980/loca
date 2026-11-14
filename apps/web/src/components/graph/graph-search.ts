@@ -76,6 +76,11 @@ export type GraphSearchChange = (previous: GraphSearch) => GraphSearch;
 const NO_ROUTE = { routeStart: undefined, routeEnd: undefined, pickStart: undefined, pickEnd: undefined, pickStep: undefined } as const;
 /** What a pane shows of the current section; another section or view starts without it. */
 const NO_PANE = { node: undefined, omitted: undefined, viewInfo: undefined } as const;
+/**
+ * The runs drawn open belong to the graph they were opened in: a run's id is its first node's, the same in a view and in
+ * the whole graph, so another section or view starts with its own default (small: all open, large: none).
+ */
+const NO_FOLDS = { open: undefined } as const;
 
 export const graphSearch = {
   // modes and layout
@@ -83,25 +88,25 @@ export const graphSearch = {
   mode: (scope: GraphScope): GraphSearchChange => (previous) => ({ ...previous, scope, ...NO_ROUTE, script: undefined }),
   direction: (direction: GraphDirection): GraphSearchChange => (previous) => ({ ...previous, direction }),
   /** A section or a view opened from the menu: the pane's selection does not carry over. */
-  section: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, ...NO_PANE }),
+  section: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, ...NO_PANE, ...(section !== previous.section && NO_FOLDS) }),
   /** The same from a route view's own menu: picking the view that is open keeps its script. */
-  sectionFromScript: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, script: section === previous.section ? true : undefined, edit: undefined, ...NO_PANE }),
+  sectionFromScript: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, script: section === previous.section ? true : undefined, edit: undefined, ...NO_PANE, ...(section !== previous.section && NO_FOLDS) }),
   /** 그래프 | 그래프 + 대본 of a route view. */
   script: (on: boolean): GraphSearchChange => (previous) => ({ ...previous, script: on || undefined, edit: undefined, ...NO_PANE }),
   /** The open view is gone: the whole graph again. */
-  viewDeleted: (): GraphSearchChange => (previous) => ({ ...previous, section: undefined, script: undefined, edit: undefined, ...NO_PANE }),
+  viewDeleted: (): GraphSearchChange => (previous) => ({ ...previous, section: undefined, script: undefined, edit: undefined, ...NO_PANE, ...NO_FOLDS }),
   /** Nodes were saved as a view: it opens. */
-  viewMade: (viewId: string): GraphSearchChange => (previous) => ({ ...previous, section: viewSection(viewId), edit: undefined, ...NO_PANE }),
+  viewMade: (viewId: string): GraphSearchChange => (previous) => ({ ...previous, section: viewSection(viewId), edit: undefined, ...NO_PANE, ...NO_FOLDS }),
   /** A scene's lines in the dialogue graph (its section opens, its nodes highlighted). */
   sceneInDialogue: (scene: string): GraphSearchChange => (previous) => ({ ...previous, scope: 'dialogue', scene }),
   /** A portal to a scene shown in its own section: a fresh look at the dialogue graph there. */
   sceneAlone: (scene: string): GraphSearchChange => () => ({ scope: 'dialogue', scene }),
   /** A portal to the section the lines continue in. */
-  portalSection: (section: string): GraphSearchChange => (previous) => ({ ...previous, section, scene: undefined, ...NO_PANE }),
+  portalSection: (section: string): GraphSearchChange => (previous) => ({ ...previous, section, scene: undefined, ...NO_PANE, ...NO_FOLDS }),
   /** The stretch a derived edge leaves out, opened in the graph it comes from, centred on its first node. */
-  omittedSource: (section: string | undefined, node: string): GraphSearchChange => (previous) => ({ ...previous, section: section ?? 'all', scene: undefined, node, jump: true, omitted: undefined, viewInfo: undefined, edit: undefined }),
+  omittedSource: (section: string | undefined, node: string): GraphSearchChange => (previous) => ({ ...previous, section: section ?? 'all', scene: undefined, node, jump: true, omitted: undefined, viewInfo: undefined, edit: undefined, ...NO_FOLDS }),
   /** Arriving from a line: its scene only picked the section. */
-  jumpSection: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, scene: undefined }),
+  jumpSection: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, scene: undefined, ...(section !== previous.section && NO_FOLDS) }),
   jumpDone: (): GraphSearchChange => (previous) => ({ ...previous, jump: undefined }),
 
   // the selection and its panes (one thing is open at a time)
@@ -121,7 +126,7 @@ export const graphSearch = {
   find: (q: string | undefined): GraphSearchChange => (previous) => ({ ...previous, q }),
   type: (type: string | undefined): GraphSearchChange => (previous) => ({ ...previous, type }),
   links: (all: boolean): GraphSearchChange => (previous) => ({ ...previous, links: all ? 'all' : undefined }),
-  markSection: (section: string): GraphSearchChange => (previous) => ({ ...previous, section, node: undefined }),
+  markSection: (section: string): GraphSearchChange => (previous) => ({ ...previous, section, node: undefined, ...(section !== previous.section && NO_FOLDS) }),
   unmark: (): GraphSearchChange => (previous) => ({ ...previous, mark: undefined }),
 
   // a reading route: pick two ends, apply, save

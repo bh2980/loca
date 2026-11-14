@@ -96,6 +96,17 @@ describe('the selection in the URL', () => {
     expect(shown(apply({ scope: 'dialogue', section: '1장', node: 'n', omitted: 'o', viewInfo: true, q: 'x' }, graphSearch.section('view:v')))).toEqual({ scope: 'dialogue', section: 'view:v', q: 'x' });
   });
 
+  it('runs opened in one view or section stay there: another starts with its own default', () => {
+    const inView: GraphSearch = { scope: 'dialogue', section: 'view:v', open: ['chain:a'] };
+    expect(apply(inView, graphSearch.section(undefined)).open).toBeUndefined();
+    expect(apply(inView, graphSearch.section('view:v')).open).toEqual(['chain:a']);
+    expect(apply(inView, graphSearch.viewDeleted()).open).toBeUndefined();
+    expect(apply(inView, graphSearch.portalSection('2장')).open).toBeUndefined();
+    // The same view laid out with its script, and back: the runs stay open.
+    expect(apply(inView, graphSearch.script(true)).open).toEqual(['chain:a']);
+    expect(apply(inView, graphSearch.sectionFromScript('view:v')).open).toEqual(['chain:a']);
+  });
+
   it('a route view picked again from its own menu keeps its script', () => {
     const script: GraphSearch = { scope: 'dialogue', section: 'view:v', script: true };
     expect(apply(script, graphSearch.sectionFromScript('view:v')).script).toBe(true);
