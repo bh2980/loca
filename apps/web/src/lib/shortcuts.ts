@@ -45,7 +45,8 @@ export const SHORTCUTS = {
   editorToken: spec('번역 편집기', range('Alt+', 9), '서식 넣기', { shown: ['Alt+1…9'] }),
   editorPlaceTags: spec('번역 편집기', 'Alt+T', '빠진 서식 제자리에'),
   editorPick: spec('번역 편집기', range('Alt+Shift+', 9), '제안 넣기', { shown: ['Alt+Shift+1…3'] }),
-  editorCopySource: spec('번역 편집기', 'Mod+Shift+S', '원문 복사'),
+  // Not Ctrl+Shift+S: Windows browsers take it for themselves (Edge's web capture, Firefox's screenshot).
+  editorCopySource: spec('번역 편집기', 'Alt+S', '원문 넣기'),
   editorAssist: spec('번역 편집기', 'Alt+.', '다듬기 / AI 번역'),
   editorContinue: spec('번역 편집기', 'Alt+/', 'AI 자동완성'),
   editorTake: spec('번역 편집기', 'Tab', '흐린 글씨 받기'),
