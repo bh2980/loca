@@ -41,6 +41,8 @@ const ATTACH_HOW: Record<string, string> = {
   '실행 기록': 'read_run(runId)',
   '고른 대사': 'detail의 unitIds를 read_line(unitId)로 하나씩 읽거나, 많으면 find_lines(ids: unitIds)로 읽습니다',
   '대사 필터': 'detail은 대사 필터입니다. find_lines에 그대로 넣어 해당 대사를 읽습니다(offset/limit로 나눠 읽기)',
+  보기: 'find_lines(view: id)로 보기의 대사를 읽습니다. detail에 route가 있으면 경로로 만든 보기이고, find_reading_route(start, end)로 읽는 순서를 볼 수 있습니다',
+  경로: '저장하지 않은 경로입니다. detail의 start·end(노드 id)를 find_reading_route에 넣어 대사를 읽는 순서대로 봅니다',
 };
 
 export const describeView = (view: z.infer<typeof viewSchema>) => {

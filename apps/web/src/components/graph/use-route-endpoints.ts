@@ -5,6 +5,8 @@ import { endpointLabel } from './endpoint-label';
 export interface RouteEndpoint {
   id: string;
   label: string;
+  /** The label without the node's key, for the chat. */
+  name: string;
 }
 
 /**
@@ -16,7 +18,7 @@ export function useRouteEndpoints(projectId: string, ends: { start?: string; end
   const details = useGraphNodes(projectId, ids);
   const value = (id: string | undefined, role: 'start' | 'end') => {
     const detail = id ? details[ids.indexOf(id)]?.data : undefined;
-    return id && detail?.projectId === projectId ? { id, label: endpointLabel(detail, role) } : undefined;
+    return id && detail?.projectId === projectId ? { id, label: endpointLabel(detail, role), name: endpointLabel(detail, role, { withKey: false }) } : undefined;
   };
   return { start: value(ends.start, 'start'), end: value(ends.end, 'end') };
 }

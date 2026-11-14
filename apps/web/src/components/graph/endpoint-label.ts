@@ -9,11 +9,12 @@ interface EndpointNode {
  * How an end of a reading route reads in the endpoint bar, wherever the bar is shown (while picking, and over the
  * route): the line the route starts or ends at (a node's first line for a start, its last for an end) with who says
  * it, then the node's key and how many lines the node holds. A node without lines is its label.
+ * `withKey: false` leaves the key out (the chat's chip, where an id says nothing to a person).
  */
-export function endpointLabel(node: EndpointNode, role: 'start' | 'end'): string {
+export function endpointLabel(node: EndpointNode, role: 'start' | 'end', { withKey = true }: { withKey?: boolean } = {}): string {
   if (!node.units.length) return node.label ?? node.key;
   const unit = role === 'start' ? node.units[0]! : node.units[node.units.length - 1]!;
   const text = unit.source.replace(/\s+/g, ' ').trim();
   const speaker = unit.speaker?.trim();
-  return `${speaker ? `${speaker}: ` : ''}${text}${node.key ? ` · ${node.key}` : ''}${node.units.length > 1 ? ` · ${node.units.length}줄` : ''}`;
+  return `${speaker ? `${speaker}: ` : ''}${text}${withKey && node.key ? ` · ${node.key}` : ''}${node.units.length > 1 ? ` · ${node.units.length}줄` : ''}`;
 }

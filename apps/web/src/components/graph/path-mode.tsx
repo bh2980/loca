@@ -10,7 +10,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { lineItem, useReportView } from '@/lib/reported-view';
+import { lineItem, routeItem, useReportView, viewItem } from '@/lib/reported-view';
 import { useLineDetail } from '@/lib/units';
 import { useRouteEndpoints } from './use-route-endpoints';
 import { STORED, useStored } from '@/lib/storage';
@@ -76,9 +76,12 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   onSaved?: (id: string) => void;
 }) {
   const { start: startValue, end: endValue } = useRouteEndpoints(projectId, { start, end });
-  const reportEndpoint = (value: { id: string; label: string } | undefined, role: GraphEndpointStep) =>
-    value && ({ kind: role === 'start' ? '경로 시작' : '경로 끝', id: value.id, label: value.label, detail: JSON.stringify({ nodeId: value.id }) });
-  useReportView('reading-route', [reportEndpoint(startValue, 'start'), reportEndpoint(endValue, 'end')]);
+  // The route goes to the chat as one item: the saved view by its name, a route not saved yet by its two ends.
+  const reportedVia = externalVia ?? undefined;
+  useReportView('reading-route', [
+    view ? viewItem({ id: view.id, label: view.label, route: start && end ? { start, end, ...(reportedVia && { via: reportedVia }) } : null })
+      : Boolean(start && end) && routeItem({ start: start!, end: end! }, { start: startValue?.name, end: endValue?.name }),
+  ]);
   // The line picked in the route's graph or script, as the graph reports the line open in its card.
   const picked = useLineDetail(projectId, edit ?? '');
   useReportView('graph-line', [picked.data && lineItem(picked.data)]);

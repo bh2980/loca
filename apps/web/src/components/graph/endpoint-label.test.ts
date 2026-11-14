@@ -16,6 +16,10 @@ describe('a reading route end in the endpoint bar', () => {
     expect(endpointLabel(node, 'end')).toBe('등대로. · ch1.n42 · 2줄');
   });
 
+  it('for the chat, leaves the node\'s key out', () => {
+    expect(endpointLabel(node, 'start', { withKey: false })).toBe('미라: 어디로 가는 거야? · 2줄');
+  });
+
   it('a node of one line does not count its lines', () => {
     expect(endpointLabel({ ...node, units: [node.units[1]!] }, 'start')).toBe('등대로. · ch1.n42');
   });
