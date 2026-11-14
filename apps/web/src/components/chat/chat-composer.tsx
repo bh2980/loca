@@ -26,8 +26,8 @@ import { draftText } from '@/lib/drafts';
 
 /** What the conversation asks of the box: text sent back to it, a message to send again, focus. */
 export interface ComposerHandle {
-  /** Messages that did not reach a reply go back into the draft. */
-  mergeDraft: (texts: string[]) => void;
+  /** Messages that did not reach a reply go back into the draft, with what they had picked. */
+  mergeDraft: (texts: string[], chips?: ChatChip[]) => void;
   /** 수정해서 보내기: the message's text and what it pointed at become the draft. */
   reuse: (text: string, chips: ChatChip[]) => void;
   focus: () => void;
@@ -38,6 +38,13 @@ export interface OutgoingMessage {
   text: string;
   files?: { type: 'file'; mediaType: string; url: string; filename: string }[];
   metadata?: { chips: ChatChip[] };
+}
+
+/** A message for the running reply (steering): its text, the screen it is sent from and what it points at, as a sent message has them. */
+export interface QueuedMessage {
+  text: string;
+  view: { page: string; path: string; items: ViewItem[] };
+  chips: ChatChip[];
 }
 
 /**
@@ -51,7 +58,7 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   stored: ReturnType<typeof chatFor>;
   onSend: (message: OutgoingMessage) => void;
   /** Sent while the reply runs: it goes in at the reply's next step. */
-  onQueue: (text: string) => void;
+  onQueue: (message: QueuedMessage) => void;
   onPin: () => void;
   onStop: () => void;
   /** /new and /compact, picked from the / list. */
@@ -180,7 +187,11 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
   }, [sessionId, input]);
 
   useImperativeHandle(handle, () => ({
-    mergeDraft: (texts) => setInput((current) => mergeIntoDraft(current, texts)),
+    mergeDraft: (texts, chips = []) => {
+      setInput((current) => mergeIntoDraft(current, texts));
+      const back = chips.filter((chip) => !chip.screen);
+      if (back.length) setPicked((current) => [...current, ...back.filter((chip) => !current.some((other) => other.kind === chip.kind && other.id === chip.id))]);
+    },
     reuse: (text, chips) => {
       setInput(text);
       setPicked(chips.filter((chip) => !chip.screen));
@@ -219,20 +230,20 @@ export function ChatComposer({ handle, projectId, sessionId, stored, onSend, onQ
     // A message that joins a running reply is text: the images wait for the next message.
     if ((busy || elsewhere) && files.length) return void toast.info('이미지는 답이 끝난 뒤에 보낼 수 있습니다.');
     setInput('');
+    // Both picked (@) and on-screen items are kept with the message, to read (and open) later; a message joining a running reply too.
+    const screenChips: ChatChip[] = onPage.map((item) => ({ kind: item.kind, id: item.id, label: item.label, ...(chipHref(projectId, item) && { href: chipHref(projectId, item) }), screen: true }));
+    const chips = [...picked, ...screenChips].slice(0, 40);
+    setPicked([]);
     if (!busy && !elsewhere) {
       frozenView.current = viewRef.current;
       setTimeout(() => (frozenView.current = null), 2000);
       stored.setView(viewRef.current);
-      // Both picked (@) and on-screen items are kept with the message, to read (and open) later.
-      const screenChips: ChatChip[] = onPage.map((item) => ({ kind: item.kind, id: item.id, label: item.label, ...(chipHref(projectId, item) && { href: chipHref(projectId, item) }), screen: true }));
-      const chips = [...picked, ...screenChips].slice(0, 40);
       onSend({ text, ...(files.length && { files }), ...(chips.length && { metadata: { chips } }) });
-      setPicked([]);
       setImages([]);
       return;
     }
     onPin();
-    onQueue(text);
+    onQueue({ text, view: viewRef.current, chips });
   };
 
   return (

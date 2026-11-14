@@ -36,8 +36,9 @@ describe('input history', () => {
 
 describe('message queue', () => {
   it('removes one equal message and merges texts into the draft', () => {
-    expect(removeOnce(['a', 'b', 'a'], 'a')).toEqual(['b', 'a']);
-    expect(removeOnce(['a'], 'z')).toEqual(['a']);
+    const queued = (...texts: string[]) => texts.map((text) => ({ text }));
+    expect(removeOnce(queued('a', 'b', 'a'), 'a')).toEqual(queued('b', 'a'));
+    expect(removeOnce(queued('a'), 'z')).toEqual(queued('a'));
     expect(mergeIntoDraft(' 쓰던 ', ['a', 'b'])).toBe('쓰던\n\na\n\nb');
     expect(mergeIntoDraft('', ['a'])).toBe('a');
   });

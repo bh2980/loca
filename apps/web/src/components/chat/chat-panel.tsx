@@ -15,7 +15,7 @@ import { syncCards } from '@/lib/chat-run-records';
 import { chatFor, dropChat } from '@/lib/chat-store';
 import type { AppCommand } from '@/lib/chat-triggers';
 import { q } from '@/lib/queries';
-import { ChatComposer, type ComposerHandle, type OutgoingMessage } from './chat-composer';
+import { ChatComposer, type ComposerHandle, type OutgoingMessage, type QueuedMessage } from './chat-composer';
 import { ChatMessage, CompactionNotice, SteerBubble } from './chat-message';
 import { ConversationMenu } from './conversation-menu';
 import type { RunCardControls } from './run-card';
@@ -192,7 +192,8 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   /** True once, when this conversation was started from the box (/new): its box takes the focus. */
   takeFocus: () => boolean;
   /** Messages the server still holds for the conversation's agent (sent before a reload or a restart). */
-  pending: string[];
+  /** Messages for the running reply the server still holds, with their chips. */
+  pending: { text: string; chips: ChatChip[] }[];
   model: ModelValue | null;
   mode: PermissionMode;
   onMode: (mode: PermissionMode) => void;
@@ -218,8 +219,9 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     });
     void chatTurn(sessionId).stop().then(({ queued: back }) => {
       // Messages the turn had not taken yet go back to the input box.
+      const chips = queued.flatMap((message) => message.chips);
       setQueued([]);
-      if (back.length) composer.current?.mergeDraft(back);
+      if (back.length) composer.current?.mergeDraft(back, chips);
     });
   };
   // A reply this window is not streaming (sent before a reload, or from another window) is saved
@@ -257,7 +259,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
 
   // Sent while the reply was running (#44): waiting for the turn to take them at its next step.
   // Those still on the server (sent before a reload, or a turn a restart cut off) go with the next one.
-  const [queued, setQueued] = useState<string[]>(pending);
+  const [queued, setQueued] = useState<{ text: string; chips: ChatChip[] }[]>(pending);
   const waitingCard = useRef<RunCardControls | null>(null);
   const sentHere = useMemo(() => sentTexts(messages), [messages]);
   const busy = status === 'submitted' || status === 'streaming';
@@ -334,23 +336,23 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
     const timer = setInterval(() => setCompactSeconds(Math.floor((Date.now() - started) / 1000)), 1000);
     return () => clearInterval(timer);
   }, [compact.isPending]);
-  const queue = (text: string) => {
-    setQueued((list) => [...list, text]);
+  const queue = ({ text, view, chips }: QueuedMessage) => {
+    setQueued((list) => [...list, { text, chips }]);
     const giveBack = () => {
       setQueued((list) => removeOnce(list, text));
-      composer.current?.mergeDraft([text]);
+      composer.current?.mergeDraft([text], chips);
       toast.info('답이 막 끝나 전달하지 못했습니다. 입력창에 되돌려 두었습니다.');
     };
     // The turn may be ending: it refuses (409) and the text goes back to the box instead of being sent on its own.
-    void chatTurn(sessionId).steer(text).then((taken) => taken || giveBack());
+    void chatTurn(sessionId).steer({ text, view, chips }).then((taken) => taken || giveBack());
   };
   // A queued message the turn has not taken yet: cancel it, or take it back into the box to edit.
-  const takeBack = async (text: string, edit: boolean) => {
+  const takeBack = async ({ text, chips }: { text: string; chips: ChatChip[] }, edit: boolean) => {
     const { removed } = await chatTurn(sessionId).unsteer(text);
     if (!removed) return void toast.info('이미 에이전트에게 전달됐습니다.');
     setQueued((list) => removeOnce(list, text));
     if (edit) {
-      composer.current?.mergeDraft([text]);
+      composer.current?.mergeDraft([text], chips);
       composer.current?.focus();
     }
   };
@@ -362,7 +364,7 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
   useEffect(() => {
     if (!queued.length) return;
     const delivered = messages.flatMap((message) => message.parts.flatMap((part) => (part.type === 'data-steer' ? [(part as { data: { text: string } }).data.text] : [])));
-    const left = queued.filter((text) => !delivered.includes(text));
+    const left = queued.filter((message) => !delivered.includes(message.text));
     if (left.length !== queued.length) setQueued(left);
   }, [messages]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -421,16 +423,18 @@ function ChatBody({ active, projectId, sessionId, initial, turn, usage, compacti
                 onCardAnswered={focusBox}
               />
             ))}
-            {queued.map((text, index) => (
-              <SteerBubble key={`queued-${index}`} text={text} waiting onEdit={() => void takeBack(text, true)} onCancel={() => void takeBack(text, false)} />
+            {queued.map((message, index) => (
+              <SteerBubble key={`queued-${index}`} projectId={projectId} text={message.text} chips={message.chips} waiting onEdit={() => void takeBack(message, true)} onCancel={() => void takeBack(message, false)} />
             ))}
             {marker?.index === messages.length && <CompactionNotice summary={marker.summary} />}
             {afterCompact && (
               <SteerBubble
+                projectId={projectId}
                 text={afterCompact.text}
+                chips={afterCompact.metadata?.chips}
                 waiting
                 label="요약이 끝나면 보냄"
-                onEdit={() => { composer.current?.mergeDraft([afterCompact.text]); setAfterCompact(null); }}
+                onEdit={() => { composer.current?.mergeDraft([afterCompact.text], afterCompact.metadata?.chips); setAfterCompact(null); }}
                 onCancel={() => setAfterCompact(null)}
               />
             )}
