@@ -377,17 +377,25 @@ export class AcpAgent {
   async use(sessionId: string, model: string, effort?: string): Promise<void> {
     const current = this.settings.get(sessionId);
     if (!current || (current.model === model && current.effort === effort)) return;
-    await this.configure(sessionId, current.options, model, effort);
-    this.settings.set(sessionId, { options: current.options, model, effort });
+    const options = await this.configure(sessionId, current.options, model, effort);
+    this.settings.set(sessionId, { options, model, effort });
   }
 
-  /** Picks the model and effort (and a read-only mode) from the session's options. */
-  async configure(sessionId: string, options: acp.SessionConfigOption[], model: string, effort?: string): Promise<void> {
+  /**
+   * Picks the model and effort (and a read-only mode) from the session's options; returns the options as the agent
+   * has them afterwards. Each change answers with the session's options anew, and the next pick reads those: a model
+   * can bring its own (agy's Claude models name their level `thought_level`, its Gemini models `thinking_level`).
+   */
+  async configure(sessionId: string, given: acp.SessionConfigOption[], model: string, effort?: string): Promise<acp.SessionConfigOption[]> {
+    let options = given;
     // agy's CLI names a model with its level ("gemini-3.8-flash-low"); its ACP server takes the base and the level apart.
     const suffixed = /^(.+)-(low|medium|high|xhigh|max)$/.exec(model);
     const values = (option: acp.SessionConfigOption) =>
       option.type === 'select' ? (option.options as (acp.SessionConfigSelectOption | acp.SessionConfigSelectGroup)[]).flatMap((entry) => ('group' in entry ? entry.options : [entry])) : [];
-    const set = (configId: string, value: string) => this.call(() => this.connection.setSessionConfigOption({ sessionId, configId, value }));
+    const set = async (configId: string, value: string) => {
+      const response = await this.call(() => this.connection.setSessionConfigOption({ sessionId, configId, value }));
+      if (response?.configOptions?.length) options = response.configOptions;
+    };
     const byId = (...ids: string[]) => options.find((option) => ids.includes(option.id) || ids.includes(option.category ?? ''));
     const modelOption = byId('model');
     if (model && modelOption) {
@@ -413,6 +421,7 @@ export class AcpAgent {
       const pick = values(modeOption).find((choice) => choice.value === SAFE_MODE[this.kind]);
       if (pick && pick.value !== (modeOption as { currentValue?: string }).currentValue) await set(modeOption.id, pick.value).catch(() => {});
     }
+    return options;
   }
 
   /**
