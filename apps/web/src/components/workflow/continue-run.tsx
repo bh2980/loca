@@ -18,7 +18,10 @@ export function ContinueRun({ runId, failed, paused, limits, open: controlledOpe
   const open = controlledOpen ?? localOpen;
   const setOpen = (next: boolean) => { setLocalOpen(next); onOpenChange?.(next); };
   const [picked, setPicked] = useState<Record<string, ModelValue>>({});
-  const [retryFailed, setRetryFailed] = useState(failed > 0);
+  // Failed lines go again unless the person unticks it. Until they choose, it follows the count: a paused run's requests
+  // still out when it paused can fail afterwards, and a dialog that read 0 at first would have left them out.
+  const [retryChoice, setRetryFailed] = useState<boolean | null>(null);
+  const retryFailed = retryChoice ?? failed > 0;
   // Only the caps the person changed are sent (a number sets one, null clears it); one left alone stays as the run has it.
   const [capEdits, setCapEdits] = useState<CapEdits>({});
   const { projectId } = useParams({ strict: false }) as { projectId?: string };
@@ -31,6 +34,7 @@ export function ContinueRun({ runId, failed, paused, limits, open: controlledOpe
       setOpen(false);
       setPicked({});
       setCapEdits({});
+      setRetryFailed(null);
     },
   });
   const data = plan.data;
