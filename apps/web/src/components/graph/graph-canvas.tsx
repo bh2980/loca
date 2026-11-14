@@ -106,6 +106,8 @@ export interface NodeInfo {
   second?: string | null;
   /** What is drawn as a hint, not as text: the translation a line does not have yet. */
   missing?: 'body' | 'second';
+  /** What stands for a 번역 제외 line's translation (its source goes out as it is): drawn muted, as text. */
+  kept?: 'body' | 'second';
   /** A folded run this card opens (on the run's block) or folds again (on its first line): the run's id. A small button on the card. */
   fold?: string;
 }
@@ -1163,7 +1165,7 @@ function drawLabel(context: CanvasRenderingContext2D, meta: NodeInfo, node: Layo
       // Both: the source on one line, the translation on the next.
       wrapText(context, body, node.x + 12, node.y + 44, node.width - 24, 18, 1);
       context.font = meta.missing === 'second' ? hint : plain;
-      context.fillStyle = meta.missing === 'second' ? colors.textMuted : colors.text;
+      context.fillStyle = meta.missing === 'second' || meta.kept === 'second' ? colors.textMuted : colors.text;
       wrapText(context, meta.second, node.x + 12, node.y + 62, node.width - 24, 18, 1);
     } else wrapText(context, body, node.x + 12, node.y + 44, node.width - 24, 18, 2);
   } else if (meta.kind === 'portal') {

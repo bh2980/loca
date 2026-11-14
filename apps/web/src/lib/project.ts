@@ -1,8 +1,8 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
+import { agentSettingsSchema, APP_FEED, lineExclusion, type LineTranslate, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
 import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
@@ -25,6 +25,18 @@ export function useProject(projectId: string | undefined) {
   const enabled = Boolean(projectId);
   const rows = liveRows(useLiveQuery((query) => (enabled ? query.from({ project: projectRow(projectId!) }) : undefined)), enabled);
   return { ...rows, data: rows.data?.[0] };
+}
+
+/**
+ * Whether a line is 번역 제외 (a person's call on it, else the project's rules over its source: lineExclusion), as one
+ * function for every line a screen draws. False until the project has loaded.
+ */
+export function useLineExcluded(projectId: string) {
+  const project = useProject(projectId).data;
+  return useCallback(
+    (line: { source: string; translate?: LineTranslate | null }) => (project ? lineExclusion(line, project.formatRules ?? undefined, project.exclusionRules, project.sourceLanguage) !== null : false),
+    [project],
+  );
 }
 
 /** For the project route's loader: the row is there, or the project does not exist (404). */

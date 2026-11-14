@@ -30,6 +30,8 @@ interface NodeCardsInput {
   show: GraphShow;
   /** The first line's translation by node, once translations are on the cards. */
   translations?: Record<string, string>;
+  /** Nodes whose first line is 번역 제외: it goes out as its source. */
+  kept?: ReadonlySet<string>;
   colorOf: (speaker: string | null | undefined) => string | undefined;
 }
 
@@ -40,10 +42,10 @@ interface NodeCardsInput {
  * folded run reads as how many lines it holds and its first spoken line, and carries the button that opens it (as
  * the first line of an open run carries the one that folds it again). The node key is in the side pane.
  */
-export function nodeCards({ nodes, nodeTypes = {}, portals = [], chains = [], foldable = [], openRuns, show, translations, colorOf }: NodeCardsInput): Map<string, NodeInfo> {
-  const text = (source: string, translation?: string | null) => shownText(show, source, translation);
+export function nodeCards({ nodes, nodeTypes = {}, portals = [], chains = [], foldable = [], openRuns, show, translations, kept, colorOf }: NodeCardsInput): Map<string, NodeInfo> {
+  const text = (source: string, translation?: string | null, keptSource = false) => shownText(show, source, translation, keptSource);
   const lineCard = (node: GraphNodeRow) =>
-    node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), ...text(node.text, translations?.[node.id]) } : {};
+    node.text ? { title: `${node.speaker ?? '지문·화면 문구'}${(node.total ?? 0) > 1 ? ` · ${node.total}줄` : ''}`, titleColor: colorOf(node.speaker), ...text(node.text, translations?.[node.id], kept?.has(node.id)) } : {};
   const map = new Map<string, NodeInfo>(
     nodes.map((node) => [
       node.id,
@@ -67,7 +69,7 @@ export function nodeCards({ nodes, nodeTypes = {}, portals = [], chains = [], fo
       kind: 'chain',
       label: `이어진 대사 ${lines}줄`,
       title: lines ? `이어진 대사 ${lines}줄` : `이어진 노드 ${chain.nodeIds.length}개`,
-      ...(spoken?.text ? text(said(spoken.text), translations?.[spoken.id] ? said(translations[spoken.id]!) : null) : { body: first?.label ?? null }),
+      ...(spoken?.text ? text(said(spoken.text), translations?.[spoken.id] ? said(translations[spoken.id]!) : null, kept?.has(spoken.id)) : { body: first?.label ?? null }),
       preview: spoken?.preview ?? first?.preview ?? first?.label ?? null,
       key: `${first?.key ?? ''} 외 ${chain.nodeIds.length - 1}개`,
     });

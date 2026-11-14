@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, type ReadingRouteFork, TAG_SCOPES } from '@loca/shared';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { KeptSource } from '@/components/editor/kept-source';
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
 import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike, VirtualItem } from '@loca/ui';
@@ -16,7 +17,7 @@ import { keyOf, useShortcuts } from '@/lib/shortcuts';
 import { lineTags } from '@/lib/queries';
 import { useLines, type Line } from '@/lib/units';
 import { useTaxonomy } from '@/lib/knowledge';
-import { useProject } from '@/lib/project';
+import { useLineExcluded, useProject } from '@/lib/project';
 import { patchLine } from '@/lib/line-writes';
 import { stored, STORED } from '@/lib/storage';
 
@@ -47,6 +48,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   onDone: (advanced: boolean) => void;
 }) {
   const colorOf = usePersonColors(projectId);
+  const excluded = useLineExcluded(projectId);
   const patch = useMutation({
     mutationFn: (json: { tagIds?: string[] }) => patchLine(projectId, row!.id, json),
     onError: (error) => toast.error(error.message),
@@ -116,7 +118,9 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
     <TranslationEditor key={`editor-${row.id}`} projectId={projectId} unit={row} statuses={statusList} focusKey={focusTick} marks={marks} onEscape={onEscape} onDone={onDone} />
   ) : (
     <>
-      {row.translation ? (
+      {excluded(row) ? (
+        <KeptSource source={row.source} pattern={tokenPattern} />
+      ) : row.translation ? (
         <Text asChild preserveLines><TokenText text={row.translation} source={row.source} pattern={tokenPattern} /></Text>
       ) : (
         <Text tone="subtle" userSelect="none">미번역</Text>
