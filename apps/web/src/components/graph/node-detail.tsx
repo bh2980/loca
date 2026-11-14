@@ -5,7 +5,7 @@ import { useGraphShow } from '@/lib/graph-show';
 import { Box, ColumnResizeHandle, FlowDisclosure, FlowLine, FlowRow, Icon, Inline, Inspector, InspectorHeader, Button, SegmentedControl, Skeleton, Text, Chip, Section } from '@loca/ui';
 import { LineDetail } from '@/components/line-detail';
 import { CopyButton } from '@/components/copy-button';
-import { pickedLinesItem, useReportView } from '@/lib/reported-view';
+import { lineItem, pickedLinesItem, useReportView } from '@/lib/reported-view';
 import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
 import { tokenPatternOf } from '@/lib/source-parts';
@@ -126,7 +126,7 @@ export function FlowPane({ projectId, nodeIds, ownIds = nodeIds, title, way, ext
   const onlyLine = ownLines.length === 1 ? ownLines[0] : undefined;
   useReportView('graph-node', [
     onlyLine
-      ? { kind: '대사', id: onlyLine.id, label: `${onlyLine.speaker?.trim() ? `${onlyLine.speaker.trim()}: ` : ''}${onlyLine.source.slice(0, 40)}`, detail: JSON.stringify({ key: onlyLine.key }) }
+      ? lineItem(onlyLine)
       : ownLines.length > 1
         ? { ...pickedLinesItem(ownLines.map((line) => line.id)), label: `${title} · 대사 ${ownLines.length.toLocaleString()}개` }
         : nodes[0] && { kind: '그래프', id: ownIds.join(','), label: title },

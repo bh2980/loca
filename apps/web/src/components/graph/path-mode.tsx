@@ -10,7 +10,8 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
-import { useReportView } from '@/lib/reported-view';
+import { lineItem, useReportView } from '@/lib/reported-view';
+import { useLineDetail } from '@/lib/units';
 import { useRouteEndpoints } from './use-route-endpoints';
 import { STORED, useStored } from '@/lib/storage';
 
@@ -78,6 +79,9 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   const reportEndpoint = (value: { id: string; label: string } | undefined, role: GraphEndpointStep) =>
     value && ({ kind: role === 'start' ? '경로 시작' : '경로 끝', id: value.id, label: value.label, detail: JSON.stringify({ nodeId: value.id }) });
   useReportView('reading-route', [reportEndpoint(startValue, 'start'), reportEndpoint(endValue, 'end')]);
+  // The line picked in the route's graph or script, as the graph reports the line open in its card.
+  const picked = useLineDetail(projectId, edit ?? '');
+  useReportView('graph-line', [picked.data && lineItem(picked.data)]);
 
   // The branch taken at each fork of a route between two picked ends, kept for the tab; nothing is kept until both ends are picked.
   const viaKey = start && end ? `${projectId}.${start}:${end}` : '';
