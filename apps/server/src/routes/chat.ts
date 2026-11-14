@@ -221,10 +221,12 @@ export const chatRoutes = new Hono<Env>()
   })
   // A message sent while the reply is running (#44): the turn takes it at its next step. Refused
   // (409) when no turn can take it any more; the browser then sends it as a new message.
-  .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => {
+  // It goes with the screen it was sent from and what it pointed at, as a sent message does.
+  .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000), view: viewSchema.optional(), chips: z.array(chatChipSchema).max(40).default([]) })), (c) => {
     const sessionId = c.req.param('sessionId');
     if (!steerable(c.var.deps.db, sessionId)) return c.json({ queued: false }, 409);
-    enqueueSteer(c.var.deps.db, sessionId, c.req.valid('json').text);
+    const { text, view, chips } = c.req.valid('json');
+    enqueueSteer(c.var.deps.db, sessionId, { text, chips, view: view ? describeView(view) : null });
     return c.json({ queued: true });
   })
   // Takes a queued message back before the turn has taken it: `removed` false means it was delivered already.

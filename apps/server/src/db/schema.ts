@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
+import type { AppDefaults, QueuedSteer, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
 import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@loca/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -863,7 +863,7 @@ export const chatSessions = sqliteTable('chat_sessions', {
   /** How the agent's changes are decided (#45): ask = a card each, auto = checked ones apply at once, bypass = all apply. */
   permissionMode: text('permission_mode', { enum: PERMISSION_MODES }).notNull().default('ask'),
   /** Messages sent while a turn was running that no turn has taken yet (#44); kept here so a restart does not lose them. */
-  pendingSteers: json<string[]>('pending_steers').notNull().default(sql`'[]'`),
+  pendingSteers: json<QueuedSteer[]>('pending_steers').notNull().default(sql`'[]'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

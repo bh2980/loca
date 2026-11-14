@@ -71,8 +71,8 @@ export const chatTurn = (sessionId: string) => ({
   stop: () => unwrap(client.chat[':sessionId'].stop.$post({ param: { sessionId } })),
   /** Summarizes the conversation's start to make room. */
   compact: (signal: AbortSignal) => unwrap(client.chat[':sessionId'].compact.$post({ param: { sessionId } }, { init: { signal } })),
-  /** A message for the running turn to take at its next step; false when the server did not take it. */
-  steer: (text: string) => client.chat[':sessionId'].steer.$post({ param: { sessionId }, json: { text } }).then((response) => response.ok, () => false),
+  /** A message for the running turn to take at its next step, with the screen and chips it was sent with; false when the server did not take it. */
+  steer: (json: InferRequestType<(typeof client.chat)[':sessionId']['steer']['$post']>['json']) => client.chat[':sessionId'].steer.$post({ param: { sessionId }, json }).then((response) => response.ok, () => false),
   /** Takes a waiting message back; `removed` false: the turn had already taken it. */
   unsteer: (text: string) => unwrap(client.chat[':sessionId'].unsteer.$post({ param: { sessionId }, json: { text } })).catch(() => ({ removed: false })),
 });

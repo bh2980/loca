@@ -5,7 +5,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { expandRecord, transcript } from './chat-record.ts';
 import { startTurn, steerable } from './chat-turn-registry.ts';
-import { dequeueSteer, enqueueSteer, hasSteers, stopWithQueued, takeSteers } from './chat-interject.ts';
+import { dequeueSteer, enqueueSteer, hasSteers, interjectionPrompt, stopWithQueued, takeSteers, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
 import { importProject } from './importer.ts';
 
@@ -26,21 +26,30 @@ describe('steering (#44)', () => {
     expect(expandRecord([first]).map((message) => message.role)).toEqual(['user', 'assistant']);
   });
 
+  it('hands the model each message with the screen it was sent from; the reply keeps its chips, not the screen', () => {
+    const chip = { kind: '대사', id: 'u1', label: 'MIRA: Hi' };
+    const items = [{ text: '이거 고쳐', kind: 'user' as const, chips: [chip], view: '사용자의 현재 화면:\n- 대사: MIRA: Hi [id=u1]' }];
+    expect(interjectionPrompt(items)).toContain('이거 고쳐\n\n사용자의 현재 화면:\n- 대사: MIRA: Hi [id=u1]');
+    const written: unknown[] = [];
+    writeInterjections({ write: (chunk) => void written.push(chunk) }, items);
+    expect(written).toEqual([{ type: 'data-steer', data: { text: '이거 고쳐', kind: 'user', chips: [chip] } }]);
+  });
+
   it('queues messages for the running turn, refuses once it is closing, and hands them back on stop', () => {
     const db = openDatabase(':memory:');
     const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
     const id = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;
     const turn = startTurn(db, 'p', id);
     expect(steerable(db, id)).toBe(true);
-    enqueueSteer(db, id, 'a');
-    enqueueSteer(db, id, 'b');
+    enqueueSteer(db, id, steer('a'));
+    enqueueSteer(db, id, steer('b'));
     expect(hasSteers(db, id)).toBe(true);
     // Stored on the conversation: a restart (no turn in memory) keeps them.
-    expect(db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, id)).get()!.pending).toEqual(['a', 'b']);
+    expect(db.select({ pending: s.chatSessions.pendingSteers }).from(s.chatSessions).where(eq(s.chatSessions.id, id)).get()!.pending).toEqual([steer('a'), steer('b')]);
     // A queued message can be taken back until the turn has taken it.
     expect(dequeueSteer(db, id, 'a')).toBe(true);
     expect(dequeueSteer(db, id, 'a')).toBe(false);
-    expect(takeSteers(db, id)).toEqual(['b']);
+    expect(takeSteers(db, id)).toEqual([steer('b')]);
     expect(dequeueSteer(db, id, 'b')).toBe(false);
     expect(takeSteers(db, id)).toEqual([]);
     turn.markClosing();
@@ -48,12 +57,14 @@ describe('steering (#44)', () => {
     turn.end();
     expect(steerable(db, id)).toBe(false);
     const second = startTurn(db, 'p', id);
-    enqueueSteer(db, id, 'c');
+    enqueueSteer(db, id, steer('c'));
     expect(stopWithQueued(db, id)).toEqual({ stopped: true, queued: ['c'] });
     expect(steerable(db, id)).toBe(false);
     second.end();
     // No turn (after a restart): stopping still hands back what waited.
-    enqueueSteer(db, id, 'd');
+    enqueueSteer(db, id, steer('d'));
     expect(stopWithQueued(db, id)).toEqual({ stopped: false, queued: ['d'] });
   });
 });
+
+const steer = (text: string) => ({ text, chips: [], view: null });

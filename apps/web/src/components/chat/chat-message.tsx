@@ -54,8 +54,8 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
         {message.parts.map((part, index) => {
           if (part.type === 'text') return <Markdown key={index}>{part.text}</Markdown>;
           if (part.type === 'data-steer') {
-            const data = (part as { data: { text: string; kind?: string } }).data;
-            return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
+            const data = (part as { data: { text: string; kind?: string; chips?: unknown } }).data;
+            return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} projectId={projectId} text={data.text} chips={messageChips({ metadata: { chips: data.chips } })} />;
           }
           if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={!latest} onOutput={(toolCallId, output) => onToolOutput(part.type.slice(5), toolCallId, output)} />;
           return null;
@@ -101,7 +101,7 @@ function MessageActions({ text, chips = [], onReuse }: { text: string; chips?: C
 }
 
 /** A message sent while a reply was running: where the reply took it, or still waiting for its next step. */
-export function SteerBubble({ text, waiting = false, label, onEdit, onCancel }: { text: string; waiting?: boolean; /** What it waits for, when not the running reply. */ label?: string; onEdit?: () => void; onCancel?: () => void }) {
+export function SteerBubble({ projectId, text, chips = [], waiting = false, label, onEdit, onCancel }: { projectId: string; text: string; /** What it pointed at when sent, as a sent message keeps them. */ chips?: ChatChip[]; waiting?: boolean; /** What it waits for, when not the running reply. */ label?: string; onEdit?: () => void; onCancel?: () => void }) {
   return (
     <SteerBubbleView
       label={label ?? (waiting ? '전달 대기 중' : '진행 중에 보냄')}
@@ -122,6 +122,7 @@ export function SteerBubble({ text, waiting = false, label, onEdit, onCancel }: 
       }
     >
       {text}
+      <SentChips projectId={projectId} chips={chips} />
     </SteerBubbleView>
   );
 }
