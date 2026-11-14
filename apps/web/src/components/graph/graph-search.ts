@@ -37,6 +37,8 @@ const graphSearchParams = {
   mark: param.text,
   /** The line open in the translation card beside its node (dialogue graph). */
   edit: param.text,
+  /** A route's script: the picked line's details open in the pane beside it (as the script page's 상세). */
+  detail: param.flag,
   /** The right pane shows the open view's own details (name, request, counts). */
   viewInfo: param.flag,
   /** An open route view laid out as 그래프 + 대본: its graph beside its lines in reading order. */
@@ -75,7 +77,7 @@ export type GraphSearchChange = (previous: GraphSearch) => GraphSearch;
 
 const NO_ROUTE = { routeStart: undefined, routeEnd: undefined, pickStart: undefined, pickEnd: undefined, pickStep: undefined } as const;
 /** What a pane shows of the current section; another section or view starts without it. */
-const NO_PANE = { node: undefined, omitted: undefined, viewInfo: undefined } as const;
+const NO_PANE = { node: undefined, omitted: undefined, viewInfo: undefined, detail: undefined } as const;
 /**
  * The runs drawn open belong to the graph they were opened in: a run's id is its first node's, the same in a view and in
  * the whole graph, so another section or view starts with its own default (small: all open, large: none).
@@ -114,7 +116,9 @@ export const graphSearch = {
   node: (node: string | undefined): GraphSearchChange => (previous) => ({ ...previous, node, edit: undefined, edge: undefined, addAfter: undefined, omitted: node ? undefined : previous.omitted }),
   /** The selection moved along the flow while translating; the card opens on its line once it has arrived. */
   nodeAlongFlow: (node: string): GraphSearchChange => (previous) => ({ ...previous, node, edit: undefined }),
-  edit: (edit: string | undefined): GraphSearchChange => (previous) => ({ ...previous, edit }),
+  edit: (edit: string | undefined): GraphSearchChange => (previous) => ({ ...previous, edit, ...(!edit && { detail: undefined }) }),
+  /** 상세 열기 / 닫기 for the picked line of a route's script; it follows the line picked next. */
+  detail: (on: boolean): GraphSearchChange => (previous) => ({ ...previous, detail: on || undefined }),
   edge: (edge: string | undefined): GraphSearchChange => (previous) => ({ ...previous, edge, node: undefined, edit: undefined, addAfter: undefined }),
   addAfter: (addAfter: string | undefined): GraphSearchChange => (previous) => (addAfter ? { ...previous, addAfter, node: undefined, edge: undefined, edit: undefined } : { ...previous, addAfter: undefined }),
   omitted: (omitted: string | undefined): GraphSearchChange => (previous) => (omitted ? { ...previous, omitted, node: undefined, edit: undefined } : { ...previous, omitted: undefined }),

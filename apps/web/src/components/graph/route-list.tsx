@@ -2,7 +2,7 @@ import { createAndAttachTag } from '@/lib/create-tag';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation } from '@tanstack/react-query';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { ChevronDown, ChevronUp, GitFork } from 'lucide-react';
+import { ChevronDown, ChevronUp, GitFork, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
 import { isUnknownListener, listenerLabel, needsListener, SPECIAL_LISTENERS, type ReadingRouteFork, TAG_SCOPES } from '@loca/shared';
 import { TranslationEditor } from '@/components/translation-editor';
@@ -10,7 +10,7 @@ import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor
 import { KeptSource } from '@/components/editor/kept-source';
 import { LineHints } from '@/components/script/line-row';
 import { usePersonColors } from '@/lib/person-colors';
-import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, type StatusLike, VirtualItem } from '@loca/ui';
+import { Box, Button, DropdownMenu, DropdownMenuContent, DropdownMenuLabel, DropdownMenuTrigger, ForkOptionItem, Heading, Icon, Inline, ScriptReadingRow, Skeleton, Stack, TagChip, TagListEditor, Text, Tooltip, TooltipContent, TooltipTrigger, type StatusLike, VirtualItem } from '@loca/ui';
 import { tokenPatternOf } from '@/lib/source-parts';
 import { isTyping, keyLabel } from '@/lib/keys';
 import { keyOf, useShortcuts } from '@/lib/shortcuts';
@@ -30,7 +30,7 @@ const scrollKey = (projectId: string, routeKey: string) => `${projectId}.${encod
 const readScroll = (key: string) => stored(STORED.routeScroll, key).read();
 const writeScroll = (key: string, value: number) => stored(STORED.routeScroll, key).write(value);
 
-function RouteLineRow({ projectId, row, selected, status, statusList, rules, tags, tokenPattern, focusTick, loadError, stageLabel, onRetry, onSelect, onEscape, onDone }: {
+function RouteLineRow({ projectId, row, selected, status, statusList, rules, tags, tokenPattern, focusTick, loadError, stageLabel, onRetry, onSelect, onEscape, onDone, onOpenDetail }: {
   projectId: string;
   row: Row | undefined;
   selected: boolean;
@@ -46,6 +46,7 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   onSelect: () => void;
   onEscape: () => void;
   onDone: (advanced: boolean) => void;
+  onOpenDetail: () => void;
 }) {
   const colorOf = usePersonColors(projectId);
   const excluded = useLineExcluded(projectId);
@@ -132,13 +133,34 @@ function RouteLineRow({ projectId, row, selected, status, statusList, rules, tag
   return (
     <div role="listitem" data-unit={row.id} data-selected={selected || undefined} onClick={() => !selected && onSelect()}>
       {stageLabel && <Heading as="h3" variant="group" minWidth={0} display="block" paddingX="page" paddingTop="normal">{stageLabel}</Heading>}
-      <ScriptReadingRow speaker={row.speaker} speakerColor={colorOf(row.speaker)} listener={listener} listenerIsPerson={listenerIsPerson} status={status} statusBy={row.statusBy} source={source} translation={translation} selected={selected} />
+      <ScriptReadingRow
+        speaker={row.speaker}
+        speakerColor={colorOf(row.speaker)}
+        listener={listener}
+        listenerIsPerson={listenerIsPerson}
+        status={status}
+        statusBy={row.statusBy}
+        source={source}
+        translation={translation}
+        selected={selected}
+        // The picked line's details (listener, candidates, AI context, history), as on the script page.
+        actions={selected && (
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button type="button" variant="ghost" size="icon-xs" tone="muted" aria-label="상세 열기" onClick={(event) => { event.stopPropagation(); onOpenDetail(); }}>
+                <PanelRight />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>상세 열기</TooltipContent>
+          </Tooltip>
+        )}
+      />
     </div>
   );
 }
 
 /** A continuous, virtualized reading order for the current path. The URL owns the picked editor line. */
-export function RouteList({ projectId, sequence, stages, routeKey, untranslatedIds, edit, onEdit, forks, onPickFork }: {
+export function RouteList({ projectId, sequence, stages, routeKey, untranslatedIds, edit, onEdit, forks, onPickFork, onOpenDetail }: {
   projectId: string;
   sequence: { unitId: string; nodeId: string }[];
   stages: { id: string; nodeIds: string[]; unitIds: string[]; parallel: boolean }[];
@@ -146,6 +168,8 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   untranslatedIds: string[];
   edit?: string;
   onEdit: (unitId: string | undefined) => void;
+  /** 상세 열기 on the picked line: its details beside the script. */
+  onOpenDetail: (unitId: string) => void;
   forks?: ReadingRouteFork[];
   onPickFork?: (nodeId: string, targetId: string) => void;
 }) {
@@ -214,8 +238,23 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   useEffect(() => {
     if (editIndex === undefined) return;
     const picked = pickedHere.current;
+    const moved = movedHere.current;
     pickedHere.current = null;
-    if (!picked || picked.unitId !== edit) jump(editIndex, 'center');
+    movedHere.current = null;
+    // Picked in sight: it stays put. Moved to from the list (⌘↵, ⌥↑↓, 다음 미번역): only as far as it takes to show it, as
+    // the script page does. From elsewhere (the graph, a link): to the middle, where it is found at a glance.
+    if (picked?.unitId === edit) return;
+    if (moved !== edit) return jump(editIndex, 'center');
+    // After the line left has folded up and the next one opened (the virtualizer's own 'auto' decides its side before
+    // that, and then pulls the line to the edge even when it ends up in sight): nothing moves when it is in sight.
+    let frame = requestAnimationFrame(() => {
+      frame = requestAnimationFrame(() => {
+        const row = edit ? parent.current?.querySelector<HTMLElement>(`[data-unit="${CSS.escape(edit)}"]`) : null;
+        if (row) row.scrollIntoView({ block: 'nearest' });
+        else jump(editIndex, 'auto');
+      });
+    });
+    return () => cancelAnimationFrame(frame);
   }, [editIndex, routeKey]); // eslint-disable-line react-hooks/exhaustive-deps
   useEffect(() => {
     if (edit && editIndex === undefined) onEdit(undefined);
@@ -228,8 +267,11 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
 
   // The line picked in this list itself: it is already where the person is looking, so the list keeps it in place instead of centring it.
   const pickedHere = useRef<{ unitId: string; top: number } | null>(null);
+  // The line moved to from the list (out of sight): brought only as far as it takes to show it.
+  const movedHere = useRef<string | null>(null);
   const [focusTick, setFocusTick] = useState(0);
-  const select = useCallback((unitId: string | undefined, editing: boolean) => {
+  const select = useCallback((unitId: string | undefined, editing: boolean, moved = false) => {
+    movedHere.current = moved && unitId ? unitId : null;
     const box = parent.current;
     const row = unitId && box ? box.querySelector<HTMLElement>(`[data-unit="${CSS.escape(unitId)}"]`) : null;
     if (unitId && box && row) {
@@ -238,10 +280,13 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
     } else {
       pickedHere.current = null;
     }
-    anchorAt(pickedHere.current && unitId ? (indexById.get(unitId) ?? null) : null);
+    // Moved from the open line: that line and everything above it stay where they are, and its editor folding up brings
+    // the next line up under it (the view the person was reading does not jump); otherwise the line picked in sight stays.
+    const from = edit ? indexById.get(edit) : undefined;
+    anchorAt(moved && from !== undefined ? from : pickedHere.current && unitId ? (indexById.get(unitId) ?? null) : null);
     setFocusTick((tick) => (editing ? tick + 1 : 0));
     onEdit(unitId);
-  }, [onEdit, indexById, anchorAt]);
+  }, [onEdit, indexById, anchorAt, edit]);
 
   const currentIndex = editIndex ?? virtualizer.range?.startIndex ?? 0;
   const adjacentUntranslated = (direction: 1 | -1) => {
@@ -254,12 +299,12 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
   const nextUntranslated = adjacentUntranslated(1);
   const goUntranslated = (direction: 1 | -1) => {
     const index = adjacentUntranslated(direction);
-    if (index !== undefined) select(sequence[index]!.unitId, true);
+    if (index !== undefined) select(sequence[index]!.unitId, true, true);
     else toast(direction === 1 ? '이 길에는 뒤에 번역할 줄이 없습니다.' : '이 길에는 앞에 번역할 줄이 없습니다.');
   };
   const moveLine = (direction: 1 | -1, editing: boolean) => {
     const index = currentIndex + direction;
-    if (index >= 0 && index < sequence.length) select(sequence[index]!.unitId, editing);
+    if (index >= 0 && index < sequence.length) select(sequence[index]!.unitId, editing, true);
     else toast(direction === 1 ? '이 길의 마지막 줄입니다.' : '이 길의 첫 줄입니다.');
   };
   useShortcuts(
@@ -302,6 +347,7 @@ export function RouteList({ projectId, sequence, stages, routeKey, untranslatedI
         onSelect={() => select(entry.unitId, true)}
         onEscape={() => setFocusTick(0)}
         onDone={(advanced) => (advanced ? moveLine(1, true) : select(undefined, false))}
+        onOpenDetail={() => onOpenDetail(entry.unitId)}
       />
     );
   };

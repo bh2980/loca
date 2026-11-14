@@ -7,7 +7,8 @@ import { ReadingRouteGraph } from '@/components/graph/reading-route-graph';
 import { RouteList } from '@/components/graph/route-list';
 import { useViewActions } from '@/components/graph/view-inspector';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, Stack, Text } from '@loca/ui';
+import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, SplitPane, Stack, Text } from '@loca/ui';
+import { LineDetail } from '@/components/line-detail';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
 import { lineItem, routeItem, useReportView, viewItem } from '@/lib/reported-view';
@@ -52,7 +53,7 @@ function SaveRouteButton({ projectId, route, onSaved }: { projectId: string; rou
  * for a route not saved yet (picked start and end, with 보기로 저장), and as a saved route view's
  * 그래프 + 대본 layout, where taking another branch at a fork changes the view.
  */
-export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, start, end, via: externalVia, onViaChange, direction, onDirectionChange, edit, onBeginPicking, onClear, onEdit, onSaved }: {
+export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, start, end, via: externalVia, onViaChange, direction, onDirectionChange, edit, detail, onDetail, onBeginPicking, onClear, onEdit, onSaved }: {
   projectId: string;
   toggle: ReactNode;
   /** The 보기 menu, beside a saved view's layout toggle. */
@@ -69,6 +70,9 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   direction: 'vertical' | 'horizontal';
   onDirectionChange: (direction: 'vertical' | 'horizontal') => void;
   edit?: string;
+  /** The picked line's details open beside the script (상세 열기). */
+  detail: boolean;
+  onDetail: (on: boolean) => void;
   onBeginPicking?: (step: GraphEndpointStep) => void;
   onClear?: () => void;
   onEdit: (unitId: string | undefined) => void;
@@ -113,6 +117,8 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   };
 
   const route = useQuery({ ...q.readingRoute(projectId, { start, end, via: activeVia || undefined }), enabled: Boolean(start && end) });
+  // The AI step the details pane shows a request of (as the graph's node pane keeps it).
+  const [aiNode, setAiNode] = useState<string>();
   const data = route.data;
   const found = data?.status === 'found' && data.start === start && data.end === end;
 
@@ -146,6 +152,13 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
           </Inline>
         )}
         {found && data.sequence.length > 0 ? (
+          <SplitPane
+            id="route-detail"
+            fill="height"
+            defaultWidth="380px"
+            autoActivate={detail && Boolean(edit)}
+            pane={detail && edit ? <LineDetail projectId={projectId} unitId={edit} showScene onClose={() => onDetail(false)} aiNode={aiNode} onAiNode={setAiNode} /> : undefined}
+          >
           <Stack direction="row" height="full" minHeight={0} grow overflow="hidden" data-testid="reading-route" data-route-nodes={data.nodeIds.length}>
             <GraphScriptSplit
               id="reading-route"
@@ -173,9 +186,14 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
                 onEdit={onEdit}
                 forks={data.forks}
                 onPickFork={handlePickFork}
+                onOpenDetail={(unitId) => {
+                  if (unitId !== edit) onEdit(unitId);
+                  onDetail(true);
+                }}
               />
             </GraphScriptSplit>
           </Stack>
+          </SplitPane>
         ) : route.isFetching ? (
           <Inline height="full" justify="center" gap="condensed" variant="body" tone="muted">
             <Spinner /> 경로를 확인하는 중…

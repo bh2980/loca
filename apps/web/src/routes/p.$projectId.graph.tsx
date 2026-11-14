@@ -60,6 +60,8 @@ function GraphRoute() {
     toggle: <ModeToggle value="dialogue" onChange={(mode) => go(graphSearch.mode(mode))} />,
     edit: search.edit,
     onEdit: (edit: string | undefined) => set(graphSearch.edit(edit)),
+    detail: Boolean(search.detail),
+    onDetail: (on: boolean) => set(graphSearch.detail(on)),
   };
 
   if (unsavedRoute)

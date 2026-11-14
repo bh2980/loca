@@ -4,7 +4,7 @@ import { AiMark, StatusIcon, type StatusLike } from "../../patterns/status"
 import { cn } from "../../lib/utils"
 
 /** One continuous reading surface for source and translation, with the same speaker/status language as the editor. */
-export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPerson, status, statusBy, source, translation, selected = false }: {
+export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPerson, status, statusBy, source, translation, selected = false, actions }: {
   speaker: string | null
   /** The color a person gave the speaker (none: muted). */
   speakerColor?: string | null
@@ -15,6 +15,8 @@ export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPe
   source: ReactNode
   translation: ReactNode
   selected?: boolean
+  /** The picked line's buttons, at the right end of its head (상세 열기). */
+  actions?: ReactNode
 }) {
   return (
     <article className={cn("min-w-0 border-b border-subtle px-4 py-3 sm:px-6", selected && "bg-selected/60")}>
@@ -24,6 +26,7 @@ export function ScriptReadingRow({ speaker, speakerColor, listener, listenerIsPe
           <AiMark by={statusBy} />
           <StatusIcon status={status} />
           {status?.name ?? "상태 없음"}
+          {actions}
         </span>
       </div>
       <div className="grid min-w-0 grid-cols-1 gap-3 md:grid-cols-2 md:gap-4">
