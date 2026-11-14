@@ -179,7 +179,18 @@ describe('chat sessions over ACP', () => {
     expect(error.code).toBe('config');
     expect(error.message).toContain('fake-2');
     await agent.configure(session.sessionId, session.configOptions, 'fake-2-low');
-    expect((await turn(agent, session.sessionId, 'x')).reply).toContain('fake-2');
+    expect((await turn(agent, session.sessionId, 'x')).reply).toContain('fake-2 low');
+  });
+
+  it('sets the level by the option the chosen model brings, not the one the session opened with (agy: Claude names it thought_level)', async () => {
+    setAgentStarter(inProcessStarter());
+    const agent = await agentFor('antigravity');
+    const session = await agent.newSession({ cwd: cwd(), mcpServers: [], system: '' });
+    await agent.use(session.sessionId, 'fake-2-medium');
+    expect((await turn(agent, session.sessionId, 'x')).reply).toContain('fake-2 medium');
+    // Back to a model whose level option has the session's first name.
+    await agent.use(session.sessionId, 'fake-low');
+    expect((await turn(agent, session.sessionId, 'x')).reply).toContain('fake low');
   });
 
   it('cancels a turn, stops one that goes quiet, and fails with the reason the CLI gave', async () => {

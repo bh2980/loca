@@ -1,3 +1,4 @@
+import type * as React from 'react';
 import { TOOL_SPECS, type ProposalDetail } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { diffRows } from '@/lib/text-diff';
@@ -101,6 +102,95 @@ export function ChangePreview({ details, pending = true }: { details: readonly P
   return (
     <Box spaceY="tight">
       {details.map((detail, index) => <Detail key={index} detail={detail} pending={pending} />)}
+    </Box>
+  );
+}
+
+/** How many rows a folded card shows. */
+const PEEK_ROWS = 3;
+/** Longer than this a value is cut in a row of the peek, so the card has more to open. */
+const PEEK_CHARS = 60;
+
+const firstLine = (text: string) => text.split('\n', 1)[0] ?? '';
+const cut = (text: string) => text.length > PEEK_CHARS || text.includes('\n');
+
+/** One detail as rows of one line each (a text two), and whether a row leaves something out. */
+function peekRows(detail: ProposalDetail, pending: boolean): { rows: { node: React.ReactNode; height: number }[]; more: number; cut: boolean } {
+  const row = (node: React.ReactNode, height = 1) => ({ node, height });
+  switch (detail.kind) {
+    case 'fields':
+      return {
+        rows: detail.rows.map((field) => row(<Inline gap="condensed" minWidth={0}><Text variant="caption" tone="muted" shrink={false}>{field.label}</Text><Text minWidth={0} truncate>{firstLine(field.value)}</Text></Inline>)),
+        more: 0,
+        cut: detail.rows.some((field) => field.code || cut(field.value)),
+      };
+    case 'changes':
+      return {
+        rows: detail.items.flatMap((item) =>
+          item.changes.length
+            ? item.changes.map((change) => row(
+                <Inline gap="condensed" minWidth={0}>
+                  <Text variant="caption" tone="muted" shrink={false}>{detail.items.length > 1 ? `${item.title} · ${change.field}` : change.field}</Text>
+                  <Text minWidth={0} truncate>
+                    {change.before !== undefined && <><Text tone="muted" lineThrough>{firstLine(change.before) || '(없음)'}</Text> → </>}
+                    {firstLine(change.after)}
+                  </Text>
+                </Inline>,
+              ))
+            : [row(<Text truncate>{item.title} <Text tone="muted">· 바뀌는 내용이 없습니다</Text></Text>)],
+        ),
+        more: 0,
+        cut: detail.items.some((item) => item.changes.some((change) => cut(change.after) || (change.before !== undefined && cut(change.before)))),
+      };
+    case 'list':
+      return { rows: detail.items.map((item) => row(<Text as="p" truncate>{item}</Text>)), more: detail.more ?? 0, cut: detail.items.some(cut) };
+    case 'text':
+      return { rows: [row(<Text as="p" lines={2} breakWords>{detail.text}</Text>, 2)], more: 0, cut: detail.text.length > PEEK_CHARS * 2 || detail.text.split('\n').length > 2 };
+    case 'marks':
+      return { rows: [row(<Inline gap="condensed" minWidth={0}><Text variant="caption" tone="muted" shrink={false}>{detail.label}</Text><Inline wrap gap="tight">{detail.marks.map((mark) => <MarkChip key={mark} mark={mark} />)}</Inline></Inline>)], more: 0, cut: false };
+    case 'lines':
+      return {
+        rows: detail.shown.map((line) => row(
+          <Inline gap="condensed" minWidth={0}>
+            <Text mono variant="caption" tone="muted" shrink={false}>{line.key}</Text>
+            <Text minWidth={0} truncate>
+              {line.translation !== undefined && firstLine(line.translation)}
+              {line.change && <Text tone="muted">{line.translation !== undefined ? ' · ' : ''}{line.change}</Text>}
+            </Text>
+          </Inline>,
+        )),
+        more: detail.total - detail.shown.length,
+        cut: detail.shown.some((line) => line.translation !== undefined && cut(line.translation)),
+      };
+    case 'note':
+      return { rows: detail.whilePending && !pending ? [] : [row(<Text as="p" tone={detail.tone} truncate>{detail.text}</Text>)], more: 0, cut: cut(detail.text) };
+  }
+}
+
+/**
+ * A folded card's first rows: what a change does, in up to PEEK_ROWS rows of one line. `complete`: the rows are the whole
+ * of it (nothing cut, nothing left over), so the card has nothing more to open.
+ */
+export function peekOf(details: readonly ProposalDetail[], pending: boolean) {
+  const all = details.map((detail) => peekRows(detail, pending));
+  const rows = all.flatMap((entry) => entry.rows);
+  const shown: React.ReactNode[] = [];
+  let height = 0;
+  for (const entry of rows) {
+    if (height + entry.height > PEEK_ROWS) break;
+    shown.push(entry.node);
+    height += entry.height;
+  }
+  const left = rows.length - shown.length + all.reduce((sum, entry) => sum + entry.more, 0);
+  return { shown, left, complete: left === 0 && !all.some((entry) => entry.cut) };
+}
+
+/** The peek's rows, with how many more the open card shows. */
+export function ChangePeek({ peek }: { peek: ReturnType<typeof peekOf> }) {
+  return (
+    <Box spaceY="hair">
+      {peek.shown.map((node, index) => <Box key={index} minWidth={0}>{node}</Box>)}
+      {peek.left > 0 && <Text as="p" variant="caption" tone="muted">외 {peek.left.toLocaleString()}개</Text>}
     </Box>
   );
 }

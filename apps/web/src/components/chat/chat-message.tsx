@@ -6,7 +6,7 @@ import { messageChips, runCardOf, runEndOf, type ChatChip } from '@loca/shared';
 import { CopyButton } from '@/components/copy-button';
 import { AttachChip } from './attach-chip';
 import { RunCardView, RunEndView, type RunCardControls } from './run-card';
-import type { Proposal } from './proposal-card';
+import { undoable, UndoAll, type Proposal } from './proposal-card';
 import { ToolPart } from './tool-part';
 
 const messageText = (message: UIMessage) => message.parts.map((part) => (part.type === 'text' ? part.text : '')).filter(Boolean).join('\n\n');
@@ -60,6 +60,10 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
           if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={!latest} onOutput={(toolCallId, output) => onToolOutput(part.type.slice(5), toolCallId, output)} />;
           return null;
         })}
+        {!streaming && <UndoAll proposals={message.parts.flatMap((part) => {
+          const proposal = part.type.startsWith('tool-') ? proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') : undefined;
+          return proposal && undoable(proposal) ? [proposal] : [];
+        })} />}
         {!streaming && <MessageActions text={messageText(message)} />}
       </AssistantMessage>
     );
