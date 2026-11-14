@@ -3,7 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { useGraphNodes } from '@/lib/graph';
 import { lineSurroundings, useLineDetail } from '@/lib/units';
-import { useReportView } from '@/lib/reported-view';
+import { lineItem, useReportView } from '@/lib/reported-view';
 import { nextWithLines, stopText } from './flow-model';
 import type { GraphCanvasHandle } from './graph-canvas';
 import { graphSearch } from './graph-search';
@@ -33,14 +33,7 @@ export function useLineCard({ nav, drawn, canvas }: { nav: GraphNav; drawn: Draw
 
   // The line open in the card reports itself to the chat (the selected node reports itself from its pane).
   const editUnit = useLineDetail(projectId, search.edit ?? '');
-  useReportView('graph-line', [
-    editUnit.data && {
-      kind: '대사',
-      id: editUnit.data.id,
-      label: `${editUnit.data.speaker?.trim() ? `${editUnit.data.speaker.trim()}: ` : ''}${editUnit.data.source.slice(0, 40)}`,
-      detail: JSON.stringify({ key: editUnit.data.key }),
-    },
-  ]);
+  useReportView('graph-line', [editUnit.data && lineItem(editUnit.data)]);
 
   const edit = (unitId: string | undefined) => set(graphSearch.edit(unitId));
   // A selection made while translating opens the card once its lines have arrived: on its first line after a step

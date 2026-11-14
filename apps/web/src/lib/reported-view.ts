@@ -74,3 +74,8 @@ export function pickedLinesItem(ids: readonly string[]): ViewItem {
     detail: JSON.stringify({ unitIds: sorted.slice(0, 200), ...(sorted.length > 200 && { more: sorted.length - 200 }) }),
   };
 }
+
+/** One line as an item for the chat, the same wherever it is picked (the graph's card or pane, a route's script). */
+export function lineItem(line: { id: string; key: string; speaker?: string | null; source: string }): ViewItem {
+  return { kind: '대사', id: line.id, label: `${line.speaker?.trim() ? `${line.speaker.trim()}: ` : ''}${line.source.slice(0, 40)}`, detail: JSON.stringify({ key: line.key }) };
+}
