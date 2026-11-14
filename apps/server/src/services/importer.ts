@@ -183,7 +183,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     insertMany(
       tx,
       s.speechRules,
-      file.speechRules.map((rule) => ({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' as const })),
+      file.speechRules.map((rule) => ({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, sometimes: rule.sometimes, never: rule.never, address: rule.address, examples: rule.examples, note: rule.note, startKey: rule.start ?? null, origin: 'import' as const })),
     );
     insertMany(tx, s.terms, file.terms.map((term) => ({ projectId, ...term })));
   });

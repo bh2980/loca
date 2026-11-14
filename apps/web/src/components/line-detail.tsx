@@ -5,7 +5,7 @@ import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
 import { CircleAlert, CircleCheck, Info, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
-import { CHARACTER_ROLE_LABELS, termKept, termLine, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
+import { CHARACTER_ROLE_LABELS, speechFit, speechSpectrumLabel, SPEECH_FIT_LABELS, type SpeechSometimes, termKept, termLine, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
 import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { useLineDetail } from '@/lib/units';
 import { AiContextPanel } from '@/components/ai-context';
@@ -630,11 +630,12 @@ function HistoryTab({ projectId, unit, tokenPattern, ready }: { projectId: strin
 }
 
 /** The last run's findings, the speech rule and the format checks of the line's current draft. */
-function LineChecks({ projectId, source, kind, text, rules, targetLanguage, speech, lastRun }: { kind?: string; projectId: string; source: string; text: string; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null; lastRun: { runId: string; workflowName: string; issues: string[] } | null }) {
+function LineChecks({ projectId, source, kind, text, rules, targetLanguage, speech, lastRun }: { kind?: string; projectId: string; source: string; text: string; rules?: FormatRules; targetLanguage?: string; speech?: { listener: string; ruleId: string; rule: string; level: SpeechLevel; sometimes: SpeechSometimes[]; never: SpeechLevel[]; address: string; byOrder: boolean; routeDependent?: boolean; others?: boolean } | null; lastRun: { runId: string; workflowName: string; issues: string[] } | null }) {
   const formatIssues = text.trim() ? checkFormat(source, text, editorChecks(targetLanguage, true), rules) : [];
   // The confirmed terms the source uses, each with whether the translation has its Korean form.
   const usedTerms = useUsedTerms(projectId, { source, kind });
   const guessed = text.trim() ? speechLevelOf(text) : null;
+  const fit = speech ? speechFit(speech, guessed) : null;
   return (
     <Box spaceY="comfortable">
       <Group nested title={lastRun ? <>지적 · <Text asChild weight="normal" tone="muted" underline="hover"><Link to="/p/$projectId/runs/$runId" params={{ projectId, runId: lastRun.runId }}>{lastRun.workflowName}</Link></Text></> : '지적'}>
@@ -649,11 +650,12 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
           <Inline gap="condensed" variant="body">
             <Text asChild minWidth={0} truncate underline="hover">
               <Link to="/p/$projectId/knowledge" params={{ projectId }} search={{ tab: 'people', display: 'table', item: speech.ruleId }}>
-                {speech.rule}
+                {speechSpectrumLabel(speech)}{speech.address ? ` · 호칭 ${speech.address}` : ''}
               </Link>
             </Text>
-            <Text marginLeft="auto" shrink={false} variant="caption" tone={!guessed || speech.level === 'other' ? 'muted' : guessed === speech.level ? 'success' : 'warning'}>
-              {!guessed || speech.level === 'other' ? '' : guessed === speech.level ? '맞음 · 추정' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} · 추정`}
+            {/* Where the translation falls in the spectrum: usual or sometimes fine, ruled out wrong, unlisted worth a look. */}
+            <Text marginLeft="auto" shrink={false} variant="caption" tone={fit === 'never' ? 'warning' : fit === 'usual' || fit === 'sometimes' ? 'success' : 'muted'}>
+              {fit && guessed ? `${fit === 'usual' ? '' : `번역은 ${SPEECH_LEVEL_LABELS[guessed]} · `}${SPEECH_FIT_LABELS[fit]} · 추정` : ''}
             </Text>
           </Inline>
         </Group>

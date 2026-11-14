@@ -2,7 +2,7 @@ import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
 import { formatRulesSchema, TERM_MODES } from './format-check.ts';
 import { exclusionReason, type ExclusionReason } from './exclusion.ts';
 import { z } from 'zod';
-import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
+import { relationshipChangeSchema, SPEECH_LEVELS, speechSometimesSchema } from './knowledge.ts';
 
 /**
  * Standard project file. Game-specific extractors convert their output into this
@@ -122,8 +122,15 @@ export const importEventSchema = z.object({
 export const importSpeechRuleSchema = z.object({
   from: z.string().min(1),
   to: z.string().min(1),
+  /** The usual level. */
   level: z.enum(SPEECH_LEVELS),
+  /** Levels used sometimes, each with when ("편할 때"). */
+  sometimes: z.array(speechSometimesSchema).default([]),
+  /** Levels never used toward this listener. */
+  never: z.array(z.enum(SPEECH_LEVELS)).default([]),
   address: z.string().default(''),
+  /** A few Korean lines in this voice. */
+  examples: z.array(z.string().trim().min(1)).max(5).default([]),
   note: z.string().default(''),
   /** The rule applies from this line on; omitted = from the beginning. */
   start: key.optional(),

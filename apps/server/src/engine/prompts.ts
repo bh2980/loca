@@ -175,7 +175,7 @@ export function buildPrompt(
     context.terms.length ? glossarySentence(context.terms) : '',
     hasAiNotes(context) ? '"aiNotes" are AI inferences nobody has verified: unverified guesses, not facts. Use one only when the lines themselves agree with it, and never let it override the lines, the glossary or a speech rule.' : '',
     Object.values(context.speech).some((entry) => entry.rule)
-      ? 'A line\'s "speechRule" is the confirmed Korean speech level and form of address for its speaker toward its "listener": follow it unless the line plainly addresses someone else or is a quote. When it lists several forms of address, use whichever fits the line (or none where Korean would drop it).'
+      ? 'A line\'s "speechRule" is the confirmed Korean speech of its speaker toward its "listener": follow it unless the line plainly addresses someone else or is a quote. A rule may give a usual level ("기본"), levels for the situations it names (use one only when the line is in that situation), levels never used (never use them) and example lines (match their voice). When it lists several forms of address, use whichever fits the line (or none where Korean would drop it).'
       : '',
     Object.keys(context.scenes).length > 1
       ? 'Lines are grouped by scene, in script order. A new scene can jump in time, place or company: do not carry a conversation, a listener or a speech level across scenes unless the lines show it.'

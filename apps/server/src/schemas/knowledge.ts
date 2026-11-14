@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, ALL_TERM_KINDS, termScopeSchema, TERM_MODES } from '@loca/shared';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, speechSometimesSchema, ALL_TERM_KINDS, termScopeSchema, TERM_MODES } from '@loca/shared';
 
 // Request bodies for knowledge items, shared by the routes and the agent tools (services must not import routes).
 export const termInput = z.object({
@@ -27,8 +27,15 @@ export const eventInput = z.object({ title: z.string().trim().min(1), summary: z
 export const speechRuleInput = z.object({
   fromName: z.string().trim().min(1),
   toName: z.string().trim().min(1),
+  /** The usual level. */
   level: z.enum(SPEECH_LEVELS),
+  /** Levels the speaker uses toward this listener in some situations, each with when ("편할 때", "급할 때"). */
+  sometimes: z.array(speechSometimesSchema).max(6).default([]),
+  /** Levels never used toward this listener: a translation in one is wrong. */
+  never: z.array(z.enum(SPEECH_LEVELS)).max(7).default([]),
   address: z.string().default(''),
+  /** Up to five short Korean lines in this voice (what a model imitates). */
+  examples: z.array(z.string()).max(20).transform((lines) => lines.map((line) => line.trim()).filter(Boolean).slice(0, 5)).default([]),
   note: z.string().default(''),
   startKey: z.string().trim().min(1).nullable().default(null),
   evidence,

@@ -230,6 +230,44 @@ export function speechLevelOf(text: string): Exclude<SpeechLevel, 'other'> | nul
   return null;
 }
 
+/**
+ * A speaker's speech toward a listener is a spectrum, not one level: the usual level (`level`), levels used sometimes
+ * (each with when, in words: "편할 때", "급하거나 명령할 때"), levels never used, and a few Korean lines in the voice.
+ */
+export const speechSometimesSchema = z.object({ level: z.enum(SPEECH_LEVELS), when: z.string().trim().max(200).default('') });
+export type SpeechSometimes = z.infer<typeof speechSometimesSchema>;
+export interface SpeechSpectrum {
+  level: SpeechLevel;
+  sometimes?: readonly SpeechSometimes[] | null;
+  never?: readonly SpeechLevel[] | null;
+}
+
+/**
+ * Where a translation's level falls in a rule's spectrum: its usual level, one used sometimes, one never used, or none
+ * of them (unlisted: worth a look, not wrong). Null when the level cannot be told or the rule's level is 기타.
+ */
+export type SpeechFit = 'usual' | 'sometimes' | 'never' | 'unlisted';
+export function speechFit(rule: SpeechSpectrum, guessed: SpeechLevel | null): SpeechFit | null {
+  if (!guessed || rule.level === 'other') return null;
+  if (guessed === rule.level) return 'usual';
+  if (rule.sometimes?.some((entry) => entry.level === guessed)) return 'sometimes';
+  if (rule.never?.includes(guessed)) return 'never';
+  return 'unlisted';
+}
+/** The levels a rule allows: its usual one, then those used sometimes. */
+export const allowedLevels = (rule: SpeechSpectrum): SpeechLevel[] => [...new Set([rule.level, ...(rule.sometimes ?? []).map((entry) => entry.level)])];
+/** "주로 하게체 · 가끔 편할 때 해체, 급할 때 해라체 · 안 씀: 해요체": the spectrum in a few words, for chips and lists. */
+export function speechSpectrumLabel(rule: SpeechSpectrum): string {
+  const sometimes = (rule.sometimes ?? []).map((entry) => `${entry.when ? `${entry.when} ` : ''}${SPEECH_LEVEL_LABELS[entry.level]}`);
+  return [
+    (sometimes.length || rule.never?.length ? '주로 ' : '') + SPEECH_LEVEL_LABELS[rule.level],
+    sometimes.length && `가끔 ${sometimes.join(', ')}`,
+    rule.never?.length && `안 씀: ${rule.never.map((level) => SPEECH_LEVEL_LABELS[level]).join(', ')}`,
+  ].filter(Boolean).join(' · ');
+}
+/** What a fit says to a person (the line's check). */
+export const SPEECH_FIT_LABELS: Record<SpeechFit, string> = { usual: '맞음', sometimes: '가끔 쓰는 말투', never: '쓰지 않는 말투', unlisted: '평소와 다름 · 확인' };
+
 export type Politeness = 'polite' | 'plain';
 const POLITE_LEVELS: readonly SpeechLevel[] = ['hasoseo', 'hasipsio', 'hao', 'haeyo'];
 const PLAIN_LEVELS: readonly SpeechLevel[] = ['hae', 'haera', 'hage'];

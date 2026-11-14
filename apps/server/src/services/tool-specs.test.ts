@@ -48,7 +48,7 @@ function listFields(schema: z.ZodType): string[] {
 const NOT_BATCH: Partial<Record<ToolName, Record<string, string>>> = {
   save_character: { aliases: "one character's other names", evidence: 'the lines that show one item' },
   save_relationship: { changes: 'the stages of one relationship', evidence: 'the lines that show one item' },
-  save_speech_rule: { evidence: 'the lines that show one item' },
+  save_speech_rule: { sometimes: "one rule's situational levels", never: "one rule's levels ruled out", examples: "one rule's example lines", evidence: 'the lines that show one item' },
   save_event: { participants: "one event's people", evidence: 'the lines that show one item' },
   save_document: { evidence: 'the lines that show one item' },
   save_status: { scope: 'where one tag may be put' },

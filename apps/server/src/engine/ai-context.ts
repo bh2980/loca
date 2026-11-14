@@ -66,7 +66,7 @@ export interface BatchContext {
   /** The glossary terms the lines use, as termForModel gives them (고정 / 후보 / 뉘앙스). */
   terms: ReturnType<typeof termForModel>[];
   /** A request reading earlier results instead of lines: the confirmed speech rules among the people those results name. */
-  speechRules: { from: string; to: string; level: string; address?: string; note?: string; startKey?: string }[];
+  speechRules: { from: string; to: string; level: string; sometimes?: { level: string; when: string }[]; never?: string[]; address?: string; note?: string; startKey?: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
   preceding: Record<string, Preceding>;
   /** Everything considered, in fill order, with what was dropped for the cap. */
@@ -449,7 +449,7 @@ export function buildContext(
     const named = new Set(mentionMatcher(knowledge.characters().rows).find(text).flatMap((character) => [character.name, ...character.aliases].map((name) => name.toLowerCase())));
     for (const rule of knowledge.allSpeechRules()) {
       if (rule.status !== 'confirmed' || !named.has(rule.fromName.toLowerCase()) || !(named.has(rule.toName.toLowerCase()) || isSpecialListener(rule.toName))) continue;
-      const entry = { from: rule.fromName, to: rule.toName, level: rule.level, ...(rule.address && { address: rule.address }), ...(rule.note && { note: rule.note }), ...(rule.startKey && { startKey: rule.startKey }) };
+      const entry = { from: rule.fromName, to: rule.toName, level: rule.level, ...(rule.sometimes.length && { sometimes: rule.sometimes }), ...(rule.never.length && { never: rule.never }), ...(rule.address && { address: rule.address }), ...(rule.note && { note: rule.note }), ...(rule.startKey && { startKey: rule.startKey }) };
       candidates.speech.push({ item: { kind: 'speech', label: `${rule.fromName} → ${rule.toName}${rule.startKey ? ` (${rule.startKey}부터)` : ''}: ${describeRule(rule)}`, reason: '읽는 결과에 나오는 인물 사이의 확정 말투 규칙' }, payload: entry, keep: () => result.speechRules.push(entry) });
     }
   }

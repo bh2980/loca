@@ -72,6 +72,9 @@ function parseClause(rule: unknown): Clause | null {
   }
   if (name === 'in') {
     const list = varOf(right);
+    // The judged level is one the line's rule allows.
+    const judged = varOf(left)?.match(/^outputs\.([^.]+)\.value$/);
+    if (judged && list === 'unit.speechLevels') return { kind: 'speechMatch', nodeId: judged[1]! };
     if (typeof left !== 'string') return null;
     if (list === 'unit.tagIds') return { kind: 'tag', tagId: left };
     if (list === 'unit.marks') return { kind: 'mark', mark: left };
@@ -84,8 +87,6 @@ function parseClause(rule: unknown): Clause | null {
     return visits && typeof right === 'number' ? { kind: 'visits', nodeId: visits[1]!, limit: right } : null;
   }
   if (!COMPARE.has(name)) return null;
-  const chosen = target.match(/^outputs\.([^.]+)\.value$/);
-  if (name === '==' && chosen && varOf(right) === 'unit.speechLevel') return { kind: 'speechMatch', nodeId: chosen[1]! };
   if (name === '==' && target === 'unit.statusId' && typeof right === 'string') return { kind: 'status', statusId: right };
   if (name === '==' && target === 'unit.kind' && typeof right === 'string') return { kind: 'lineKind', value: right };
   if (name === '==' && target === 'unit.statusBy' && (right === 'ai' || right === 'human')) return { kind: 'decidedBy', by: right };
@@ -146,7 +147,8 @@ function baseRule(clause: Clause): unknown {
     case 'speechRule':
       return { '!!': [{ var: 'unit.speechLevel' }] };
     case 'speechMatch':
-      return { '==': [{ var: `outputs.${clause.nodeId}.value` }, { var: 'unit.speechLevel' }] };
+      // One of the levels the rule allows (usual or sometimes), not only its usual one.
+      return { in: [{ var: `outputs.${clause.nodeId}.value` }, { var: 'unit.speechLevels' }] };
     case 'candidate':
       return { '!!': [{ var: 'candidate' }] };
     case 'termStatus':

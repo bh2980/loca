@@ -4,7 +4,7 @@ import { useMutation } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { toast } from 'sonner';
-import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, SPEECH_LEVEL_LABELS, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@loca/shared';
+import { isSpecialListener, listenerLabel, OTHERS_LISTENER, pairKey, pairMarks, pairSummary, speechSpectrumLabel, UNRESOLVED_RELATIONSHIP_KIND, type Pair as PairOf } from '@loca/shared';
 import { EmptyState, DataTable, type ColumnDef, Inspector, InspectorHeader, InspectorResult, InspectorTabs, TagListEditor, Chip, Box, Button, Inline, Text, Section, Field } from '@loca/ui';
 import { DraftEditor, draftKeyOf, savedOf } from '@/components/knowledge/editor';
 import { PairLines, usePairLines } from '@/components/knowledge/evidence';
@@ -47,7 +47,7 @@ export type { SpeechRuleCreate };
 export const pairItems = (pair: Pair) => [...(pair.relationship ? [{ kind: 'relationships' as const, row: pair.relationship }] : []), ...pair.rules.map((row) => ({ kind: 'speechRules' as const, row }))];
 /** Why the analysis marked an item for a look (확인 권장), or null. */
 const reviewOf = (row: Draft) => row.reviewNote || null;
-const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => SPEECH_LEVEL_LABELS[rule.level]).join(' → ');
+const levelsText = (rules: SpeechRuleRow[]) => rules.map((rule) => speechSpectrumLabel(rule)).join(' → ');
 
 /** The speaker → listener pairs as a table; 출처 filters through its header, 후보 and AI가 정함 through the 태그 column. */
 export function PairTable({ pairs, loading, selected, picked, onPick, onOpen, bulk, filters, colorOf }: {
@@ -187,7 +187,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
       onClose={onClose}
       below={
         <Box spaceY="condensed">
-          {decision(base ? `말투 ${SPEECH_LEVEL_LABELS[base.level]}${rules.length > 1 ? ` · 변화 ${rules.length - 1}` : ''}` : rules.length ? `말투 변화 ${rules.length}` : '말투 없음', base, 'speechRules', base ? ruleDirty(base.id) : false)}
+          {decision(base ? `말투 ${speechSpectrumLabel(base)}${rules.length > 1 ? ` · 변화 ${rules.length - 1}` : ''}` : rules.length ? `말투 변화 ${rules.length}` : '말투 없음', base, 'speechRules', base ? ruleDirty(base.id) : false)}
           {decision(relationship ? (unresolved ? relationship.kind : `관계 ${relationship.kind}`) : '관계 없음', relationship, 'relationships', relationshipDirty, unresolved)}
           {pairItemsList.length > 0 && (
             <Field label="태그" help="이 쌍의 관계와 말투 규칙 모두에 붙습니다.">
@@ -213,7 +213,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
         dirty={ruleDirty}
         onDecide={(ids, action) => onDecide('speechRules', ids, action)}
         addRule={addRule}
-        fallback={!isSpecialListener(pair.to) && others?.rules.length ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${SPEECH_LEVEL_LABELS[others.rules[0].level]})이 쓰입니다.` : undefined}
+        fallback={!isSpecialListener(pair.to) && others?.rules.length ? `규칙이 없어 ${pair.from}의 ‘그 밖의 인물’ 규칙(${speechSpectrumLabel(others.rules[0])})이 쓰입니다.` : undefined}
       />
       {!isSpecialListener(pair.to) && onOpenPair && (
         <Section>
@@ -223,7 +223,7 @@ export function PairDetail({ projectId, pair, relationships, speechRules, addRul
             tone="muted"
             onClick={() => (others ? onOpenPair(others.key) : addRule({ fromName: pair.from, toName: OTHERS_LISTENER, level: 'haeyo', address: '' }).then(() => onOpenPair(pairKey(pair.from, OTHERS_LISTENER))))}
           >
-            {others?.rules.length ? `${pair.from} → 그 밖의 인물: ${SPEECH_LEVEL_LABELS[others.rules[0].level]}` : `${pair.from} → 그 밖의 인물 말투`}
+            {others?.rules.length ? `${pair.from} → 그 밖의 인물: ${speechSpectrumLabel(others.rules[0])}` : `${pair.from} → 그 밖의 인물 말투`}
           </Button>
         </Section>
       )}

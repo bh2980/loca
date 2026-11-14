@@ -925,6 +925,13 @@
       "when": 1794689245613,
       "tag": "0131_term_modes",
       "breakpoints": true
+    },
+    {
+      "idx": 132,
+      "version": "6",
+      "when": 1794692437277,
+      "tag": "0132_speech_spectrum",
+      "breakpoints": true
     }
   ]
 }

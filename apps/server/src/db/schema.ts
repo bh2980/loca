@@ -1,6 +1,6 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, QueuedSteer, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
+import type { AppDefaults, QueuedSteer, RunCardPlan, RunLimits, RunScope, SpeechLevel, SpeechSometimes } from '@loca/shared';
 import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope, TERM_MODES } from '@loca/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
@@ -526,6 +526,12 @@ export const speechRules = sqliteTable(
     address: text('address').notNull().default(''),
     note: text('note').notNull().default(''),
     startKey: text('start_key'),
+    /** Levels used sometimes besides the usual one (`level`), each with when ("편할 때"): the speech is a spectrum. */
+    sometimes: json<SpeechSometimes[]>('sometimes').notNull().default(sql`'[]'`),
+    /** Levels never used toward this listener: a translation in one of them is wrong. */
+    never: json<SpeechLevel[]>('never').notNull().default(sql`'[]'`),
+    /** A few Korean lines in this speaker's voice toward the listener (what a model imitates best). */
+    examples: json<string[]>('examples').notNull().default(sql`'[]'`),
     ...knowledge(),
     updatedAt: updatedAt(),
   },

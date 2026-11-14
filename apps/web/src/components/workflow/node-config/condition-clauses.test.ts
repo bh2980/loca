@@ -59,10 +59,10 @@ describe('condition rows', () => {
 });
 
 describe('speech rule rows', () => {
-  it('reads and writes "the choice is the line\'s speech rule" and "has a rule"', () => {
+  it('reads and writes "the choice is a level the line\'s speech rule uses" and "has a rule"', () => {
     const condition: Condition = { join: 'or', clauses: [{ kind: 'speechRule', not: true }, { kind: 'speechMatch', nodeId: 'speech' }] };
     const expression = conditionExpression(condition);
-    expect(expression).toEqual({ or: [{ '!': [{ '!!': [{ var: 'unit.speechLevel' }] }] }, { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }] });
+    expect(expression).toEqual({ or: [{ '!': [{ '!!': [{ var: 'unit.speechLevel' }] }] }, { in: [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevels' }] }] });
     expect(parseCondition(expression)).toEqual(condition);
   });
 });

@@ -163,7 +163,7 @@ const speechNodes = (ids: TemplateIds): WorkflowNode[] => [
     type: 'condition',
     position: at(6, 1),
     label: '말투가 규칙대로?',
-    config: { expression: { '==': [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevel' }] }, description: '판정한 말투가 이 대사의 화자 → 청자 말투 규칙과 같으면 통과합니다.' },
+    config: { expression: { in: [{ var: 'outputs.speech.value' }, { var: 'unit.speechLevels' }] }, description: '판정한 말투가 이 대사의 화자 → 청자 말투 규칙이 쓰는 말투(주로·가끔)면 통과합니다.' },
     exits: { false: [tagAction('add', { tagIds: issueTagIds(ids, ['speech']) })] },
   },
 ];
@@ -332,7 +332,7 @@ const MERGED_PATHS = [
   ...['between', 'kind', 'reason'].map((field) => `pairsWithoutRelationship.${field}`),
   ...['name', 'reason'].map((field) => `notPeople.${field}`),
   ...['between', 'views.from', 'views.to', 'views.kind', 'views.description', 'views.evidence', 'views.changes.at', 'views.changes.kind', 'views.changes.cause'].map((field) => `relationships.${field}`),
-  ...['fromName', 'toName', 'level', 'address', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
+  ...['fromName', 'toName', 'level', 'sometimes.level', 'sometimes.when', 'never', 'address', 'examples', 'note', 'startKey', 'evidence'].map((field) => `speechRules.${field}`),
 ];
 
 /**

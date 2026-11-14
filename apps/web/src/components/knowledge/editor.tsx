@@ -2,10 +2,10 @@ import { createAndAttachTag } from '@/lib/create-tag';
 /** The detail editor for one knowledge item: fields, unsaved edits that survive navigation, decide/discard. */
 import { cloneElement, isValidElement, useMemo, useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Trash2 } from 'lucide-react';
+import { Check, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@loca/shared';
-import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field, ConfirmDialog } from '@loca/ui';
+import { DOCUMENT_KINDS, STYLE_AXES, type StyleAxis, SPEECH_LEVEL_LABELS, SPEECH_LEVELS, type SpeechLevel, type SpeechSometimes, isSettled, AGE_BAND_LABELS, CHARACTER_ROLE_LABELS, GENDER_LABELS, knowledgeKindScope, type TagScope, type KnowledgeTagKind } from '@loca/shared';
+import { TagInput, Inspector, InspectorHeader, InspectorTabs, InspectorToggle, useControlId, TagListEditor, DirtyBar, Box, Inline, Button, Input, Select, SelectContent, SelectItem, SelectValue, AiMark, SelectTrigger, Textarea, Section, Field, ConfirmDialog, Checkbox, Label, Stack } from '@loca/ui';
 import { joinList, splitList } from '@/lib/list-value';
 import { Swatches } from '@/components/settings/swatches';
 import { useDraft } from '@/lib/drafts';
@@ -20,7 +20,7 @@ import { useLinesByKeys } from '@/lib/units';
 import { particle } from '@/lib/josa';
 
 /** A field's value in the draft (the form is kept as JSON text, a draft: lib/drafts.ts). */
-type Value = string | boolean | string[] | Record<string, string> | null;
+type Value = string | boolean | string[] | Record<string, string> | SpeechSometimes[] | null;
 
 type EditorTab = 'basic' | 'content' | 'extra' | 'evidence';
 /**
@@ -137,7 +137,7 @@ export function DraftEditor({ projectId, kind, spec, row, characters, onClose, o
       return <StartKeyField key={field.name} projectId={projectId} field={field} value={text(value)} from={text(form.fromName ?? row.fromName)} to={text(form.toName ?? row.toName)} onChange={change} />;
     return (
       <Field key={field.name} label={field.label} description={field.description} help={field.help}>
-        <FieldInput field={field} value={value} characters={characters} onChange={change} />
+        <FieldInput field={field} value={value} characters={characters} usual={text(form.level)} onChange={change} />
       </Field>
     );
   };
@@ -326,7 +326,9 @@ function StyleFields({ value, onChange }: { value: Record<string, string> | null
 
 const NORMAL = '__normal';
 
-export function FieldInput({ field, value, characters, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; onChange: (value: Value) => void }) {
+export function FieldInput({ field, value, characters, usual, onChange }: { field: KnowledgeField; value: Value; characters: { id: string; name: string }[]; usual?: string; onChange: (value: Value) => void }) {
+  // A rule's other levels never repeat its usual one (the server drops it too).
+  const otherLevels = SPEECH_LEVELS.filter((level) => level !== 'other' && level !== usual);
   // The control takes the id of the Field around it (see ControlIdContext).
   const id = useControlId();
   // Grows with its text (a summary read in full, not scrolled in three rows); a note's body is prose, not code.
@@ -334,6 +336,48 @@ export function FieldInput({ field, value, characters, onChange }: { field: Know
   if (field.type === 'color') return <Swatches value={text(value)} onChange={onChange} onClear={() => onChange('')} />;
   if (field.type === 'list') return <TagInput id={id} value={(value as string[] | null) ?? []} onChange={onChange} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
   if (field.type === 'chips') return <TagInput id={id} value={splitList(value)} onChange={(chips) => onChange(joinList(chips))} suggestions={field.suggestions} placeholder="쉼표나 Enter로 추가" />;
+  // One sentence a line (example lines hold commas, so not chips).
+  if (field.type === 'sentences') return <Box asChild leading="relaxed"><Textarea id={id} variant="body" autoSize rows={2} placeholder="한 줄에 하나" value={((value as string[] | null) ?? []).join('\n')} onChange={(event) => onChange(event.target.value.split('\n'))} /></Box>;
+  if (field.type === 'levels') {
+    const chosen = ((value as SpeechLevel[] | null) ?? []).filter((level) => level !== usual);
+    return (
+      <Stack direction="row" wrap gap="comfortable" role="group" aria-label={field.label}>
+        {otherLevels.map((level) => (
+          <Inline key={level} gap="condensed">
+            <Checkbox id={`${id}-${level}`} checked={chosen.includes(level)} onCheckedChange={(on) => onChange(on === true ? [...chosen, level] : chosen.filter((other) => other !== level))} />
+            <Label htmlFor={`${id}-${level}`}>{SPEECH_LEVEL_LABELS[level]}</Label>
+          </Inline>
+        ))}
+      </Stack>
+    );
+  }
+  if (field.type === 'sometimes') {
+    const entries = (value as SpeechSometimes[] | null) ?? [];
+    const set = (index: number, entry: SpeechSometimes) => onChange(entries.map((other, at) => (at === index ? entry : other)));
+    return (
+      <Box spaceY="condensed">
+        {entries.map((entry, index) => (
+          <Inline key={index} gap="condensed">
+            <Select value={entry.level} onValueChange={(level) => set(index, { ...entry, level: level as SpeechLevel })}>
+              <SelectTrigger aria-label={`가끔 쓰는 말투 ${index + 1}`}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {otherLevels.map((level) => <SelectItem key={level} value={level}>{SPEECH_LEVEL_LABELS[level]}</SelectItem>)}
+              </SelectContent>
+            </Select>
+            <Input aria-label={`언제 ${index + 1}`} placeholder="언제 (예: 급할 때)" value={entry.when} onChange={(event) => set(index, { ...entry, when: event.target.value })} />
+            <Button type="button" variant="ghost" size="icon-sm" aria-label={`가끔 쓰는 말투 ${index + 1} 빼기`} onClick={() => onChange(entries.filter((_, at) => at !== index))}>
+              <X />
+            </Button>
+          </Inline>
+        ))}
+        <Button type="button" variant="outline" onClick={() => onChange([...entries, { level: otherLevels.includes('hae') ? 'hae' : otherLevels[0]!, when: '' }])}>
+          <Plus /> 가끔 쓰는 말투 추가
+        </Button>
+      </Box>
+    );
+  }
   const options =
     field.type === 'docKind' ? DOCUMENT_KINDS.map((kind) => ({ id: kind, name: DOCUMENT_KIND[kind] }))
     : field.type === 'character' ? characters

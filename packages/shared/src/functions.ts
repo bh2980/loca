@@ -297,13 +297,24 @@ export const APPLY_TARGETS = {
   },
   saveSpeechRules: {
     label: '말투 규칙 저장',
-    description: '화자→청자 말투 규칙(등급·호칭)을 넣습니다. 이미 있는 규칙은 그대로 두고, 새 구간이나 새 쌍의 규칙만 넣습니다. 같은 쌍·구간에서 저장된 규칙과 다르면 넣지 않습니다.',
+    description: '화자→청자 말투 규칙(주로·가끔·쓰지 않는 말투, 호칭, 예문)을 넣습니다. 이미 있는 규칙은 그대로 두고, 새 구간이나 새 쌍의 규칙만 넣습니다. 같은 쌍·구간에서 저장된 규칙과 다르면 넣지 않습니다.',
     shape: 'list',
     fields: [
       { name: 'fromName', label: '화자', type: 'string', required: true },
       { name: 'toName', label: '청자', type: 'string', required: true },
-      { name: 'level', label: '말투', type: 'string', required: true },
+      { name: 'level', label: '주로 쓰는 말투', type: 'string', required: true },
+      {
+        name: 'sometimes',
+        label: '가끔 쓰는 말투',
+        type: 'list',
+        fields: [
+          { name: 'level', label: '말투', type: 'string', required: true },
+          { name: 'when', label: '언제', type: 'string' },
+        ],
+      },
+      { name: 'never', label: '쓰지 않는 말투', type: 'strings' },
       { name: 'address', label: '호칭', type: 'string' },
+      { name: 'examples', label: '예문', type: 'strings' },
       { name: 'note', label: '메모', type: 'string' },
       { name: 'startKey', label: '시작 대사', type: 'lines' },
       evidenceField,

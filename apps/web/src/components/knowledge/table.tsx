@@ -3,7 +3,7 @@ import { useParams } from '@tanstack/react-router';
 import { type ReactNode } from 'react';
 import { Check, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
-import { markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, parseMarks } from '@loca/shared';
+import { markColor, markName, type MarkStyles, type AgeBand, type CharacterRole, type CharacterStyle, type Gender, type DOCUMENT_KINDS, type SpeechLevel, type SpeechSometimes, type AutoMark, KNOWLEDGE_MARK_IDS, knowledgeMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, sourceOf, type KnowledgeOrigin, type KnowledgeSource, type KnowledgeStatus, type StatusBy, DECIDED_BY, DECIDED_BY_LABELS, type DecidedBy, parseMarks } from '@loca/shared';
 import { type ColumnDef, type FilterChip, Button, AiMark, Inline, Stack, StatusIcon, TagChip, Text, Tooltip, TooltipContent, TooltipTrigger, ConfirmDialog } from '@loca/ui';
 import { MarkChip } from '@/components/status';
 import { param } from '@/lib/search';
@@ -54,6 +54,12 @@ interface FieldValues {
   chips: string;
   bool: boolean;
   level: SpeechLevel;
+  /** Several speech levels (those a speaker never uses). */
+  levels: SpeechLevel[];
+  /** Levels used sometimes, each with when. */
+  sometimes: SpeechSometimes[];
+  /** Sentences, one per line (example lines). */
+  sentences: string[];
   /** A line key; empty is null. */
   key: string | null;
   docKind: (typeof DOCUMENT_KINDS)[number];

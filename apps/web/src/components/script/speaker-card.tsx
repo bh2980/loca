@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 import { Link } from '@tanstack/react-router';
-import { listenerLabel, personLabel, SPEECH_LEVEL_LABELS, styleNames } from '@loca/shared';
+import { listenerLabel, personLabel, speechSpectrumLabel, styleNames } from '@loca/shared';
 import { Box, HoverCard, HoverCardContent, HoverCardTrigger, Inline, Stack, Text } from '@loca/ui';
 import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 
@@ -60,7 +60,7 @@ function SpeakerInfo({ projectId, name }: { projectId: string; name: string }) {
                 → {listenerLabel(rule.toName)}
               </Inline>
               <Text marginLeft="auto" shrink={false}>
-                {SPEECH_LEVEL_LABELS[rule.level]}
+                {speechSpectrumLabel(rule)}
                 {rule.address && ` · “${rule.address}”`}
                 {pending(rule.status)}
               </Text>
