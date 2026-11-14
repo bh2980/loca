@@ -689,7 +689,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ id }) => deleteWorkflow(db, projectId, id),
     }),
     propose_translation: tool({
-      description: 'Suggest a translation for one line (read_line first). It does not replace the current translation: it waits as an AI 제안 (the line gets the mark aiSuggestion) until a person, or decide_suggestion, applies or declines it.',
+      description: 'Offer a translation for one line for a person to weigh (read_line first). It does not replace the current translation: it waits as an AI 제안 (the line gets the mark aiSuggestion) until a person, or decide_suggestion, applies or declines it. Only when the user asks for a suggestion to choose from; when the user asks you to translate or change lines, change them with propose_changes (translation), which applies as the conversation\'s permission mode says.',
       inputSchema: z.object({ unitId: z.string(), text: z.string().min(1), note: z.string().default('') }),
       check: needsRow(db, projectId, s.units, 'unitId', '대사'),
       undo: noUndo('AI 제안만 더했고 현재 번역은 그대로입니다'),
@@ -1092,8 +1092,8 @@ export const AGENT_SYSTEM = `당신은 게임 번역 작업실 loca의 프로젝
 - 도구를 쓴 뒤에는 반드시 사용자에게 결과나 다음 단계를 글로 알립니다. 아무 말 없이 차례를 끝내지 않습니다.
 - 프로젝트를 바꾸는 도구(save_*, propose_*, tag_items, start_run 등)는 대화의 권한 모드를 따릅니다. 바로 반영되면 도구 결과에 '바로 반영했습니다'(제안만 더하는 propose_translation은 'AI 제안으로 올렸습니다')와 결과가 오고, 사용자 결정이 필요하면 '제안을 올렸습니다'가 옵니다. 제안을 올렸다면 무엇을 왜 제안했는지 한두 문장으로 설명하고 이번 답을 마치세요. 대화의 제안이 모두 결정되면 결과가 와서 이어서 진행합니다. 한 번에 검토할 수 있는 크기로 바꿉니다.
 - 워크플로를 만들기 전에는 harness_reference를 읽습니다(AI 노드의 model은 거기 나온 연결 id와 그 연결의 모델).
-- 새 원문 항목은 create_group/create_unit으로 만들고(대사 사이에 넣을 때는 create_unit의 after), 원문 대사를 지울 때는 delete_lines를 씁니다. 지운 대사·묶음·항목은 그 결과의 undoId로 restore_deleted가 딸린 것까지 되살립니다(사용자가 제안 카드에서 되돌려도 같습니다). 기존 원문의 번역 제안은 propose_translation으로 올립니다. 원문을 바꾸면 번역 상태가 초기화됩니다.
-- 대사 번역을 제안할 때는 read_line으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_translation으로 AI 제안을 올립니다(사람이 그 줄에서 적용·거절). 확정 용어는 반드시 지킵니다. 사용자가 기다리는 제안을 적용하거나 거절하라고 하면 decide_suggestion을 씁니다.
+- 새 원문 항목은 create_group/create_unit으로 만들고(대사 사이에 넣을 때는 create_unit의 after), 원문 대사를 지울 때는 delete_lines를 씁니다. 지운 대사·묶음·항목은 그 결과의 undoId로 restore_deleted가 딸린 것까지 되살립니다(사용자가 제안 카드에서 되돌려도 같습니다). 원문을 바꾸면 번역 상태가 초기화됩니다.
+- 사용자가 대사를 번역하거나 번역을 고쳐 달라고 하면 read_line(또는 find_lines)으로 앞뒤 대사·용어·화자 프로필을 읽고 propose_changes의 translation으로 바꿉니다. 대화의 권한 모드에 따라 바로 반영되거나 제안 카드로 올라가고, 사람이 그 카드를 수락하면 번역이 바뀝니다. propose_translation은 번역을 바꾸지 않고 줄에 AI 제안만 다는 도구라서, 사용자가 "제안만", "후보를 보여 줘"처럼 직접 고르겠다고 할 때만 씁니다. 확정 용어는 반드시 지킵니다. 사용자가 기다리는 AI 제안을 적용하거나 거절하라고 하면 decide_suggestion을 씁니다.
 - 편집기에 열린 워크플로의 노드(지시문·조건식·스크립트 코드)를 바꿀 때는 save_workflow가 아니라 edit_workflow_node를 씁니다. 화면 정보의 노드 설정이 저장 전 최신 상태입니다.
 - 워크플로 실행은 사용자가 요청할 때만 start_run으로 제안합니다. 실행 전에 대상 대사 수와 범위를 알려 줍니다. 실행은 이 대화와 따로 돌아갑니다: 시작을 한 문장으로 알리고 답을 마치세요. 수락되어도 대화가 이어지지 않으며, 끝나면 대화에 결과가 기록되어 사용자의 다음 메시지와 함께 읽습니다. 기다리거나 read_run으로 진행을 반복해서 확인하지 않습니다. read_run은 사용자가 묻거나 기록된 결과의 자세한 내용이 필요할 때 씁니다.
 - 장면 요약은 사용자가 요청할 때만 read_scene으로 끝까지 읽은 뒤 update_group의 description으로 제안합니다.
