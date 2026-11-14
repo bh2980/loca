@@ -79,6 +79,38 @@ describe('unfoldChains', () => {
     expect(out.height).toBe(600 + 2 * grow);
   });
 
+  it('opens runs side by side: each keeps its lines together, under their own links', () => {
+    // Three runs in three columns, a little apart along the flow (the photo: only the last one opened drew its lines).
+    const layout: Unfoldable = {
+      width: 1400,
+      height: 400,
+      nodes: [box('chain:l', 0, 100, 260, 84), box('chain:m', 500, 110, 260, 84), box('chain:r', 1000, 120, 260, 84), box('below', 500, 300)],
+      edges: [{ id: 'e', from: 'chain:m', to: 'below', points: [630, 194, 630, 300] }],
+      chains: [{ id: 'chain:l', nodeIds: ['l1', 'l2', 'l3'] }, { id: 'chain:m', nodeIds: ['m1', 'm2', 'm3'] }, { id: 'chain:r', nodeIds: ['r1', 'r2', 'r3', 'r4'] }],
+    };
+    const out = unfoldChains(layout, new Set(['chain:l', 'chain:m', 'chain:r']));
+    const at = (id: string) => out.nodes.find((node) => node.id === id)!;
+    for (const [column, ids, top] of [[0, ['l1', 'l2', 'l3'], 100], [500, ['m1', 'm2', 'm3'], 110], [1000, ['r1', 'r2', 'r3', 'r4'], 120]] as const) {
+      // Each run's lines stay where its block was, one step apart: none was pushed away by another column's run.
+      ids.forEach((id, index) => expect(at(id)).toMatchObject({ x: column, y: top + index * (UNFOLDED_LINE_SIZE + UNFOLDED_GAP) }));
+      // Each link joins the boxes as they end up.
+      for (let index = 0; index < ids.length - 1; index++) {
+        const link = out.edges.find((edge) => edge.id === `link:${ids[index]}:${ids[index + 1]}`)!;
+        const from = at(ids[index]!);
+        const to = at(ids[index + 1]!);
+        expect(link.points).toEqual([from.x + from.width / 2, from.y + from.height, to.x + to.width / 2, to.y]);
+      }
+    }
+    // The way out of the middle run leaves its last line, wherever the runs beside it pushed things.
+    const m3 = at('m3');
+    expect(out.edges.find((edge) => edge.id === 'e')!.points.slice(0, 2)).toEqual([630, m3.y + m3.height]);
+    expect(out.edges.find((edge) => edge.id === 'e')!.points.slice(-1)[0]).toBe(at('below').y);
+    // What lay below a run still clears every line above it.
+    const lowest = Math.max(...out.nodes.filter((node) => node.id !== 'below').map((node) => node.y + node.height));
+    expect(at('below').y).toBeGreaterThanOrEqual(at('m3').y + UNFOLDED_LINE_SIZE);
+    expect(out.height).toBeGreaterThanOrEqual(lowest);
+  });
+
   it('lays a horizontal run out left to right and moves what lies to its right', () => {
     const layout: Unfoldable = {
       width: 900,

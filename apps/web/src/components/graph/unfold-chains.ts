@@ -45,6 +45,9 @@ export interface Unfoldable {
  * overlaps, and no layout is computed (it would be a second or more on a large graph).
  * Edges into the block now end at its first line and edges out of it start at its last; the links
  * between the lines are drawn straight (they are the run's own edges).
+ * Several runs open one after another: a run opened before moves as one piece (all its lines when its first is past
+ * the next block's edge, else none), so runs side by side keep their lines together, and the links are drawn last,
+ * between the boxes where they end up.
  */
 export function unfoldChains<T extends Unfoldable>(layout: T, open: ReadonlySet<string>, direction: 'vertical' | 'horizontal' = 'vertical'): T {
   const wanted = (layout.chains ?? []).filter((chain) => open.has(chain.id) && layout.nodes.some((node) => node.id === chain.id));
@@ -60,8 +63,10 @@ export function unfoldChains<T extends Unfoldable>(layout: T, open: ReadonlySet<
   let regions = layout.regions?.map((region) => ({ ...region }));
   let looseEdges = layout.looseEdges;
   let total = vertical ? layout.height : layout.width;
-  const links: LayoutEdge[] = [];
   const unfolded = new Set<string>();
+  /** The line of each opened run, and where along the flow each opened run now starts. */
+  const runOf = new Map<string, string>();
+  const runStart = new Map<string, number>();
 
   for (const chain of ordered) {
     const block = nodes.find((node) => node.id === chain.id)!;
@@ -75,20 +80,34 @@ export function unfoldChains<T extends Unfoldable>(layout: T, open: ReadonlySet<
     // What starts at or past the block's far edge moves on.
     const edge = along(block) + length - 0.5;
     const past = (value: number) => value >= edge;
+    // A run opened before moves whole: by where it starts, not line by line.
+    const moves = (node: LayoutNode) => {
+      const run = runOf.get(node.id);
+      return past(run ? runStart.get(run)! : along(node));
+    };
 
+    const before = new Map(nodes.map((node) => [node.id, node]));
     nodes = nodes.flatMap((node) => {
       if (node.id === chain.id) {
         return chain.nodeIds.map((id, index) => (vertical
           ? { id, x: block.x, y: block.y + index * step, width: block.width, height: UNFOLDED_LINE_SIZE }
           : { id, x: block.x + index * step, y: block.y + (block.height - UNFOLDED_LINE_SIZE) / 2, width: block.width, height: UNFOLDED_LINE_SIZE }));
       }
-      return [vertical ? (past(node.y) ? { ...node, y: node.y + grow } : node) : past(node.x) ? { ...node, x: node.x + grow } : node];
+      if (!moves(node)) return [node];
+      return [vertical ? { ...node, y: node.y + grow } : { ...node, x: node.x + grow }];
     });
+    for (const [run, start] of runStart) if (past(start)) runStart.set(run, start + grow);
+    // An edge's ends go with the boxes they touch (the block's way out leaves its last line, further on); the bends between by where they are.
+    const endMoves = (id: string, start: boolean) => (id === chain.id ? start : before.has(id) ? moves(before.get(id)!) : undefined);
     edges = edges.map((item) => ({
       ...item,
       from: item.from === chain.id ? chain.nodeIds[count - 1] : item.from,
       to: item.to === chain.id ? chain.nodeIds[0] : item.to,
-      points: item.points.map((value, index) => (index % 2 === (vertical ? 1 : 0) && past(value) ? value + grow : value)),
+      points: item.points.map((value, index) => {
+        if (index % 2 !== (vertical ? 1 : 0)) return value;
+        const end = index < 2 ? endMoves(item.from, true) : index >= item.points.length - 2 ? endMoves(item.to, false) : undefined;
+        return (end ?? past(value)) ? value + grow : value;
+      }),
       ...(item.labelAt && { labelAt: (vertical ? (past(item.labelAt[1]) ? [item.labelAt[0], item.labelAt[1] + grow, item.labelAt[2], item.labelAt[3]] : item.labelAt) : (past(item.labelAt[0]) ? [item.labelAt[0] + grow, item.labelAt[1], item.labelAt[2], item.labelAt[3]] : item.labelAt)) as [number, number, number, number] }),
     }));
     regions = regions?.map((region) => {
@@ -100,18 +119,21 @@ export function unfoldChains<T extends Unfoldable>(layout: T, open: ReadonlySet<
     looseEdges = looseEdges?.map((item) => ({ ...item, from: item.from === chain.id ? chain.nodeIds[count - 1] : item.from, to: item.to === chain.id ? chain.nodeIds[0] : item.to }));
     total += grow;
     unfolded.add(chain.id);
-    const placed = new Map(nodes.map((node) => [node.id, node]));
-    chain.nodeIds.slice(0, -1).forEach((id, index) => {
-      const from = placed.get(id)!;
-      const to = placed.get(chain.nodeIds[index + 1])!;
-      links.push({
-        id: `link:${id}:${chain.nodeIds[index + 1]}`,
-        from: id,
-        to: chain.nodeIds[index + 1],
-        points: vertical ? [from.x + from.width / 2, from.y + from.height, to.x + to.width / 2, to.y] : [from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2],
-      });
-    });
+    for (const id of chain.nodeIds) runOf.set(id, chain.id);
+    runStart.set(chain.id, along(block));
   }
+  // The links between each opened run's lines, between the boxes where they ended up.
+  const placed = new Map(nodes.map((node) => [node.id, node]));
+  const links: LayoutEdge[] = ordered.flatMap((chain) => chain.nodeIds.slice(0, -1).map((id, index) => {
+    const from = placed.get(id)!;
+    const to = placed.get(chain.nodeIds[index + 1]!)!;
+    return {
+      id: `link:${id}:${chain.nodeIds[index + 1]}`,
+      from: id,
+      to: chain.nodeIds[index + 1]!,
+      points: vertical ? [from.x + from.width / 2, from.y + from.height, to.x + to.width / 2, to.y] : [from.x + from.width, from.y + from.height / 2, to.x, to.y + to.height / 2],
+    };
+  }));
   return {
     ...layout,
     ...(vertical ? { height: total } : { width: total }),
