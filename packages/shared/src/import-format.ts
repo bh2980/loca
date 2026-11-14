@@ -1,5 +1,5 @@
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
-import { formatRulesSchema } from './format-check.ts';
+import { formatRulesSchema, TERM_MODES } from './format-check.ts';
 import { exclusionReason, type ExclusionReason } from './exclusion.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
@@ -140,6 +140,10 @@ export const importTermSchema = z.object({
   source: z.string().min(1),
   target: z.string().default(''),
   note: z.string().default(''),
+  /** fixed (use target), choices (target or one of alternatives, by context), guide (note is the sense to carry; target an example). */
+  mode: z.enum(TERM_MODES).default('fixed'),
+  /** choices: the other allowed Korean forms, after target. */
+  alternatives: z.array(z.string().trim().min(1)).max(20).default([]),
 });
 
 export const importFileSchema = z

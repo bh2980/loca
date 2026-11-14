@@ -39,12 +39,18 @@ export function EditorTokenTip({ text, stray, hint }: { text: string; stray?: bo
   )
 }
 
-/** A glossary term inside a source: solid underline when it can be pressed to put its translation at the cursor, `dotted` when it only marks the term. */
-export function EditorTermMark({ dotted, pickable, ...props }: Omit<React.HTMLAttributes<HTMLSpanElement>, "className"> & { ref?: React.Ref<HTMLSpanElement>; dotted?: boolean; pickable?: boolean }) {
+/**
+ * A glossary term inside a source: solid underline when it can be pressed to put its translation at the cursor, `dotted`
+ * when it only marks the term. A `nuance` term (뉘앙스: a sense to carry, no set wording) is wavy, by shape not colour.
+ */
+export function EditorTermMark({ dotted, pickable, nuance, ...props }: Omit<React.HTMLAttributes<HTMLSpanElement>, "className"> & { ref?: React.Ref<HTMLSpanElement>; dotted?: boolean; pickable?: boolean; nuance?: boolean }) {
   return (
     <span
       {...props}
-      className={cn(dotted ? "underline decoration-accent/45 decoration-dotted underline-offset-4" : "underline decoration-accent/40 decoration-2 underline-offset-4", pickable && "cursor-pointer hover:decoration-accent")}
+      className={cn(
+        nuance ? "underline decoration-accent/45 decoration-wavy underline-offset-4" : dotted ? "underline decoration-accent/45 decoration-dotted underline-offset-4" : "underline decoration-accent/40 decoration-2 underline-offset-4",
+        pickable && "cursor-pointer hover:decoration-accent",
+      )}
     />
   )
 }

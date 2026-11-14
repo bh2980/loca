@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, lineExclusion, type LineTranslate, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
+import { checkFormat, termKept, lineExclusion, type LineTranslate, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
@@ -423,8 +423,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   const unit = useQuery(lineSurroundings(unitId));
   if (!draft.trim()) return null;
   // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
-  const lower = draft.toLowerCase();
-  const unusedTerms = terms.filter((term) => !lower.includes(term.target.toLowerCase()));
+  const unusedTerms = terms.filter((term) => !termKept(term, draft));
   const speech = unit.data?.speech;
   const guessed = speechLevelOf(draft.trim());
   const speechOff = !!speech && speech.level !== 'other' && !!guessed && guessed !== speech.level;

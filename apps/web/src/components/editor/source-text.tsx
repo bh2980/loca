@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
-import { glossaryMatcher, type TermScope } from '@loca/shared';
-import { Text, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger } from '@loca/ui';
-import { splitTokens, useSourceParts, type SourcePart } from '@/lib/source-parts';
+import { glossaryMatcher, termForms, termLine, type TermScope } from '@loca/shared';
+import { Text, EditorTermMark, EditorTokenChip, EditorTokenText, EditorTokenTip, Tooltip, TooltipContent, TooltipTrigger, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@loca/ui';
+import { markedTerm, splitTokens, useSourceParts, type SourcePart, type SourceTerm } from '@/lib/source-parts';
 import { chipHue, chipLabel, type TokenUnit } from '@/lib/tokens';
 import { useDraft } from '@/lib/drafts';
 import { placeTags } from '@/lib/tag-placement';
@@ -44,22 +44,7 @@ export function SourceText({ parts, units = [], unitId, missing = [] }: { parts:
               }
             />
           );
-        if (part.term)
-          return (
-            <Tooltip key={index}>
-              <TooltipTrigger asChild>
-                <EditorTermMark
-                  pickable={!!unitId}
-                  onMouseDown={(event) => unitId && (event.preventDefault(), insert(part.term!.target))}
-                >
-                  {part.text}
-                </EditorTermMark>
-              </TooltipTrigger>
-              <TooltipContent>
-                {part.term.source} → {part.term.target}
-              </TooltipContent>
-            </Tooltip>
-          );
+        if (part.term) return <TermMark key={index} term={part.term} text={part.text} onPut={unitId ? insert : undefined} />;
         return <span key={index}>{part.text}</span>;
       })}
     </Text>
@@ -114,7 +99,44 @@ export function TokenText({ text, source, pattern, look }: { text: string; sourc
   );
 }
 
-type ConfirmedTerm = { source: string; target: string; scope?: TermScope; matchCase?: boolean };
+type ConfirmedTerm = SourceTerm & { scope?: TermScope; matchCase?: boolean };
+
+/**
+ * A term in the open line's source, by what it asks: 고정 — a press puts its form at the cursor; 후보 — a press opens its
+ * forms to pick one; 뉘앙스 — wavy, its sense in the tooltip, a press puts its example (if it has one).
+ */
+function TermMark({ term, text, onPut }: { term: SourceTerm; text: string; onPut?: (form: string) => void }) {
+  const forms = termForms(term);
+  const example = term.mode === 'guide' ? term.target.trim() : '';
+  if (onPut && term.mode === 'choices' && forms.length > 1)
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <EditorTermMark pickable title={termLine(term)} onMouseDown={(event) => event.preventDefault()}>
+            {text}
+          </EditorTermMark>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" onCloseAutoFocus={(event) => event.preventDefault()}>
+          {forms.map((form, index) => (
+            <DropdownMenuItem key={form} onSelect={() => onPut(form)}>
+              {form}{index === 0 && <Text marginLeft="auto" variant="caption" tone="muted">기본</Text>}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  const put = term.mode === 'guide' ? example : forms[0];
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <EditorTermMark nuance={term.mode === 'guide'} pickable={!!onPut && !!put} onMouseDown={(event) => onPut && put && (event.preventDefault(), onPut(put))}>
+          {text}
+        </EditorTermMark>
+      </TooltipTrigger>
+      <TooltipContent>{termLine(term)}</TooltipContent>
+    </Tooltip>
+  );
+}
 const matchers = new WeakMap<object, ReturnType<typeof glossaryMatcher<ConfirmedTerm>>>();
 const escapeRegExp = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 /** Whole word, any case, also next to Hangul or punctuation (the rule of `mentions` and the picked line's underlines). */
@@ -128,8 +150,8 @@ function useConfirmedTermMatcher(projectId: string) {
     let matcher = matchers.get(terms);
     if (!matcher) {
       const confirmed = terms
-        .filter((term) => term.status === 'confirmed' && term.target)
-        .map((term) => ({ source: term.source, target: term.target, scope: term.scope, matchCase: term.matchCase }))
+        .filter(markedTerm)
+        .map((term) => ({ source: term.source, target: term.target, mode: term.mode, alternatives: term.alternatives, note: term.note, scope: term.scope, matchCase: term.matchCase }))
         .sort((a, b) => b.source.length - a.source.length);
       matcher = glossaryMatcher(confirmed);
       matchers.set(terms, matcher);
@@ -176,7 +198,7 @@ export function MarkedSourceText({ projectId, text, pattern }: { projectId: stri
           <span key={index}>
             {cutTerms(part.text, used).map((piece, at) =>
               piece.term ? (
-                <EditorTermMark key={at} dotted title={`${piece.term.source} → ${piece.term.target}`}>{piece.text}</EditorTermMark>
+                <EditorTermMark key={at} dotted nuance={piece.term.mode === 'guide'} title={termLine(piece.term)}>{piece.text}</EditorTermMark>
               ) : (
                 <span key={at}>{piece.text}</span>
               ),

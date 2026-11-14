@@ -150,7 +150,7 @@ export const AI_PROMPTS = {
     fields: [],
     instructions:
       'Translate each line. Keep every placeholder ({name}, %s), rich-text tag and line break exactly. ' +
-      "Match each speaker's voice, and the listener and speech rule a line gives. Use glossary targets when the term is used in that sense.",
+      "Match each speaker's voice, and the listener and speech rule a line gives. Follow the glossary when a term is used in that sense: its set form, one of its forms, or the sense its guide describes.",
   },
   review: {
     label: 'AI 검수',

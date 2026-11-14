@@ -93,6 +93,17 @@ describe('context builder', () => {
     expect(lines.find((line) => line.key === 'arrival.3')?.translation ?? null).toBe(unit('arrival.3').translation);
   });
 
+  it('gives each term by its kind: a set form, forms to pick from, or a sense to carry with no form to copy', () => {
+    const { db, projectId, unit } = setup();
+    db.insert(s.terms).values([
+      { projectId, source: 'breaker panel', target: '차단기 패널', mode: 'choices', alternatives: ['배전반'] },
+      { projectId, source: 'watch the door', target: '문 지킬게', mode: 'guide', note: '경계하는 짧은 말투로' },
+    ]).run();
+    const terms = buildContext(db, projectId, [unit('arrival.3')], config()).terms;
+    expect(terms).toContainEqual({ source: 'breaker panel', target: '차단기 패널', note: '', alternatives: ['배전반'] });
+    expect(terms).toContainEqual({ source: 'watch the door', guide: '경계하는 짧은 말투로', example: '문 지킬게' });
+  });
+
   it('fills in priority order and records what the cap dropped', () => {
     const { db, projectId, unit } = setup();
     db.insert(s.documents).values({ projectId, kind: 'world', title: '긴 설정집', body: '설정 '.repeat(3000), alwaysInclude: true }).run();

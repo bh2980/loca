@@ -128,3 +128,18 @@ describe('a line in the prompt', () => {
     expect(prompt).toContain('"candidate":"그래픽"');
   });
 });
+
+describe('the glossary sentence', () => {
+  it('says how each kind of term the request has reads, and nothing for kinds it has not', () => {
+    const fixed = { source: 'Relay', target: '중계소', note: '' };
+    const choices = { ...fixed, alternatives: ['릴레이 기지'] };
+    const guide = { source: 'mate', guide: '친근하게', example: '친구' };
+    const said = (terms: BatchContext['terms']) => buildPrompt(node({ output: 'text' }), languages, { ...context, terms }, lines).system;
+    expect(said([])).not.toContain('Glossary:');
+    expect(said([fixed])).toContain('use exactly that form');
+    expect(said([fixed])).not.toContain('"guide"');
+    const all = said([fixed, choices, guide]);
+    expect(all).toContain('allows "target" (the usual one) or one of them');
+    expect(all).toContain('has no set wording');
+  });
+});

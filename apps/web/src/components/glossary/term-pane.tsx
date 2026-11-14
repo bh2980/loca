@@ -5,12 +5,12 @@ import { useMemo, useState } from 'react';
 import { useInspectorTab } from '@/lib/inspector-tab';
 import { Link } from '@tanstack/react-router';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Check, Play, Plus, Trash2 } from 'lucide-react';
+import { Check, Play, Plus, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch, ConfirmDialog } from '@loca/ui';
+import { Inspector, InspectorHeader, InspectorList, InspectorTabs, TagListEditor, DirtyBar, Button, Inline, Input, ListRow, Text, Textarea, Section, Field, Box, Checkbox, Label, Stack, Switch, ConfirmDialog, SegmentedControl } from '@loca/ui';
 import { RunDialog } from '@/components/workflow/run-dialog';
 import { AiNamed, confirmLabel, SourceBadge, StateCell } from '@/components/knowledge/table';
-import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, type TermScope } from '@loca/shared';
+import { ALL_TERM_KINDS, isSettled, TAG_SCOPES, TERM_LINE_KIND_LABELS, TERM_LINE_KINDS, TERM_MODE_LABELS, TERM_MODES, type TermMode, type TermScope } from '@loca/shared';
 import { changedFields, useFormFrom } from '@/lib/use-form-from';
 import { ChangedElsewhere } from '@/components/changed-elsewhere';
 import { q, tagsIn } from '@/lib/queries';
@@ -23,7 +23,14 @@ import { createTerm, saveTerm, deleteTerm, tagTerms } from '@/lib/terms';
 /** `?term=new` opens the pane for a term that does not exist yet. */
 export const NEW_TERM = 'new';
 
-type TermForm = { source: string; target: string; note: string; scope: TermScope; matchCase: boolean };
+type TermForm = { source: string; mode: TermMode; target: string; alternatives: string[]; note: string; scope: TermScope; matchCase: boolean };
+
+/** What each 종류 asks of a translation, under the picker. */
+const MODE_HELP: Record<TermMode, string> = {
+  fixed: '번역에 이 번역어를 그대로 씁니다. 없으면 용어 위반입니다.',
+  choices: '기본 번역어나 허용 번역어 중 문맥에 맞는 것을 씁니다. 하나도 없을 때만 위반입니다.',
+  guide: '정해진 말 없이 지침의 뜻·느낌을 문맥에 맞게 옮깁니다. 위반으로 잡지 않습니다.',
+};
 
 /** The editable fields of a term, shared by the new-term and edit panes. */
 function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermForm) => void }) {
@@ -32,11 +39,31 @@ function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermF
       <Field label="원문" action={form.source ? <CopyButton value={form.source} label="원문 복사" /> : undefined}>
         <Input value={form.source} onChange={(event) => onChange({ ...form, source: event.target.value })} />
       </Field>
-      <Field label="번역" action={form.target ? <CopyButton value={form.target} label="번역 복사" /> : undefined}>
-        <Input value={form.target} onChange={(event) => onChange({ ...form, target: event.target.value })} />
+      <Field label="종류" description={MODE_HELP[form.mode]}>
+        <SegmentedControl ariaLabel="용어 종류" value={form.mode} onChange={(mode) => onChange({ ...form, mode: mode as TermMode })} items={TERM_MODES.map((mode) => ({ value: mode, label: TERM_MODE_LABELS[mode] }))} />
       </Field>
-      <Field label="메모">
-        <Textarea rows={4} value={form.note} placeholder="선택" onChange={(event) => onChange({ ...form, note: event.target.value })} />
+      <Field label={form.mode === 'choices' ? '기본 번역어' : form.mode === 'guide' ? '예시' : '번역'} action={form.target ? <CopyButton value={form.target} label="번역 복사" /> : undefined}>
+        <Input value={form.target} placeholder={form.mode === 'guide' ? '선택 · 이렇게 옮길 수 있다는 예' : undefined} onChange={(event) => onChange({ ...form, target: event.target.value })} />
+      </Field>
+      {form.mode === 'choices' && (
+        <Field label="허용 번역어" description="문맥에 따라 기본 번역어 대신 써도 되는 말입니다.">
+          <Box spaceY="condensed">
+            {form.alternatives.map((alternative, index) => (
+              <Inline key={index} gap="condensed">
+                <Input aria-label={`허용 번역어 ${index + 1}`} value={alternative} onChange={(event) => onChange({ ...form, alternatives: form.alternatives.map((other, at) => (at === index ? event.target.value : other)) })} />
+                <Button type="button" variant="ghost" size="icon-sm" aria-label={`허용 번역어 ${index + 1} 빼기`} onClick={() => onChange({ ...form, alternatives: form.alternatives.filter((_, at) => at !== index) })}>
+                  <X />
+                </Button>
+              </Inline>
+            ))}
+            <Button type="button" variant="outline" onClick={() => onChange({ ...form, alternatives: [...form.alternatives, ''] })}>
+              <Plus /> 허용 번역어 추가
+            </Button>
+          </Box>
+        </Field>
+      )}
+      <Field label={form.mode === 'guide' ? '지침' : '메모'}>
+        <Textarea rows={4} value={form.note} placeholder={form.mode === 'guide' ? '어떤 뜻·느낌으로 옮길지 (AI에게 그대로 전해집니다)' : '선택'} onChange={(event) => onChange({ ...form, note: event.target.value })} />
       </Field>
       <Field label="적용 범위" description="버튼 이름처럼 UI에만 쓰는 말은 UI만 두면 대사 속 같은 낱말에는 걸리지 않습니다.">
         <Stack direction="row" wrap gap="comfortable" role="group" aria-label="적용 범위">
@@ -63,9 +90,9 @@ function TermFields({ form, onChange }: { form: TermForm; onChange: (form: TermF
 }
 
 export function NewTermPane({ projectId, onClose, onCreated }: { projectId: string; onClose: () => void; onCreated: (id: string) => void }) {
-  const [form, setForm] = useState<TermForm>({ source: '', target: '', note: '', scope: ALL_TERM_KINDS, matchCase: false });
+  const [form, setForm] = useState<TermForm>({ source: '', mode: 'fixed', target: '', alternatives: [], note: '', scope: ALL_TERM_KINDS, matchCase: false });
   const create = useMutation({
-    mutationFn: () => createTerm(projectId, form),
+    mutationFn: () => createTerm(projectId, { ...form, alternatives: form.alternatives.map((alternative) => alternative.trim()).filter(Boolean) }),
     onSuccess: (created) => {
       toast.success('용어를 추가했습니다.');
       if (created && typeof created === 'object' && 'id' in created && typeof created.id === 'string') onCreated(created.id);
@@ -90,16 +117,19 @@ const USES_SHOWN = 5;
 type TermTab = 'term' | 'uses';
 const TERM_TABS = ['term', 'uses'] as const;
 
-const TERM_FIELD_LABEL = { source: '원문', target: '번역', note: '메모', scope: '적용 범위', matchCase: '대소문자 일치' };
+const TERM_FIELD_LABEL = { source: '원문', mode: '종류', target: '번역', alternatives: '허용 번역어', note: '메모', scope: '적용 범위', matchCase: '대소문자 일치' };
 
 export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { projectId: string; term: Term; onClose: () => void; onDecide: (accept: boolean) => void; deciding: boolean }) {
   // Fields the person has not edited follow the saved term (a change from chat or a workflow shows);
   // the unsaved edit is kept per term, so moving to another term and back (or Back) keeps it.
-  const saved: TermForm = { source: term.source, target: term.target, note: term.note, scope: term.scope, matchCase: term.matchCase };
+  const saved: TermForm = { source: term.source, mode: term.mode, target: term.target, alternatives: term.alternatives, note: term.note, scope: term.scope, matchCase: term.matchCase };
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved } = useFormFrom(saved, `term.${projectId}.${term.id}`);
   const candidate = !isSettled(term);
   const save = useMutation({
-    mutationFn: () => saveTerm(projectId, term.id, changedFields(form, saved)),
+    mutationFn: () => {
+      const changed = changedFields(form, saved);
+      return saveTerm(projectId, term.id, { ...changed, ...(changed.alternatives && { alternatives: changed.alternatives.map((alternative) => alternative.trim()).filter(Boolean) }) });
+    },
     onSuccess: () => toast.success('저장했습니다.'),
     onError: (error) => toast.error(error.message),
   });
@@ -107,6 +137,12 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
   const makeMain = useMutation({
     mutationFn: (target: string) => saveTerm(projectId, term.id, { target }),
     onSuccess: (_, target) => toast.success(`'${target}'을(를) 메인 번역어로 바꿨습니다.`),
+    onError: (error) => toast.error(error.message),
+  });
+  // 허용으로 (후보): an offered form becomes one a translation may use.
+  const allow = useMutation({
+    mutationFn: (form: string) => saveTerm(projectId, term.id, { alternatives: [...term.alternatives, form] }),
+    onSuccess: (_, form) => toast.success(`'${form}'을(를) 허용 번역어로 넣었습니다.`),
     onError: (error) => toast.error(error.message),
   });
   const remove = useMutation({
@@ -192,7 +228,10 @@ export function TermEditor({ projectId, term, onClose, onDecide, deciding }: { p
                   <ListRow key={form}>
                     <Inline justify="between" align="center" gap="normal">
                       <Text>{form}</Text>
-                      <Button variant="ghost" disabled={dirty || makeMain.isPending} onClick={() => makeMain.mutate(form)}>메인으로</Button>
+                      <Inline gap="tight">
+                        {term.mode === 'choices' && <Button variant="ghost" disabled={dirty || allow.isPending} onClick={() => allow.mutate(form)}>허용으로</Button>}
+                        <Button variant="ghost" disabled={dirty || makeMain.isPending} onClick={() => makeMain.mutate(form)}>메인으로</Button>
+                      </Inline>
                     </Inline>
                   </ListRow>
                 ))}

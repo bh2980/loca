@@ -5,7 +5,8 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { importProject } from '../services/importer.ts';
 import { fillTermUsage } from './term-usage.ts';
-import { addNameTerms, discoverAndSave } from './terms.ts';
+import { addNameTerms, discoverAndSave, saveTerm } from './terms.ts';
+import { checkScript } from '../services/script-query.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
@@ -98,5 +99,31 @@ describe('glossary', () => {
     expect(orb?.status).toBe('candidate');
     expect(orb?.origin).toBe('script');
     expect(orb?.lines).toBe(2);
+  });
+
+  it('후보: an allowed form made the main swaps places with the former main; an offered form allowed leaves the offered list', () => {
+    const { db, projectId } = setup();
+    const made = saveTerm(db, projectId, { source: 'Freedom Plaza', target: '자유 광장', mode: 'choices', alternatives: ['프리덤 플라자', '자유 광장'] }, {});
+    if (!made.ok) throw new Error(made.error);
+    // The main form is not repeated among the others.
+    expect(made.row.alternatives).toEqual(['프리덤 플라자']);
+    const swapped = saveTerm(db, projectId, { target: '프리덤 플라자' }, { id: made.row.id });
+    if (!swapped.ok) throw new Error(swapped.error);
+    expect(swapped.row).toMatchObject({ target: '프리덤 플라자', alternatives: ['자유 광장'], targetCandidates: [] });
+    db.update(s.terms).set({ targetCandidates: ['해방 광장'] }).where(eq(s.terms.id, made.row.id)).run();
+    const allowed = saveTerm(db, projectId, { alternatives: ['자유 광장', '해방 광장'] }, { id: made.row.id });
+    if (!allowed.ok) throw new Error(allowed.error);
+    expect(allowed.row).toMatchObject({ alternatives: ['자유 광장', '해방 광장'], targetCandidates: [] });
+  });
+
+  it('the glossary check takes any allowed form of a 후보 term and never flags a 뉘앙스 term', async () => {
+    const { db, projectId } = setup();
+    // a1's translation says 자유 광장.
+    saveTerm(db, projectId, { source: 'Freedom Plaza', target: '프리덤 플라자', mode: 'choices', alternatives: ['자유 광장'] }, {});
+    expect(await checkScript(db, projectId, 'terms', { offset: 0, limit: 200 })).toEqual([]);
+    db.update(s.terms).set({ mode: 'fixed' }).where(eq(s.terms.source, 'Freedom Plaza')).run();
+    expect(await checkScript(db, projectId, 'terms', { offset: 0, limit: 200 })).toMatchObject([{ key: 'a1', term: 'Freedom Plaza', expected: '프리덤 플라자' }]);
+    db.update(s.terms).set({ mode: 'guide', note: '장소의 상징성을 살려서' }).where(eq(s.terms.source, 'Freedom Plaza')).run();
+    expect(await checkScript(db, projectId, 'terms', { offset: 0, limit: 200 })).toEqual([]);
   });
 });
