@@ -428,7 +428,7 @@ export function TranslationInput(props: TranslationInputProps) {
           return true;
         },
       },
-      // Copy the source into the box (memoQ's Ctrl+Shift+S).
+      // Put the source in the box.
       { key: codeMirrorKey(keyOf('editorCopySource')), run: (editor: EditorView) => (editor.dispatch({ changes: { from: 0, to: editor.state.doc.length, insert: latest.current.source } }), true) },
     ];
     const editor = new EditorView({

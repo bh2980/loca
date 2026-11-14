@@ -232,7 +232,7 @@ export function LineDetail({
   const history = line ? historyOf(line) : null;
   const linePart = line && (
     <>
-      {editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy }} statuses={taxonomy.statuses ?? []} /></Section>}
+      {editor && <Section><TranslationEditor projectId={projectId} unit={{ id: line.id, source: line.source, translation: line.translation, statusId: line.statusId, statusBy: line.statusBy, translate: line.translate }} statuses={taxonomy.statuses ?? []} /></Section>}
       {/* The editor in this pane shows the AI 제안 and TM itself. */}
       {!editor && <AiSuggestion framed projectId={projectId} unit={line} draft={draft} dirty={!sameTranslation(draft, line.translation)} onDraft={useText} />}
       {!editor && <SimilarSection projectId={projectId} unit={line} draft={draft} onUse={useText} tokenPattern={tokenPattern} />}
