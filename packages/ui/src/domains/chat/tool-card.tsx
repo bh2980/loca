@@ -1,5 +1,6 @@
 import type * as React from "react"
-import { Check, CircleAlert, Pencil, Play, Trash2, Wrench } from "lucide-react"
+import { clsx } from "clsx"
+import { Check, ChevronRight, CircleAlert, Pencil, Play, Trash2, Wrench } from "lucide-react"
 import { ExpandableRow } from "../../patterns/expandable-row"
 import { Group } from "../../patterns/section"
 import { Spinner } from "../../controls/spinner"
@@ -10,24 +11,62 @@ export function ToolCard({ children }: { children: React.ReactNode }) {
 }
 
 /**
- * A card's header: the title on one line (in a narrow panel the status wraps below instead of breaking the title), an optional `summary`,
- * a `suffix` beside it, and the status (`children`) pushed to the right.
+ * A card's header, one line: the title (in a narrow panel the rest wraps below instead of breaking it), an optional `summary`, a
+ * `suffix` beside it, the status (`children`) and the card's buttons (`actions`) at the right.
+ *
+ * Given `onOpenChange`, the card folds: a chevron leads the title and the title opens and closes it (`open`); `expandable={false}`
+ * keeps the line without the chevron (nothing more to show). Such a card says its risk by the title's color (delete) or a 실행 badge
+ * (run), never with an icon; a card that does not fold keeps its kind's icon.
  */
-export function ToolCardHeader({ title, suffix, summary, tone, children }: { title: string; suffix?: React.ReactNode; summary?: React.ReactNode; tone?: "change" | "run" | "delete"; children?: React.ReactNode }) {
+export function ToolCardHeader({ title, suffix, summary, tone, children, actions, open, onOpenChange, expandable = true }: {
+  title: string
+  suffix?: React.ReactNode
+  summary?: React.ReactNode
+  tone?: "change" | "run" | "delete"
+  children?: React.ReactNode
+  actions?: React.ReactNode
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
+  expandable?: boolean
+}) {
+  const folds = Boolean(onOpenChange)
   const icon =
     tone === "delete" ? <Trash2 className="size-3.5 shrink-0 text-danger" /> :
     tone === "run" ? <Play className="size-3.5 shrink-0 text-muted" /> :
     tone === "change" ? <Pencil className="size-3.5 shrink-0 text-muted" /> :
     <Wrench className="size-3.5 shrink-0 text-muted" />
+  const name = <span className={clsx("truncate", folds && tone === "delete" && "text-danger")}>{title}</span>
+  const heading = folds ? (
+    expandable ? (
+      <button
+        type="button"
+        className="-mx-1 flex min-w-0 cursor-pointer items-center gap-1 rounded-sm px-1 whitespace-nowrap outline-none focus-visible:ring-[2px] focus-visible:ring-focus/40"
+        aria-expanded={open}
+        title={title}
+        onClick={() => onOpenChange!(!open)}
+      >
+        <ChevronRight className={clsx("size-3.5 shrink-0 text-muted transition-transform", open && "rotate-90")} aria-hidden />
+        {name}
+      </button>
+    ) : (
+      <span className="flex min-w-0 items-center gap-1 whitespace-nowrap" title={title}>{name}</span>
+    )
+  ) : (
+    <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={title}>
+      {icon}
+      {name}
+    </span>
+  )
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-0.5 border-b bg-sunken px-3 py-2 text-sm font-semibold">
-      <span className="flex min-w-0 items-center gap-2 whitespace-nowrap" title={title}>
-        {icon}
-        <span className="truncate">{title}</span>
-      </span>
+    <div className={clsx("flex flex-wrap items-center gap-x-2 gap-y-0.5 bg-sunken px-3 text-sm font-semibold", folds ? "py-1.5" : "py-2", (!folds || open) && "border-b")}>
+      {heading}
+      {folds && tone === "run" ? <span className="rounded-sm bg-page px-1 text-2xs font-medium text-muted">실행</span> : null}
       {summary ? <span className="min-w-0 truncate text-xs font-normal text-muted">{summary}</span> : null}
       {suffix}
-      <span className="ml-auto text-right text-xs font-normal">{children}</span>
+      <span className="ml-auto flex items-center gap-2 text-right text-xs font-normal">
+        {children}
+        {actions ? <span className="flex items-center gap-1">{actions}</span> : null}
+      </span>
     </div>
   )
 }

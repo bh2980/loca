@@ -3,7 +3,7 @@ import { act, createElement, type ComponentProps } from 'react';
 import { createRoot } from 'react-dom/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { ProposalDetail } from '@loca/shared';
-import { ChangePreview } from './change-preview';
+import { ChangePeek, ChangePreview, peekOf } from './change-preview';
 
 // The chip reads the project's mark colours through the router and a query; here only which marks are shown matters.
 vi.mock('@/components/status', () => ({ MarkChip: ({ mark }: { mark: string }) => createElement('span', null, `#${mark}`) }));
@@ -43,5 +43,28 @@ describe('a proposal\'s card draws what the server says the change does', () => 
     const decided = await text({ details, pending: false });
     expect(decided).not.toContain('수락하면 바로 지워집니다.');
     expect(decided).toContain('원본은 바뀌지 않습니다.');
+  });
+
+  it('folded, shows the first three rows and says how many more; a change that fits has nothing to open', async () => {
+    const lines = (count: number, total = count): ProposalDetail => ({ kind: 'lines', total, translations: count, statuses: 0, tagged: 0, shown: Array.from({ length: count }, (_, index) => ({ key: `k${index}`, translation: `번역 ${index}` })) });
+    const small = peekOf([lines(2)], false);
+    expect(small).toMatchObject({ left: 0, complete: true });
+    expect(small.shown).toHaveLength(2);
+
+    // Eight lines, five of them shown by the server: three in the peek, the rest counted.
+    const big = peekOf([lines(5, 8)], false);
+    expect(big).toMatchObject({ left: 5, complete: false });
+    const container = document.createElement('div');
+    document.body.append(container);
+    await act(async () => createRoot(container).render(createElement(ChangePeek, { peek: big })));
+    expect(container.textContent).toContain('k2');
+    expect(container.textContent).not.toContain('k3');
+    expect(container.textContent).toContain('외 5개');
+
+    // Few rows, but a value the row cuts: there is more to open.
+    expect(peekOf([{ kind: 'fields', rows: [{ label: '프로필', value: '가'.repeat(80) }] }], false).complete).toBe(false);
+    // A remark said only while pending is no row of a decided card.
+    expect(peekOf([lines(3), EVERY.note], false).complete).toBe(true);
+    expect(peekOf([lines(3), EVERY.note], true).complete).toBe(false);
   });
 });
