@@ -11,7 +11,7 @@ import { RunDialog } from '@/components/workflow/run-dialog';
 import { HeaderActions, Page } from '@/components/page';
 import { AiNamed, BulkDecide, itemFilterParams, StateFilter, SourceBadge, StateCell, TagCell } from '@/components/knowledge/table';
 import { param, searchParams } from '@/lib/search';
-import { markColor, markName, type AutoMark, isSettled, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, termMatches, type TermFilter } from '@loca/shared';
+import { markColor, markName, termForms, termLine, type AutoMark, isSettled, TERM_MARK_IDS, termMarksOf, KNOWLEDGE_SOURCES, KNOWLEDGE_STATUS_LABELS, SOURCE_LABELS, type KnowledgeSource, aiDecided, DECIDED_BY_LABELS, termMatches, type TermFilter } from '@loca/shared';
 import { tagsIn, useMarkStyles } from '@/lib/queries';
 import { useListScreen } from '@/lib/list-screen';
 import { useTerms, withDuplicate, type Term, discoverTerms, deleteTerm, tagTerms } from '@/lib/terms';
@@ -69,7 +69,7 @@ function Glossary() {
     navigate,
     selection: 'term',
     picks: `glossary.${projectId}`,
-    report: ['glossary-term', [selected && { kind: '용어', id: selected.id, label: `${selected.source} → ${selected.target}` }]],
+    report: ['glossary-term', [selected && { kind: '용어', id: selected.id, label: termLine(selected) }]],
   });
   const revealDock = useRevealDock();
   const [deleteTarget, setDeleteTarget] = useState<{ ids: string[]; label: string } | null>(null);
@@ -135,7 +135,13 @@ function Glossary() {
       id: 'target',
       header: () => <HeaderFilter label="번역" value={search.emptyTarget === undefined ? undefined : search.emptyTarget ? 'empty' : 'filled'} options={[{ value: 'empty', label: '비어 있음' }, { value: 'filled', label: '있음' }]} onChange={(value) => setFilter({ emptyTarget: value === undefined ? undefined : value === 'empty' })} />,
       meta: { label: '번역' },
-      cell: ({ row }) => row.original.target || <Text tone="muted">—</Text>,
+      // 후보: its forms in order; 뉘앙스: said so, with its example.
+      cell: ({ row }) =>
+        row.original.mode === 'guide' ? (
+          <Text tone="muted" title={row.original.note}>뉘앙스{row.original.target ? ` · 예: ${row.original.target}` : ''}</Text>
+        ) : (
+          termForms(row.original).join(' / ') || <Text tone="muted">—</Text>
+        ),
     },
     { id: 'lines', header: "등장", meta: { width: 72 }, cell: ({ row }) => row.original.lines ?? <Text tone="muted">—</Text> },
     { id: 'note', header: '메모', meta: { tone: 'muted' }, cell: ({ row }) => row.original.note },

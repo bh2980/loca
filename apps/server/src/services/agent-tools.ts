@@ -1,4 +1,4 @@
-import { agentToolAvailable, effectiveAgentPermissions, APP_DEFAULT_SECTION_LABELS, SOURCE_GROUP_LABELS, TAG_SCOPE_LABELS, type ProposalDetail, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, RESTORABLE_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@loca/shared';
+import { TERM_MODE_LABELS, type TermMode, agentToolAvailable, effectiveAgentPermissions, APP_DEFAULT_SECTION_LABELS, SOURCE_GROUP_LABELS, TAG_SCOPE_LABELS, type ProposalDetail, glossaryMatcher, LISTENER_MIN_CONFIDENCE, CHECK_KINDS, RESTORABLE_KINDS, runCapsSchema, runScopeInputSchema, TERM_MARK_IDS, type CheckKind, type ToolName, SUBJECTS, FUNCTION_NAMES } from '@loca/shared';
 import { projectAgentSettings, specPermissionError } from './agent-permission-check.ts';
 import { and, asc, count, desc, eq, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
@@ -410,7 +410,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_terms: tool({
       description:
-        'Glossary entries (not rejected ones) as the glossary page lists them: source, target (the main Korean form), targetCandidates (other forms it had or an AI offered; making one the main = save_terms with that target), scope and matchCase when set, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (unused = not in the script, duplicateTarget = another source has the same Korean form) and tags. Filter with q, status (candidate / confirmed), decidedBy (ai / human), emptyTarget (true = no Korean form yet), marks, unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
+        'Glossary entries (not rejected ones) as the glossary page lists them: source, mode (fixed / choices / guide: see save_terms), target (the main Korean form), alternatives (choices: the other allowed forms), targetCandidates (other forms it had or an AI offered; making one the main = save_terms with that target), scope and matchCase when set, note, status (candidate = not used yet), statusBy (ai = no person has decided), lines (how many script lines use it, 나온 줄), examples (keys of its first lines), marks (unused = not in the script, duplicateTarget = another source has the same Korean form) and tags. Filter with q, status (candidate / confirmed), decidedBy (ai / human), emptyTarget (true = no Korean form yet), marks, unreviewed (candidate or AI-decided), tags (all). Returns total and one page; use offset to page through.',
       inputSchema: z.object({ ...termFilterInput, ...page }),
       execute: (input) => listTerms(db, projectId, input),
     }),
@@ -627,11 +627,11 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: (input) => saveKnowledgeItem(db, projectId, 'documents', input, saver),
     }),
     save_terms: tool({
-      description: 'Add glossary entries, or update existing ones by id. An update changes only the fields you send (leave out what stays). target is the main Korean form (the one translations must use); a new target keeps the former one in targetCandidates. scope is the kinds of line it applies to, a list of ui / dialogue / document (all three, the default, is every line) and matchCase matches its exact case only (an interface word such as "Help": scope ui, matchCase true). Tags go on with tag_items, not here.',
+      description: 'Add glossary entries, or update existing ones by id. An update changes only the fields you send (leave out what stays). mode says what a translation must do with it: fixed (the default; use target exactly), choices (target, the usual one, or one of alternatives, whichever fits the line) or guide (no set wording: note describes the sense to carry, target is only an example; never a glossary violation). target is the main Korean form; a new target keeps the former one in targetCandidates (for choices, an alternative made the target swaps places with the former one). scope is the kinds of line it applies to, a list of ui / dialogue / document (all three, the default, is every line) and matchCase matches its exact case only (an interface word such as "Help": scope ui, matchCase true). Tags go on with tag_items, not here.',
       inputSchema: z.object({ terms: z.array(upsert(termInput)).min(1).max(200) }),
       check: (input) => checkSaveTerms(db, projectId, input),
       undo: termsUndo,
-      preview: (input) => [{ kind: 'list', items: (input.terms ?? []).map((term) => `${term.id ? '수정' : '추가'} · ${term.source ?? names.term(term.id) ?? ''} → ${term.target || '(번역 없음)'}`) }],
+      preview: (input) => [{ kind: 'list', items: (input.terms ?? []).map((term) => `${term.id ? '수정' : '추가'} · ${term.mode ? `[${TERM_MODE_LABELS[term.mode as TermMode]}] ` : ''}${term.source ?? names.term(term.id) ?? ''} → ${[term.target || '(번역 없음)', ...((term.alternatives as string[] | undefined) ?? [])].join(' / ')}`) }],
       execute: ({ terms }) => {
         const skipped: { id?: string; source?: string; reason: string }[] = [];
         const created: string[] = [];

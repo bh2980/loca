@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, TERM_MODE_LABELS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -707,7 +707,7 @@ const terms = program
     if (options.jsonl) return printJsonl(rows);
     if (globals().json) return printList(total, rows);
     for (const term of rows)
-      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.source} → ${term.target || '(번역어 없음)'}${term.targetCandidates?.length ? ` (다른 번역어: ${term.targetCandidates.join(', ')})` : ''}${term.scope ? ` · ${termScopeLabel(term.scope)}만` : ''}${term.matchCase ? ' · 대소문자 일치' : ''}  [${KNOWLEDGE_STATUS_LABELS[term.status]}${term.statusBy === 'ai' && term.status === 'confirmed' ? ' ✦' : ''}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
+      console.log(`${String(term.lines ?? '?').padStart(5)}줄  ${term.mode !== 'fixed' ? `[${TERM_MODE_LABELS[term.mode]}] ` : ''}${term.source} → ${[term.target || (term.mode === 'guide' ? '(예시 없음)' : '(번역어 없음)'), ...(term.alternatives ?? [])].join(' / ')}${term.targetCandidates?.length ? ` (다른 번역어: ${term.targetCandidates.join(', ')})` : ''}${term.scope ? ` · ${termScopeLabel(term.scope)}만` : ''}${term.matchCase ? ' · 대소문자 일치' : ''}  [${KNOWLEDGE_STATUS_LABELS[term.status]}${term.statusBy === 'ai' && term.status === 'confirmed' ? ' ✦' : ''}]  ${withMarks('', term.marks, term.tags)}  (${term.id})${term.note ? `\n         ${short(term.note, 100)}` : ''}`);
   });
 
 terms

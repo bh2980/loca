@@ -3,9 +3,9 @@ import { useState, type ReactNode } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
 import { toast } from 'sonner';
-import { CircleAlert, CircleCheck, Network, Pencil, Sparkles } from 'lucide-react';
+import { CircleAlert, CircleCheck, Info, Network, Pencil, Sparkles } from 'lucide-react';
 import { CopyButton } from '@/components/copy-button';
-import { CHARACTER_ROLE_LABELS, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
+import { CHARACTER_ROLE_LABELS, termKept, termLine, sameTranslation, checkFormat, exclusionReason, type LineTranslate, listenerLabel, needsListener, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatRules, type SpeechLevel, TAG_SCOPES } from '@loca/shared';
 import { AiMark, Chip, TagChip, Box, Button, CandidateCard, DetailIssue, DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, EditorChangedWord, EditorDiffWord, Group, HistoryDay, HistoryEntry, HistoryFolded, HistoryFoldedRow, type HistoryActor, Icon, Inline, InspectorHeader, Inspector, InspectorList, InspectorTabs, SegmentedControl, SpeakerIdentity, Spinner, StatusIcon, Switch, TagListEditor, Text, ListItem, Section, KeyValue, KeyValueRow } from '@loca/ui';
 import { useLineDetail } from '@/lib/units';
 import { AiContextPanel } from '@/components/ai-context';
@@ -634,7 +634,6 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
   const formatIssues = text.trim() ? checkFormat(source, text, editorChecks(targetLanguage, true), rules) : [];
   // The confirmed terms the source uses, each with whether the translation has its Korean form.
   const usedTerms = useUsedTerms(projectId, { source, kind });
-  const lower = text.toLowerCase();
   const guessed = text.trim() ? speechLevelOf(text) : null;
   return (
     <Box spaceY="comfortable">
@@ -663,11 +662,18 @@ function LineChecks({ projectId, source, kind, text, rules, targetLanguage, spee
         <Group nested title="용어">
           <Box as="ul" spaceY="tight" variant="body">
             {usedTerms.map((term) => {
-              const kept = Boolean(text.trim()) && lower.includes(term.target.toLowerCase());
+              // A 뉘앙스 term has no form to check: its sense is shown as guidance.
+              if (term.mode === 'guide') return (
+                <Inline as="li" key={term.id} gap="tight">
+                  <Icon icon={Info} size="sm" tone="muted" />
+                  <Text>{termLine(term)}</Text>
+                </Inline>
+              );
+              const kept = Boolean(text.trim()) && termKept(term, text);
               return (
                 <Inline as="li" key={term.id} gap="tight" tone={kept ? undefined : 'warning'}>
                   <Icon icon={kept ? CircleCheck : CircleAlert} size="sm" tone={kept ? 'success' : 'warning'} />
-                  <Text>{term.source} → {term.target}</Text>
+                  <Text>{termLine(term)}</Text>
                   {!kept && <Text variant="caption" tone="warning">{text.trim() ? '번역에 없음' : '번역 없음'}</Text>}
                 </Inline>
               );

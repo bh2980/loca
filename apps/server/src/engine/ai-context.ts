@@ -1,5 +1,5 @@
 import { and, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
-import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, shippedText, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
+import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, shippedText, termForModel, termLine, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
@@ -63,7 +63,8 @@ export interface BatchContext {
     relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
     documents: { kind: string; title: string; body: string }[];
   };
-  terms: { source: string; target: string; note: string }[];
+  /** The glossary terms the lines use, as termForModel gives them (고정 / 후보 / 뉘앙스). */
+  terms: ReturnType<typeof termForModel>[];
   /** A request reading earlier results instead of lines: the confirmed speech rules among the people those results name. */
   speechRules: { from: string; to: string; level: string; address?: string; note?: string; startKey?: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
@@ -288,9 +289,12 @@ export function buildContext(
   if (config.glossary) {
     // Each line's terms by its kind (a UI-only term is not given for dialogue); a text from parts has no kind.
     const { matcher } = knowledge.terms();
-    const used = [...new Set(parts !== undefined || !batch.length ? matcher.find(text) : batch.flatMap((unit) => matcher.find(`${unit.speaker ?? ''}\n${unit.source}`, unit.kind)))].map(({ source, target, note }) => ({ source, target, note }));
+    const used = [...new Set(parts !== undefined || !batch.length ? matcher.find(text) : batch.flatMap((unit) => matcher.find(`${unit.speaker ?? ''}\n${unit.source}`, unit.kind)))];
     const reason = '원문에 나오는 확정 용어';
-    for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason }, payload: term, keep: () => result.terms.push(term) });
+    for (const term of used) {
+      const given = termForModel(term);
+      candidates.term.push({ item: { kind: 'term', label: termLine(term), reason }, payload: given, keep: () => result.terms.push(given) });
+    }
   }
 
   if (config.precedingLines > 0) {
