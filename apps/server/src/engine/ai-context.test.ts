@@ -84,6 +84,15 @@ describe('context builder', () => {
     expect(hidden.every((line) => !('translation' in line))).toBe(true);
   });
 
+  it('gives a preceding 번역 제외 line as what goes into the game: its source', () => {
+    const { db, projectId, unit } = setup();
+    db.update(s.units).set({ translate: 'exclude', translation: null }).where(eq(s.units.id, unit('panel.1').id)).run();
+    const lines = buildContext(db, projectId, [unit('panel.2')], config({ precedingTranslations: true })).preceding[unit('panel.2').id].lines;
+    expect(lines.find((line) => line.key === 'panel.1')).toMatchObject({ translation: unit('panel.1').source });
+    // The others keep their own translation (none here).
+    expect(lines.find((line) => line.key === 'arrival.3')?.translation ?? null).toBe(unit('arrival.3').translation);
+  });
+
   it('fills in priority order and records what the cap dropped', () => {
     const { db, projectId, unit } = setup();
     db.insert(s.documents).values({ projectId, kind: 'world', title: '긴 설정집', body: '설정 '.repeat(3000), alwaysInclude: true }).run();

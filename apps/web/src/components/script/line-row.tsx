@@ -6,6 +6,7 @@ import { markName, compileFormatRules, isUnknownListener, lineExclusion, listene
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { KeptSource } from '@/components/editor/kept-source';
 import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/source-parts';
@@ -341,7 +342,7 @@ export function LineRow({
     </>
   ) : (
     <>
-      {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <Text tone="subtle" userSelect="none">미번역</Text>}
+      {excluded ? <KeptSource source={line.source} pattern={tokenPattern} /> : line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <Text tone="subtle" userSelect="none">미번역</Text>}
       {review && !!line.lastRun?.issues.length && <ScriptReviewIssue issue={line.lastRun.issues[0]} />}
       {tagRow}
     </>

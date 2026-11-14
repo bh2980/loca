@@ -1,11 +1,12 @@
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
+import { and, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, shippedText, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
 import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.ts';
 import { cachedKnowledge, graphOrder, knowledgeOf, scriptOrder } from '../domain/knowledge-cache.ts';
 import { deriveSceneEdges } from '../domain/scene-graph.ts';
+import { excludedSql } from '../domain/line-marks.ts';
 
 
 export interface PrecedingLine {
@@ -226,7 +227,7 @@ type ShownLine = { key: string; speaker: string | null; source: string; translat
 export function precedingLines(db: Db, projectId: string, unitIds: string[], limit: number) {
   const index = graphIndex(db, projectId);
   const wanted = new Map<string, PrecedingIds>();
-  const own = new Map(unitIds.length ? inChunksSelect(db, unitIds).map((row) => [row.id, row]) : []);
+  const own = new Map(unitIds.length ? inChunksSelect(db, unitIds, excludedSql(projectId)).map((row) => [row.id, row]) : []);
   for (const unitId of unitIds) {
     const fromGraph = index.precedingUnitIds(unitId, limit);
     const unit = own.get(unitId);
@@ -241,8 +242,9 @@ export function precedingLines(db: Db, projectId: string, unitIds: string[], lim
     );
   }
   const all = [...new Set([...wanted.values()].flatMap((ids) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
-  const rows = new Map(all.length ? inChunksSelect(db, all).map((row) => [row.id, row]) : []);
-  const lineOf = (ids: string[]): ShownLine[] => ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : [])).map(({ key, speaker, source, translation }) => ({ key, speaker, source, translation })).reverse();
+  const rows = new Map(all.length ? inChunksSelect(db, all, excludedSql(projectId)).map((row) => [row.id, row]) : []);
+  // A 번역 제외 line reads as what goes into the game: its source (shippedText).
+  const lineOf = (ids: string[]): ShownLine[] => ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : [])).map((row) => ({ key: row.key, speaker: row.speaker, source: row.source, translation: shippedText(row, Boolean(row.excluded)).text })).reverse();
   return new Map(
     [...wanted].map(([unitId, ids]) => [
       unitId,
@@ -251,8 +253,8 @@ export function precedingLines(db: Db, projectId: string, unitIds: string[], lim
   );
 }
 
-const inChunksSelect = (db: Db, ids: string[]) =>
-  inChunks(ids, (slice) => db.select({ id: units.id, key: units.key, groupId: units.groupId, sort: units.sort, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, slice)).all());
+const inChunksSelect = (db: Db, ids: string[], excluded: SQL) =>
+  inChunks(ids, (slice) => db.select({ id: units.id, key: units.key, groupId: units.groupId, sort: units.sort, speaker: units.speaker, source: units.source, translation: units.translation, excluded: sql<number>`${excluded}` }).from(units).where(inArray(units.id, slice)).all());
 
 /** A candidate piece of context and how to keep it if it fits. */
 interface Candidate {
@@ -316,7 +318,7 @@ export function buildContext(
     const all = [...new Set([...wanted.values()].flatMap(({ ids }) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
     const rows = new Map(
       all.length
-        ? db.select({ id: units.id, key: units.key, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, all)).all().map((row) => [row.id, row])
+        ? db.select({ id: units.id, key: units.key, speaker: units.speaker, source: units.source, translation: units.translation, excluded: sql<number>`${excludedSql(projectId)}` }).from(units).where(inArray(units.id, all)).all().map((row) => [row.id, row])
         : [],
     );
     // Oldest first; lines in the batch are visible in order, and a line shown once is not repeated.
@@ -324,7 +326,8 @@ export function buildContext(
       ids
         .map((id) => rows.get(id))
         .filter((row) => row !== undefined && !batchKeys.has(row.key) && !shown.has(row.key))
-        .map((row) => ({ key: row!.key, speaker: row!.speaker, source: row!.source, ...(config.precedingTranslations && { translation: row!.translation }) }))
+        // A 번역 제외 line reads as what goes into the game: its source (shippedText).
+        .map((row) => ({ key: row!.key, speaker: row!.speaker, source: row!.source, ...(config.precedingTranslations && { translation: shippedText(row!, Boolean(row!.excluded)).text }) }))
         .reverse();
     for (const unit of batch) {
       const { ids, fromGraph } = wanted.get(unit.id)!;

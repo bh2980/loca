@@ -8,10 +8,12 @@ import { CopyButton } from '@/components/copy-button';
 import { lineItem, pickedLinesItem, useReportView } from '@/lib/reported-view';
 import { KIND_LABEL } from './shapes';
 import { TokenText } from '@/components/editor/source-text';
+import { KeptSource } from '@/components/editor/kept-source';
+import type { LineTranslate } from '@loca/shared';
 import { tokenPatternOf } from '@/lib/source-parts';
 import { personStyle, usePersonColors } from '@/lib/person-colors';
 import { useGroup } from '@/lib/groups';
-import { useProject } from '@/lib/project';
+import { useLineExcluded, useProject } from '@/lib/project';
 import { useGraphNodes } from '@/lib/graph';
 import { STORED, useStored } from '@/lib/storage';
 
@@ -140,12 +142,14 @@ export function FlowPane({ projectId, nodeIds, ownIds = nodeIds, title, way, ext
   const width = speakerWidth ?? fitted;
   const columns = { gridTemplateColumns: `${width}px minmax(0,1fr)` };
   const who = (speaker: string | null | undefined) => (speaker ? <span style={personStyle(colorOf(speaker))}>{speaker}</span> : '지문·문구');
-  const lineText = (unit: { source: string; translation: string | null }, clamp = false) => (
+  // A 번역 제외 line goes out as its source: shown as such in the translation's place.
+  const excluded = useLineExcluded(projectId);
+  const lineText = (unit: { source: string; translation: string | null; translate?: LineTranslate | null }, clamp = false) => (
     <FlowLine
       show={show}
       clamp={clamp}
       source={<TokenText text={unit.source} source={unit.source} pattern={tokens} />}
-      translation={unit.translation ? <TokenText text={unit.translation} source={unit.source} pattern={tokens} /> : null}
+      translation={excluded(unit) ? <KeptSource source={unit.source} pattern={tokens} /> : unit.translation ? <TokenText text={unit.translation} source={unit.source} pattern={tokens} /> : null}
     />
   );
   const row = (key: string, whoCell: ReactNode, what: ReactNode, options: { tint?: 'choice' | 'muted' | 'here'; scrollTo?: boolean; unitId?: string } = {}) => (
@@ -273,7 +277,7 @@ function NodeView({ projectId, nodes, columns, who, lineText, connections, onSel
   nodes: { id: string; key: string; kind: string; label: string | null; group?: { title: string } | null; typeInfo?: { label?: string | null } | null; units: { id: string; speaker: string | null; source: string; translation: string | null }[] }[];
   columns: React.CSSProperties;
   who: (speaker: string | null | undefined) => ReactNode;
-  lineText: (unit: { source: string; translation: string | null }, clamp?: boolean) => ReactNode;
+  lineText: (unit: { source: string; translation: string | null; translate?: LineTranslate | null }, clamp?: boolean) => ReactNode;
   connections: NodeConnection[];
   onSelectNode?: (id: string) => void;
   onEdit: (unitId: string) => void;

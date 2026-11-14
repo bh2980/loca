@@ -5,6 +5,7 @@ import { useGraphViews } from '@/lib/graph-views';
 import { usePersonColors } from '@/lib/person-colors';
 import { q } from '@/lib/queries';
 import { useLines } from '@/lib/units';
+import { useLineExcluded } from '@/lib/project';
 import { flowModel, hiddenEdgeLines } from './flow-model';
 import type { LayoutEdge } from './graph-canvas';
 import { viewIdOf, type GraphSearch } from './graph-search';
@@ -46,19 +47,24 @@ export function useDrawnGraph(projectId: string, search: GraphSearch) {
   const [show, setShow] = useGraphShow();
   const shownLines = useMemo(() => (dialogue && show !== 'source' ? query.data?.nodes?.flatMap((node) => (node.unitId ? [node.unitId] : [])) : undefined), [dialogue, show, query.data]);
   const cardLines = useLines(projectId, shownLines).byId;
-  const translations = useMemo(() => {
-    if (!shownLines) return undefined;
+  // A 번역 제외 line goes out as its source: its card says so (kept) instead of showing no translation.
+  const excluded = useLineExcluded(projectId);
+  const { translations, kept } = useMemo(() => {
+    if (!shownLines) return { translations: undefined, kept: undefined };
     const byNode: Record<string, string> = {};
+    const keptNodes = new Set<string>();
     for (const node of query.data?.nodes ?? []) {
-      const text = node.unitId ? cardLines.get(node.unitId)?.translation?.trim().slice(0, 120) : null;
-      if (text) byNode[node.id] = text;
+      const line = node.unitId ? cardLines.get(node.unitId) : undefined;
+      if (line && excluded(line)) keptNodes.add(node.id);
+      const text = line?.translation?.trim().slice(0, 120);
+      if (text && !keptNodes.has(node.id)) byNode[node.id] = text;
     }
-    return byNode;
-  }, [shownLines, query.data, cardLines]);
+    return { translations: byNode, kept: keptNodes };
+  }, [shownLines, query.data, cardLines, excluded]);
   const colorOf = usePersonColors(projectId);
   const info = useMemo(
-    () => nodeCards({ nodes: data?.nodes ?? [], nodeTypes: data?.nodeTypes, portals: layout?.portals, chains: layout?.chains, foldable: foldedRuns, openRuns, show, translations, colorOf }),
-    [data, layout, colorOf, foldedRuns, openRuns, show, translations],
+    () => nodeCards({ nodes: data?.nodes ?? [], nodeTypes: data?.nodeTypes, portals: layout?.portals, chains: layout?.chains, foldable: foldedRuns, openRuns, show, translations, kept, colorOf }),
+    [data, layout, colorOf, foldedRuns, openRuns, show, translations, kept],
   );
   const nodeById = useMemo(() => new Map((data?.nodes ?? []).map((node) => [node.id, node] as const)), [data]);
   const portals = useMemo(() => new Map((layout?.portals ?? []).map((portal) => [portal.id, portal])), [layout]);
