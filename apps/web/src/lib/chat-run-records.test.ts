@@ -58,5 +58,8 @@ describe('where a chip leads', () => {
     expect(chipHref('p1', { kind: '워크플로', id: 'w1' })).toBe('/p/p1/workflows/w1');
     expect(decodeURIComponent(chipHref('p1', { kind: '태그', id: 'tag1' })!)).toBe('/p/p1/script?tags=["tag1"]');
     expect(chipHref('p1', { kind: '그래프', id: 'n1' })).toBeUndefined();
+    // A saved view opens by its section; a route not saved yet by its two ends.
+    expect(decodeURIComponent(chipHref('p1', { kind: '보기', id: 'v1' })!)).toBe('/p/p1/graph?scope=dialogue&section=view:v1');
+    expect(chipHref('p1', { kind: '경로', id: 'n1>n2' })).toBe('/p/p1/graph?scope=dialogue&routeStart=n1&routeEnd=n2');
   });
 });

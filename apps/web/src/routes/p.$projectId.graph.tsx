@@ -26,6 +26,7 @@ import { useSize } from '@/hooks/use-size';
 import { afterBoxPick, useGraphSelection } from '@/lib/graph-selection';
 import { useGraphPaneView } from '@/lib/graph-show';
 import { q } from '@/lib/queries';
+import { useReportView, viewItem } from '@/lib/reported-view';
 import { useStoredViewport, viewportScope } from '@/lib/viewport';
 
 export const Route = createFileRoute('/p/$projectId/graph')({
@@ -125,6 +126,8 @@ function GraphPage() {
   const dialogue = search.scope === 'dialogue';
   const picking = isPickingRoute(search);
   const drawn = useDrawnGraph(projectId, search);
+  // An open view goes to the chat by its name (the picked node or line reports itself beside it).
+  useReportView('graph-view', [Boolean(drawn.view && drawn.viewId) && viewItem({ id: drawn.viewId!, label: drawn.view!.label, route: drawn.viewDetail.data?.route })]);
   const { layout, model, portals, hubs, direction, chosen, viewId } = drawn;
   const [container, size] = useSize<HTMLDivElement>();
   const canvas = useRef<GraphCanvasHandle>(null);
