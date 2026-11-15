@@ -5,7 +5,9 @@ import * as s from '../db/schema.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 import { Refusal } from '../refusal.ts';
 import { diffSource, knowledgeMatch, type SourceDiff } from './source-diff.ts';
-import { changed, invalidate, refreshNodeGroups, resequence } from './source-mutations.ts';
+import { changed, initialStatus, invalidate, refreshNodeGroups, refuseBusy, resequence } from './source-mutations.ts';
+import { setLineStatus } from '../domain/line-save.ts';
+import { PERSON, type Saver } from '../domain/saver.ts';
 import { recorder } from './undo-records.ts';
 
 /** Colors for tags that came with the file, in turn (as a new project's). */
@@ -21,7 +23,12 @@ export interface SourceAdded {
   knowledge: { added: Record<keyof SourceDiff['knowledge'], number>; kept: number };
   /** The formats turned on in the project's format rules with it (FormatOffer ids). */
   formats: string[];
-  /** restore_deleted (kind script) takes back everything this added; null when nothing was added. */
+  /**
+   * With `update`: the keys changed to what the file gives (lines, groups, graph nodes), the lines whose source changed and
+   * so start over (initial status; their translation stays), and what was not changed with why.
+   */
+  updated: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] };
+  /** restore_deleted (kind script) takes back everything this added and changed; null when nothing was. */
   undoId: string | null;
 }
 
@@ -54,9 +61,13 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
  * as a new project's would, matched as diffSource matches them; the ones it has stay as they are. The formats named in `formats` are turned on in the project's format
  * rules, and the undo record puts them back with the rest. One transaction and one undo record (kind script).
  */
-export function addSource(db: Db, projectId: string, file: AddSourceInput): SourceAdded {
+export function addSource(db: Db, projectId: string, file: AddSourceInput, by: Saver = PERSON): SourceAdded {
   const { diff, refusal } = sourceRefusal(db, projectId, file);
   if (refusal) throw new Refusal('invalid', refusal);
+  const changedUnits = file.update ? new Set(diff.units.changed.map((item) => item.key)) : new Set<string>();
+  // Lines a running or paused workflow holds keep their input (as any change of a line's source).
+  if (changedUnits.size) refuseBusy(db, projectId, db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((row) => changedUnits.has(row.key)).map((row) => row.id));
+  const updated: SourceAdded['updated'] = { units: 0, groups: 0, graphNodes: 0, restarted: 0, skipped: [] };
   const addedGroups = new Set(diff.groups.added);
   const addedUnits = new Set(diff.units.added);
   const addedNodes = new Set(diff.graph.nodes.added);
@@ -184,6 +195,68 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
     }
     for (const index of fresh.terms) record.made('terms', tx.insert(s.terms).values({ projectId, ...file.terms[index]! }).returning({ id: s.terms.id }).get().id);
 
+    if (file.update) {
+      // Groups: their words; a group's kind holds its lines' kind, so it is not changed here.
+      const changedGroups = new Map(diff.groups.changed.map((item) => [item.key, item.fields]));
+      for (const group of file.groups.filter((item) => changedGroups.has(item.key))) {
+        const fields = changedGroups.get(group.key)!;
+        if (fields.includes('kind')) updated.skipped.push({ key: group.key, reason: '묶음의 종류는 바꾸지 않습니다 (안의 대사 종류가 따라야 함)' });
+        const set = { ...(fields.includes('title') && { title: group.title }), ...(fields.includes('description') && { description: group.description ?? '' }), ...(fields.includes('section') && { section: group.section ?? null }) };
+        if (!Object.keys(set).length) continue;
+        const id = groupOf.get(group.key)!.id;
+        record.rewritten('groups', id, ['title', 'description', 'section']);
+        tx.update(s.groups).set(set).where(eq(s.groups.id, id)).run();
+        updated.groups++;
+      }
+      // Lines: source, speaker, listener and group as the file gives them.
+      const rows = new Map(tx.select().from(s.units).where(eq(s.units.projectId, projectId)).all().filter((row) => changedUnits.has(row.key)).map((row) => [row.key, row]));
+      const restart: string[] = [];
+      for (const unit of file.units.filter((item) => changedUnits.has(item.key))) {
+        const had = rows.get(unit.key)!;
+        const group = groupOf.get(unit.group)!;
+        const moved = group.id !== had.groupId;
+        const set: Partial<typeof s.units.$inferInsert> = {};
+        if (unit.source !== had.source) set.source = unit.source;
+        if (unit.speaker !== undefined && unit.speaker !== had.speaker) set.speaker = unit.speaker;
+        if (unit.listener !== undefined && unit.listener !== had.listener) {
+          // What a person decided stays: the file is the game's data, the listener the person's reading of it.
+          if (had.listenerOrigin === 'human') updated.skipped.push({ key: unit.key, reason: '사람이 정한 청자는 바꾸지 않습니다' });
+          else Object.assign(set, { listener: unit.listener, listenerOrigin: 'import' as const, listenerConfidence: null });
+        }
+        if (moved) Object.assign(set, { groupId: group.id, kind: unit.kind ?? unitKindOf(group.kind), sort: sortIn(group.id, addedGroups.has(group.key), unit.order, 0) });
+        else if (unit.kind && unit.kind !== had.kind) set.kind = unit.kind;
+        if (!Object.keys(set).length) continue;
+        record.rewritten('units', had.id, ['source', 'speaker', 'listener', 'listener_origin', 'listener_confidence', 'group_id', 'kind', 'sort', 'status_id', 'status_by', 'status_run_id']);
+        tx.update(s.units).set(set).where(eq(s.units.id, had.id)).run();
+        if (set.source !== undefined) restart.push(had.id);
+        updated.units++;
+      }
+      // A changed source is not translated yet: the line starts over, its translation kept to compare with.
+      if (restart.length) setLineStatus(tx, projectId, restart, initialStatus(tx, projectId), { statusBy: by.statusBy });
+      updated.restarted = restart.length;
+      // Graph nodes: what they are called; which lines they hold is the dialogue graph's to edit.
+      const changedNodes = new Map(diff.graph.nodes.changed.map((item) => [item.key, item.fields]));
+      for (const node of (file.graph?.nodes ?? []).filter((item) => changedNodes.has(item.key))) {
+        const fields = changedNodes.get(node.key)!;
+        if (fields.includes('units') || fields.includes('group')) updated.skipped.push({ key: node.key, reason: '노드에 담긴 대사와 장면은 그래프 편집에서 바꿉니다' });
+        const set = { ...(fields.includes('label') && { label: node.label ?? null }), ...(fields.includes('type') && { type: node.type ?? null }) };
+        if (!Object.keys(set).length) continue;
+        const id = nodeIds.get(node.key)!;
+        record.rewritten('graph_nodes', id, ['label', 'type']);
+        tx.update(s.graphNodes).set(set).where(eq(s.graphNodes.id, id)).run();
+        updated.graphNodes++;
+      }
+    }
+
+    // Node types the file names that the project lacks (what a type is called and drawn as); the project's stay.
+    const fileTypes = file.graph?.nodeTypes ?? {};
+    const { nodeTypes } = tx.select({ nodeTypes: s.projects.nodeTypes }).from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+    const newTypes = Object.keys(fileTypes).filter((type) => !Object.hasOwn(nodeTypes, type));
+    if (newTypes.length) {
+      record.rewritten('projects', projectId, ['node_types']);
+      tx.update(s.projects).set({ nodeTypes: { ...nodeTypes, ...Object.fromEntries(newTypes.map((type) => [type, fileTypes[type]!])) } }).where(eq(s.projects.id, projectId)).run();
+    }
+
     if (file.formats?.length) {
       record.rewritten('projects', projectId, ['format_rules']);
       const { formatRules } = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()!;
@@ -204,6 +277,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
     missing: diff.units.missing.length,
     knowledge,
     formats: file.formats ?? [],
+    updated,
     undoId,
   };
 }

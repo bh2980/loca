@@ -263,10 +263,15 @@ export const sourceFileSchema = fileShape.extend({ project: projectFacts.optiona
 /**
  * add_source's input: a file to add, and the formats its new lines use that the project's rules lack to turn on with
  * it (FormatOffer ids from the diff; [] to add without them). Left out while there are such formats, the add is
- * refused until someone decides.
+ * refused until someone decides. `update`: the keys the project has that the file gives otherwise are changed too.
  */
 export const addSourceSchema = fileShape
-  .extend({ project: projectFacts.optional(), formats: z.array(z.string().min(1)).max(50).optional() })
+  .extend({
+    project: projectFacts.optional(),
+    formats: z.array(z.string().min(1)).max(50).optional(),
+    /** Also change what the project has otherwise under the same key (a patched source, a renamed group); left out, it stays. */
+    update: z.boolean().default(false),
+  })
   .superRefine((file, ctx) => checkFile(file, ctx, false));
 export type SourceFile = z.infer<typeof sourceFileSchema>;
 export type AddSourceInput = z.infer<typeof addSourceSchema>;

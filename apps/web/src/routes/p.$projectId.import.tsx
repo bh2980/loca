@@ -30,6 +30,8 @@ function ImportSource() {
   const [dragging, setDragging] = useState(false);
   // Formats the person said not to turn on; the rest of what is offered is turned on with the lines.
   const [declined, setDeclined] = useState<Set<string>>(new Set());
+  // The keys the project has that the file gives otherwise are changed too (a game patch); off, they stay.
+  const [update, setUpdate] = useState(false);
   const [added, setAdded] = useState<Added | null>(null);
 
   const file = picked && 'file' in picked ? picked.file : null;
@@ -37,7 +39,7 @@ function ImportSource() {
   const formats = (diff.data?.formats ?? []).filter((format) => !declined.has(format.id)).map((format) => format.id);
 
   const add = useMutation({
-    mutationFn: () => addSourceFile(projectId, { ...file!, formats }),
+    mutationFn: () => addSourceFile(projectId, { ...file!, formats, update }),
     onSuccess: (result) => setAdded(result),
     onError: (error) => toast.error(error.message),
   });
@@ -52,6 +54,7 @@ function ImportSource() {
     const id = `${chosen.name}:${chosen.size}:${chosen.lastModified}:${Date.now()}`;
     setAdded(null);
     setDeclined(new Set());
+    setUpdate(false);
     try {
       const parsed = sourceFileSchema.safeParse(JSON.parse(await chosen.text()));
       setPicked(parsed.success ? { id, name: chosen.name, file: parsed.data } : { id, name: chosen.name, issues: parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
@@ -62,7 +65,9 @@ function ImportSource() {
 
   const data = diff.data;
   const knowledgeAdded = data ? Object.values(data.knowledge).reduce((sum, item) => sum + item.added, 0) : 0;
-  const adds = data ? data.groups.added.length + data.units.added.length + data.graph.nodes.added.length + data.graph.edges.added + knowledgeAdded : 0;
+  const changed = data ? [...data.units.changed, ...data.groups.changed, ...data.graph.nodes.changed] : [];
+  const restart = data ? data.units.changed.filter((item) => item.fields.includes('source')).length : 0;
+  const adds = (data ? data.groups.added.length + data.units.added.length + data.graph.nodes.added.length + data.graph.edges.added + knowledgeAdded : 0) + (update ? changed.length : 0);
   const blocked = !!data?.unresolved.length;
   const nodes = data ? data.graph.nodes.added.length + data.graph.nodes.own : 0;
   // Per kind, the items of the file the project lacks (added) or has (kept as it is).
@@ -110,6 +115,8 @@ function ImportSource() {
               더했습니다: 묶음 {added.added.groups.toLocaleString()} · 대사 {added.added.units.toLocaleString()} · 그래프 노드 {added.added.graphNodes.toLocaleString()} · 연결 {added.added.graphEdges.toLocaleString()}
               {Object.values(added.knowledge.added).some(Boolean) && ` · 지식 ${Object.entries(KNOWLEDGE_LABELS).flatMap(([kind, label]) => { const n = added.knowledge.added[kind as keyof typeof KNOWLEDGE_LABELS]; return n ? [`${label} ${n.toLocaleString()}`] : []; }).join(' · ')}`}
               {added.formats.length > 0 && ` · 서식 규칙에 켬 ${added.formats.join(', ')}`}
+              {added.updated.units + added.updated.groups + added.updated.graphNodes > 0 && ` · 바꿈: 대사 ${added.updated.units.toLocaleString()} · 묶음 ${added.updated.groups} · 노드 ${added.updated.graphNodes}${added.updated.restarted ? ` (다시 번역할 대사 ${added.updated.restarted.toLocaleString()})` : ''}`}
+              {added.updated.skipped.length > 0 && ` · 바꾸지 않음 ${added.updated.skipped.length}개 (${some(added.updated.skipped.map((skip) => `${skip.key}: ${skip.reason}`), 2)})`}
             </Notice>
           )}
 
@@ -119,7 +126,7 @@ function ImportSource() {
               title="더할 것"
               footer={
                 <Button disabled={!data || blocked || !adds || add.isPending} onClick={() => add.mutate()}>
-                  {add.isPending && <Spinner />} {data && data.units.added.length ? `대사 ${data.units.added.length.toLocaleString()}개 더하기` : '더하기'}
+                  {add.isPending && <Spinner />} {data && data.units.added.length ? `대사 ${data.units.added.length.toLocaleString()}개 더하기` : update && changed.length ? '바꾸기' : '더하기'}
                 </Button>
               }
             >
@@ -131,8 +138,8 @@ function ImportSource() {
               {diff.error && <Text as="p" variant="body" tone="danger">{diff.error.message}</Text>}
               {data && (
                 <Box spaceY="comfortable">
-                  {!adds && !blocked && <Text as="p" variant="body" tone="muted">더할 것이 없습니다. 파일의 key와 지식이 모두 프로젝트에 있습니다.</Text>}
-                  {adds > 0 && (
+                  {!adds && !blocked && <Text as="p" variant="body" tone="muted">더할 것이 없습니다. 파일의 key와 지식이 모두 프로젝트에 있습니다.{changed.length > 0 && ' 다르게 적힌 key는 아래에서 파일대로 바꿀 수 있습니다.'}</Text>}
+                  {adds - (update ? changed.length : 0) > 0 && (
                     <KeyValue align="start" framed>
                       <KeyValueRow label="묶음">{count(data.groups.added)}</KeyValueRow>
                       <KeyValueRow label="대사">{count(data.units.added)}</KeyValueRow>
@@ -185,10 +192,19 @@ function ImportSource() {
                     <Notice key={warning} tone="warning">{warning}</Notice>
                   ))}
 
+                  {changed.length > 0 && !blocked && (
+                    <Box as="fieldset" spaceY="tight">
+                      <Heading as="legend" minWidth={0} marginBottom="condensed">프로젝트와 다르게 적힌 key {changed.length.toLocaleString()}개{!update && <Text variant="caption" weight="normal" tone="muted"> · 그대로 둠</Text>}</Heading>
+                      <Text as="p" variant="caption" tone="muted">{some(changed.map((item) => `${item.key}: ${item.fields.join('·')}`), 5)}</Text>
+                      <ScopeRow>
+                        <Checkbox checked={update} onCheckedChange={(on) => setUpdate(on === true)} />
+                        <Text minWidth={0} grow>파일대로 바꾸기{restart > 0 && <Text tone="muted"> · 원문이 바뀐 대사 {restart.toLocaleString()}개는 번역을 남긴 채 다시 번역할 상태로</Text>}</Text>
+                      </ScopeRow>
+                      <Text as="p" variant="caption" tone="muted">사람이 정한 청자, 묶음의 종류, 노드에 담긴 대사는 바꾸지 않습니다. 되돌리기로 함께 되돌립니다.</Text>
+                    </Box>
+                  )}
+
                   <Box as="ul" spaceY="tight" variant="caption" tone="muted">
-                    {data.units.changed.length + data.groups.changed.length + data.graph.nodes.changed.length > 0 && (
-                      <li>그대로 둠: 프로젝트와 다르게 적힌 key {(data.units.changed.length + data.groups.changed.length + data.graph.nodes.changed.length).toLocaleString()}개 ({some([...data.units.changed, ...data.groups.changed, ...data.graph.nodes.changed].map((item) => `${item.key}: ${item.fields.join('·')}`), 3)})</li>
-                    )}
                     {data.units.missing.length > 0 && <li>그대로 둠: 파일이 다시 가져온 묶음에서 빠진 대사 {data.units.missing.length.toLocaleString()}개 ({some(data.units.missing, 3)})</li>}
                     {keptKnowledge.length > 0 && <li>그대로 둠: 프로젝트에 이미 있는 {keptKnowledge.join(' · ')} (같은 이름의 인물, 같은 원문의 용어, 같은 제목의 노트·사건…)</li>}
                   </Box>

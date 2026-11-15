@@ -93,7 +93,7 @@ export const TOOL_SPECS = {
     label: '원문 더하기',
     needs: {
       // Each kind of knowledge the file brings needs its create (what it has already is left alone, but the file is the input).
-      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...SOURCE_KNOWLEDGE.filter(([field]) => rows(input[field]).length).map(([, resource]) => p(resource, 'create')), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
+      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...SOURCE_KNOWLEDGE.filter(([field]) => rows(input[field]).length).map(([, resource]) => p(resource, 'create')), ...(input.update === true ? [p('script', 'update'), ...(rows(input.groups).length ? [p('scenes', 'update')] : [])] : []), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
       options: [[p('script', 'create')], [p('script', 'create'), p('scenes', 'create')], [p('script', 'create'), p('project', 'update')], [p('script', 'create'), p('scenes', 'create'), p('project', 'update')]],
     },
     batch: ['groups', 'units', 'characters', 'relationships', 'speechRules', 'events', 'documents', 'terms'],

@@ -128,6 +128,14 @@ export function undoRecorded(db: Db, projectId: string, id: string, kind?: strin
   try {
     db.transaction((tx) => {
       const columnsOf = (table: UndoTable) => new Set(tx.all<{ name: string }>(sql`select name from pragma_table_info(${table})`).map((column) => column.name));
+      // The columns it rewrote first: a row moved into a row the change made (a line into a new group) goes back
+      // before what it was moved into goes, so the delete does not cascade into it.
+      for (const { table, id: rowId, values } of data.rewritten) {
+        if (!isTable(table)) continue;
+        const known = columnsOf(table);
+        const columns = Object.keys(values).filter((column) => known.has(column));
+        if (columns.length) tx.run(sql`update ${name(table)} set ${sql.join(columns.map((column) => sql`${name(column)} = ${values[column]}`), sql`, `)} where id = ${rowId}`);
+      }
       // What the change made, the rows that point at others first.
       for (const table of [...ORDER].reverse()) {
         const ids = data.made.filter((part) => part.table === table).flatMap((part) => part.ids);
@@ -153,12 +161,6 @@ export function undoRecorded(db: Db, projectId: string, id: string, kind?: strin
             restored += tx.run(sql`insert or ignore into ${into} select ${values} where ${there}`).changes;
           } else restored += tx.run(sql`insert into ${into} values (${values})`).changes;
         }
-      }
-      for (const { table, id: rowId, values } of data.rewritten) {
-        if (!isTable(table)) continue;
-        const known = columnsOf(table);
-        const columns = Object.keys(values).filter((column) => known.has(column));
-        if (columns.length) tx.run(sql`update ${name(table)} set ${sql.join(columns.map((column) => sql`${name(column)} = ${values[column]}`), sql`, `)} where id = ${rowId}`);
       }
       tx.delete(s.undoRecords).where(eq(s.undoRecords.id, id)).run();
       if (structural) {

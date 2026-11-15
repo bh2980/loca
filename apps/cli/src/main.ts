@@ -1236,6 +1236,8 @@ source
     if (knowledge.length) console.log(`  지식  ${knowledge.join(' · ')}`);
     if (diff.graph.nodes.own) console.log(`  그래프 노드  노드 없는 새 장면 대사마다 하나씩 ${diff.graph.nodes.own.toLocaleString()}`);
     for (const line of formatQuestion(diff.formats)) console.log(line);
+    const changedKeys = diff.groups.changed.length + diff.units.changed.length + diff.graph.nodes.changed.length;
+    if (changedKeys) console.log(`  프로젝트와 다르게 적힌 key ${changedKeys.toLocaleString()}개는 그대로 둡니다. 파일대로 바꾸려면 source add --update (원문이 바뀐 대사는 다시 번역할 상태로)`);
     for (const warning of diff.warnings) console.log(`  경고  ${warning}`);
     if (diff.unresolved.length) console.log(`어디에도 없는 참조 ${diff.unresolved.length}개: 이대로는 넣을 수 없습니다\n${diff.unresolved.slice(0, 20).map((item) => `  ${item.path}: ${item.message}`).join('\n')}`);
   });
@@ -1245,7 +1247,8 @@ source
   .description('파일에서 프로젝트에 없는 key와 지식만 더하기를 제안으로 올리기: 새 묶음·대사·그래프 노드·연결과 새 인물·관계·말투·사건·노트·용어. 프로젝트에 있는 key와 지식은 그대로 두고 파일에 없는 대사도 지우지 않습니다. 먼저 loca source diff로 확인하세요. 새 대사에 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다. 반영된 것은 loca proposals undo로 한 번에 되돌립니다')
   .option('--format <ids...>', '서식 규칙에 같이 켤 새 서식 (source diff의 새 서식 id)')
   .option('--no-format', '새 서식을 서식 규칙에 켜지 않고 더하기')
-  .action(async (file: string, options: { format?: string[] | false }) => {
+  .option('--update', '프로젝트와 다르게 적힌 key도 파일대로 바꾸기: 원문·화자·청자·묶음 이동, 묶음 제목, 노드 이름. 원문이 바뀐 대사는 번역을 남긴 채 시작 상태로. 사람이 정한 청자, 묶음 종류, 노드에 담긴 대사는 바꾸지 않음')
+  .action(async (file: string, options: { format?: string[] | false; update?: boolean }) => {
     const parsed = sourceFileSchema.safeParse(readJsonArg(file === '-' ? '-' : `@${file}`));
     if (!parsed.success) {
       process.exitCode = 1;
@@ -1263,13 +1266,16 @@ source
         return console.log(['새 대사에 서식 규칙에 없는 서식이 있습니다.', ...formatQuestion(diff.formats)].join('\n'));
       }
     }
-    const outcome = await proposeTool('add_source', { ...parsed.data, formats } as ToolInputs['add_source']);
+    const outcome = await proposeTool('add_source', { ...parsed.data, formats, update: options.update === true } as ToolInputs['add_source']);
     printOutcome(outcome, '원문 더하기');
-    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[] } | null) : null;
+    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[]; updated?: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] } } | null) : null;
     if (!added?.added) return;
     console.log(`  더함  묶음 ${added.added.groups} · 대사 ${added.added.units} · 그래프 노드 ${added.added.graphNodes} · 연결 ${added.added.graphEdges}`);
-    const kept = (added.kept?.groups ?? 0) + (added.kept?.units ?? 0) + (added.kept?.graphNodes ?? 0);
-    if (kept) console.log(`  그대로 둠  파일과 다른 key ${kept}개 (프로젝트의 것을 유지)`);
+    const update = added.updated;
+    if (update && update.units + update.groups + update.graphNodes) console.log(`  바꿈  대사 ${update.units} · 묶음 ${update.groups} · 노드 ${update.graphNodes}${update.restarted ? ` (원문이 바뀐 ${update.restarted}개는 다시 번역할 상태로)` : ''}`);
+    for (const skip of update?.skipped.slice(0, 20) ?? []) console.log(`  바꾸지 않음  ${skip.key}: ${skip.reason}`);
+    const kept = options.update ? 0 : (added.kept?.groups ?? 0) + (added.kept?.units ?? 0) + (added.kept?.graphNodes ?? 0);
+    if (kept) console.log(`  그대로 둠  파일과 다른 key ${kept}개 (프로젝트의 것을 유지, 바꾸려면 --update)`);
     if (added.missing) console.log(`  그대로 둠  파일에 없는 대사 ${added.missing}개 (지우지 않음)`);
     const knowledgeLabels: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' };
     const newKnowledge = Object.entries(added.knowledge?.added ?? {}).filter(([, n]) => n).map(([kind, n]) => `${knowledgeLabels[kind] ?? kind} ${n}`);
