@@ -284,7 +284,7 @@ describe('import format', () => {
 
   it('fills defaults', () => {
     const file = importFileSchema.parse(base);
-    // A line's kind is left to its group (importProject) unless the file says it.
+    // A line's kind is left to its group (addSource) unless the file says it.
     expect(file.units[0].kind).toBeUndefined();
     expect(file.project.targetLanguage).toBe('ko');
   });

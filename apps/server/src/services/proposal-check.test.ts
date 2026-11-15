@@ -5,12 +5,12 @@ import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const unit = (key: string) => db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   return { db, projectId, unit };
 }

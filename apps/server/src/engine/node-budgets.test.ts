@@ -3,7 +3,7 @@ import { autoBudgets, DEFAULT_BUDGETS, limitsFor, limitsWithSource, UNKNOWN_MAX_
 import { limitsOf } from '@loca/ai';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { resolveBudgets } from './node-budgets.ts';
 
 describe('auto budgets', () => {
@@ -39,7 +39,7 @@ describe('resolving and migrating budgets', () => {
   const setup = () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'c', baseUrl: 'http://x/v1', modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } }).returning().get();
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
     return { db, projectId, connection };
   };
   const definitionWith = (config: AiNode['config']) => workflowDefinitionSchema.parse({ nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config }], edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }] });

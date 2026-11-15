@@ -5,7 +5,7 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { issueTagIds } from '../domain/issue-tags.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 import { sourceRoutes } from './source.ts';
@@ -21,7 +21,7 @@ function setup() {
       { key: 'b', group: 'g', source: 'Goodbye' },
     ],
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);

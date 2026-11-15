@@ -6,12 +6,12 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { resultCheck, resultFile, resultPlan } from './results.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1',
     project: { name: '릴레이 "역"' },
     groups: [{ key: 'a', title: 'A' }, { key: 'b', title: 'B' }],
@@ -74,7 +74,7 @@ describe('the file for the game', () => {
 
   it('is more than one page of a list', () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: Array.from({ length: 450 }, (_, n) => ({ key: `u${n}`, group: 'g', source: `Line ${n}` })) }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: Array.from({ length: 450 }, (_, n) => ({ key: `u${n}`, group: 'g', source: `Line ${n}` })) }));
     expect(resultFile(db, projectId, ask())!.units).toHaveLength(450);
     expect(resultPlan(db, projectId, ask()).inFile).toBe(450);
   });

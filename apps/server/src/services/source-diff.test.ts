@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { importFileSchema, sourceFileSchema, type ImportFileInput } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { diffSource } from './source-diff.ts';
 
 vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
@@ -22,7 +22,7 @@ const dialogue: ImportFileInput = {
   relationships: [{ from: 'Ana', to: 'Ben', kind: 'friend' }],
   terms: [{ source: 'Monaco', target: '모나코' }],
 };
-const made = () => importProject(db, importFileSchema.parse(dialogue)).projectId;
+const made = () => createProjectFromFile(db, importFileSchema.parse(dialogue)).projectId;
 
 it('a file of UI strings after the dialogue is all new, and leaves the dialogue alone', () => {
   const projectId = made();

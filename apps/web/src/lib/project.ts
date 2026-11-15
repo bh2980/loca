@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type NewProject, type SavedPrompt } from '@loca/shared';
+import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type ImportFile, type NewProject, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
 import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
@@ -134,8 +134,8 @@ export const validateProjectFile = (body: unknown) => unwrap(client.projects.val
 /** A new, empty project: done once the projects list has it. */
 export const createProject = (project: NewProject) => sent(APP_FEED, client.projects.$post({ json: project }));
 
-/** A new project from a file: done once the projects list has it. */
-export const importProjectFile = (data: unknown) => sent(APP_FEED, client.projects.import.$post({ json: data as never }));
+/** A new project from a file, with the offered formats to turn on and the file's name for its 원문 넣기 log: done once the projects list has it. */
+export const importProjectFile = (file: ImportFile, options: { name?: string; formats: string[] }) => sent(APP_FEED, client.projects.import.$post({ query: { name: options.name, formats: options.formats.join(',') || undefined }, json: file }));
 
 /** 홈 기본값 가져오기: the checked sections of the home's defaults come into this project; answers with what each did. */
 export const pullDefaults = (projectId: string, sections: AppDefaultSection[]) => sent(projectId, client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections } }));

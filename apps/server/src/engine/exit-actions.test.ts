@@ -4,7 +4,7 @@ import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ExitActio
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { eventsOf } from '../events.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { issueTagIds } from '../domain/issue-tags.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runProgress } from '../services/run-detail.ts';
@@ -24,7 +24,7 @@ function setup(lines = 2) {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: lines }, (_, index) => ({ key: `a${index + 1}`, group: 'g1', speaker: index === 0 ? 'Alice' : 'Bob', source: `Line ${index + 1}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const initial = statuses.find((status) => status.kind === 'initial')!;
   // The status the test flows set. Not a final one: nothing here saves a translation, and a final status needs one.

@@ -6,7 +6,7 @@ import { expect, it } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../../server/src/db/index.ts';
 import { agentCatalog } from '../../server/src/services/agent-catalog.ts';
-import { importProject } from '../../server/src/services/importer.ts';
+import { createProjectFromFile } from '../../server/src/services/project-create.ts';
 import { program } from './main.ts';
 
 const skillsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../../../.claude/skills');
@@ -63,7 +63,7 @@ it('skills only use loca commands, subcommands and flags that exist', () => {
 /** The real catalogue, as `loca tools` lists it with every permission on: the tools `loca call` can reach, with their input schemas. */
 function catalogue() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Skills' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Skills' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
   return new Map(agentCatalog(db, projectId, undefined, { unrestricted: true }).map((tool) => [tool.name as string, tool]));
 }
 

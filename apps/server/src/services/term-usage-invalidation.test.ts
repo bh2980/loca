@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { fillTermUsage } from '../domain/term-usage.ts';
 
 it('invalidates counts and example keys on source changes, insertions and deletions, but not translation edits', () => {
   const db = openDatabase(':memory:');
   try {
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Relay' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Relay' }] }));
     const unit = db.select().from(s.units).get()!;
     const term = db.insert(s.terms).values({ projectId, source: 'Relay', target: '중계' }).returning().get();
     const current = () => db.select().from(s.terms).where(eq(s.terms.id, term.id)).get()!;

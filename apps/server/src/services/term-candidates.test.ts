@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, withMainTarget, withTargetCandidate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { saveTerm, upsertAiTerm } from '../domain/terms.ts';
 
 // A term keeps every Korean form it had or was offered; `target` is the one used.
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Terms' }, groups: [{ key: 'g', title: 'Menu' }], units: [{ key: 'u', group: 'g', source: 'Continue', kind: 'ui' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Terms' }, groups: [{ key: 'g', title: 'Menu' }], units: [{ key: 'u', group: 'g', source: 'Continue', kind: 'ui' }] }));
   const term = () => db.select().from(s.terms).where(eq(s.terms.source, 'Continue')).get()!;
   return { db, projectId, term };
 }

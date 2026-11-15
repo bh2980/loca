@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { importFileSchema, lineFilterSchema, mentions } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { buildContext, precedingLines } from '../engine/ai-context.ts';
 import { contextConfigSchema } from '@loca/shared';
 import { checkScript } from '../services/script-query.ts';
@@ -19,7 +19,7 @@ function setup(lines = 3) {
     units: Array.from({ length: lines }, (_, i) => ({ key: `l${i}`, group: i < lines / 2 ? 'g1' : 'g2', speaker: 'Alice', listener: 'Bob', source: `Alice meets Bob at line ${i}`, translation: `번역 ${i}` })),
     characters: [{ name: 'Alice', aliases: [] }, { name: 'Bob', aliases: [] }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   return { db, projectId };
 }
 
@@ -143,7 +143,7 @@ describe('checkScript terms speed', () => {
       units: Array.from({ length: lineCount }, (_, i) => ({ key: `u${i}`, group: 'g', speaker: 'A', source: `Line ${i}: ${words[i % termCount]} and ${words[(i * 7) % termCount].toLowerCase()}, 서울에서 보자.`, translation: i % 3 ? `번역 ${i}` : `번역 ${i} T${i % termCount}` })),
       terms: words.map((source, i) => ({ source, target: `T${i}` })),
     });
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
 
     const start = performance.now();
     const found = await checkScript(db, projectId, 'terms', lineFilterSchema.parse({}));

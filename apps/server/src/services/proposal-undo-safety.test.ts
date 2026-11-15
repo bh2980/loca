@@ -4,14 +4,14 @@ import { and, eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal, propose } from './proposals.ts';
 import { undoChanges } from './change-gate.ts';
 
 // Undo must never lose data: not through a cascade, and not over a person's later edit (#102 review).
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Undo safety' }, groups: [{ key: 'g', title: 'Scene' }],
     units: [{ key: 'line', group: 'g', source: 'Hello' }],
   }));

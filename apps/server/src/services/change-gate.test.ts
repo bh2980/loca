@@ -5,12 +5,12 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { AUTO_MAX_ITEMS, autoReview, proposeChange } from './change-gate.ts';
 import { apiChatTools } from './tool-run.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal, hasUnreportedDecisions } from './proposals.ts';
 
 function setup(mode: 'ask' | 'auto' | 'bypass') {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }], characters: [{ name: 'Alice' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }], characters: [{ name: 'Alice' }] }));
   const chat = db.insert(s.chatSessions).values({ projectId, title: 't', permissionMode: mode }).returning().get();
   return { db, projectId, chat };
 }

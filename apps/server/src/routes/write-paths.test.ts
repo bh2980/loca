@@ -5,7 +5,7 @@ import { batchChangeSchema, importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { applyBatch, validateBatch } from '../services/script-query.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 import { saveTerm } from '../domain/terms.ts';
@@ -26,7 +26,7 @@ function setup() {
         { key: 'n', group: 'g', kind: 'document', source: 'Rain falls.' },
       ],
     });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
     const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
     const tag = (name: string, scope: ('lines' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();

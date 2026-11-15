@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { saveLine } from '../domain/line-save.ts';
 import { decideProposal, propose } from './proposals.ts';
 import { undoChanges } from './change-gate.ts';
@@ -12,7 +12,7 @@ const FIXED_TIME = new Date('2026-10-18T10:00:00.000Z');
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Line revision' }, groups: [{ key: 'g', title: 'Scene' }],
     units: [{ key: 'line', group: 'g', source: 'Hello' }],
   }));

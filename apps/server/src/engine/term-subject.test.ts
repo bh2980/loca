@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { aiNodeConfigSchema, contextFor, importFileSchema, runScopeInputSchema, SUBJECTS, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -28,7 +28,7 @@ function setup() {
       { key: 'a3', group: 'g1', speaker: 'MIRA', source: 'Hesk is far.' },
     ],
   });
-  const { projectId } = importProject(db, file, choice);
+  const { projectId } = createProjectFromFile(db, file, choice);
   db.delete(s.terms).where(eq(s.terms.projectId, projectId)).run();
   const term = (source: string, extra: Partial<typeof s.terms.$inferInsert> = {}) =>
     db.insert(s.terms).values({ projectId, source, status: 'candidate', origin: 'script', statusBy: 'ai', examples: [], ...extra }).returning().get();

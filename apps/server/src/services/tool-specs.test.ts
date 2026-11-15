@@ -10,13 +10,13 @@ import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { agentTools, type ToolDef } from './agent-tools.ts';
 import { AUTO_MAX_ITEMS, autoReview, proposeChange, undoChanges } from './change-gate.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal } from './proposals.ts';
 
 function setup(mode: 'ask' | 'auto' | 'bypass' = 'auto') {
   const db = openDatabase(':memory:');
   const lines = Array.from({ length: 30 }, (_, index) => ({ key: `l${index}`, group: index < 15 ? 'g1' : 'g2', speaker: 'Alice', source: `Line ${index}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g1', title: 'One' }, { key: 'g2', title: 'Two' }], units: lines, characters: [{ name: 'Alice' }, { name: 'Bob' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g1', title: 'One' }, { key: 'g2', title: 'Two' }], units: lines, characters: [{ name: 'Alice' }, { name: 'Bob' }] }));
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   // Deleting is off until a person switches it on; here the mode is what is under test.
   db.update(s.projects).set({ agentSettings: { ...project.agentSettings, terminalPermissionMode: mode, permissions: { script: { delete: true } } } }).where(eq(s.projects.id, projectId)).run();

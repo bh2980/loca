@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, ISSUE_KINDS, workflowDefinitionSchema, type ApplyFunctionName, applyParams, functionConfigSchema } from '@loca/shared';
 import { openDatabase } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
-import { importProject } from '../../services/importer.ts';
+import { createProjectFromFile } from '../../services/project-create.ts';
 import { snapshotWorkflowModels } from '../../domain/model-target.ts';
 import { createRun } from '../run-create.ts';
 import { eventsOf } from '../../events.ts';
@@ -23,7 +23,7 @@ function setup() {
       { key: 'a2', group: 'g1', speaker: 'Bob', source: 'Sorry, boss.' },
     ],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const definition = workflowDefinitionSchema.parse({
     nodes: [{ id: 'entry', type: 'entry', position: at, config: {} }, { id: 'apply', type: 'function', position: at, config: { fn: 'saveTerms', params: {} } }],
     edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'apply' }],

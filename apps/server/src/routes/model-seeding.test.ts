@@ -4,7 +4,7 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { chatRoutes } from './chat.ts';
 import { workflowRoutes } from './workflows.ts';
@@ -13,7 +13,7 @@ function setup() {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'API', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hello' }] });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db, secrets: memoryStore() } as never);

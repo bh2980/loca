@@ -14,7 +14,7 @@ import { expandRecord, lastExchange, transcript, withStoredCards } from '../serv
 import { partsTokens } from '../services/chat-compaction.ts';
 import { continueAfterDecisions } from '../services/chat-turn.ts';
 import { turnStartedAt } from '../services/chat-turn-registry.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { decideProposal, hasDecisionsToAnswer, hasUnreportedDecisions, propose, takeDecisions } from '../services/proposals.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
@@ -24,7 +24,7 @@ function setup() {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   db.update(s.connections).set({ modelLimits: { m: { maxOutput: 1000, by: 'api' } } }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'one' }, { key: 'b', group: 'g', source: 'two' }, { key: 'c', group: 'g', source: 'three' }] }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'one' }, { key: 'b', group: 'g', source: 'two' }, { key: 'c', group: 'g', source: 'three' }] }), choice);
   db.update(s.connections).set({ projectId }).where(eq(s.connections.id, connection.id)).run();
   const chat = db.insert(s.chatSessions).values({ projectId, title: 't', ...choice }).returning().get();
   const workflow = translateOnlyWorkflow(db, projectId);

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, termMarksOf } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { fillTermUsage } from './term-usage.ts';
 import { addNameTerms, discoverAndSave } from './terms.ts';
 
@@ -23,7 +23,7 @@ function setup() {
     ],
     characters: [{ name: 'Nina' }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   return { db, projectId, choice };
 }
 

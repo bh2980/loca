@@ -6,7 +6,7 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createRun } from '../engine/run-create.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { workflowRoutes } from './workflows.ts';
 
@@ -15,7 +15,7 @@ function setup() {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hi' }] });
-  const { projectId } = importProject(db, file, choice);
+  const { projectId } = createProjectFromFile(db, file, choice);
   const analysis = (name: string) => {
     const workflow = db.insert(s.workflows).values({ projectId, name, definition: analysisTemplate({ model: choice }) }).returning().get();
     return createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;

@@ -3,7 +3,7 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { addSourceSchema, importFileSchema, type ImportFileInput } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { addSource, sourceRefusal } from './source-add.ts';
 import { undoRecorded } from './undo-records.ts';
 
@@ -23,8 +23,8 @@ const dialogue: ImportFileInput = {
   graph: { nodes: [{ key: 'n1', units: ['intro.1'] }, { key: 'n2', units: ['intro.2'] }], edges: [{ from: 'n1', to: 'n2' }] },
   characters: [{ name: 'Ana' }, { name: 'Ben' }],
 };
-const made = () => importProject(db, importFileSchema.parse(dialogue)).projectId;
-const made2 = () => importProject(db, importFileSchema.parse({ ...dialogue, project: { name: 'B', sourceLanguage: 'en' } })).projectId;
+const made = () => createProjectFromFile(db, importFileSchema.parse(dialogue)).projectId;
+const made2 = () => createProjectFromFile(db, importFileSchema.parse({ ...dialogue, project: { name: 'B', sourceLanguage: 'en' } })).projectId;
 const lines = (projectId: string) => db.select({ key: s.units.key, source: s.units.source, kind: s.units.kind, seq: s.units.seq, translation: s.units.translation }).from(s.units).where(eq(s.units.projectId, projectId)).all().sort((a, b) => a.seq - b.seq);
 const nodes = (projectId: string) => db.select({ key: s.graphNodes.key }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().map((row) => row.key).sort();
 
@@ -148,7 +148,7 @@ it('asks before turning on a format the new lines use, and turns on what it is t
 });
 
 it('a line without a kind takes its group\'s, as in a new project', () => {
-  const ui = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'UI', sourceLanguage: 'en' }, groups: [{ key: 'm', kind: 'ui', title: 'M' }], units: [{ key: 'm.1', group: 'm', source: 'Start' }] })).projectId;
+  const ui = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'UI', sourceLanguage: 'en' }, groups: [{ key: 'm', kind: 'ui', title: 'M' }], units: [{ key: 'm.1', group: 'm', source: 'Start' }] })).projectId;
   expect(lines(ui).map((line) => line.kind)).toEqual(['ui']);
 });
 
@@ -223,7 +223,10 @@ it('brings the node types the project lacks with the nodes, and keeps its own', 
 
 it('keeps a log line of each file that changed something: taken back it says so, past its keeping it can no longer be', () => {
   const projectId = made();
-  const log = () => db.select().from(s.sourceImports).where(eq(s.sourceImports.projectId, projectId)).all().sort((a, b) => +a.createdAt - +b.createdAt);
+  // The file the project was made from has its line too (via new); these are the ones added after.
+  const madeFrom = db.select().from(s.sourceImports).where(eq(s.sourceImports.projectId, projectId)).all();
+  expect(madeFrom).toMatchObject([{ via: 'new', undoneAt: null, summary: { added: { groups: 1, units: 2 } } }]);
+  const log = () => db.select().from(s.sourceImports).where(eq(s.sourceImports.projectId, projectId)).all().filter((row) => row.via !== 'new').sort((a, b) => +a.createdAt - +b.createdAt);
   const first = addSource(db, projectId, addSourceSchema.parse({ format: 'loca/v1', name: 'ui.json', groups: [{ key: 'menu', kind: 'ui', title: 'Menu' }], units: [{ key: 'menu.start', group: 'menu', source: 'Start' }], terms: [{ source: 'Relay', target: '중계소' }] }), 'proposal');
   expect(log()).toMatchObject([{ name: 'ui.json', via: 'proposal', undoId: first.undoId, undoneAt: null, summary: { added: { groups: 1, units: 1 }, knowledge: { terms: 1 } } }]);
   // Nothing new: no line.

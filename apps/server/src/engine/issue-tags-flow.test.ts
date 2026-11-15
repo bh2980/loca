@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, translationTemplate, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -26,7 +26,7 @@ describe('the default 번역 workflow tags through its 태그 붙이기 nodes', 
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
     const model = { connectionId: connection.id, model: 'm' };
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source: 'Line 0' }, { key: 'u1', group: 'g1', source: 'Line 1' }] }), model);
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source: 'Line 0' }, { key: 'u1', group: 'g1', source: 'Line 1' }] }), model);
     const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
     const status = (kind: string) => statuses.find((item) => item.kind === kind)!.id;
     expect(db.select().from(s.tags).all().map((tag) => tag.name).sort()).toEqual(STARTERS);

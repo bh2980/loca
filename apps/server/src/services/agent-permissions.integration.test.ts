@@ -6,7 +6,7 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { scriptRoutes } from '../routes/script.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { proposeChange } from './change-gate.ts';
 import { apiChatTools } from './tool-run.ts';
 import { decideProposal } from './proposals.ts';
@@ -14,7 +14,7 @@ import { agentCatalog } from './agent-catalog.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'Permission test' },
     groups: [{ key: 'scene', title: 'Scene' }],

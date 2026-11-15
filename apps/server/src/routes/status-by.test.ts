@@ -5,14 +5,14 @@ import { importFileSchema, type LineFilterInput } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { sourceRoutes } from './source.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [0, 1, 2].map((n) => ({ key: `u${n}`, group: 'g', source: `Line ${n}` })) });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);

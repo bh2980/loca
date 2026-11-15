@@ -380,8 +380,10 @@ projects
 
 projects
   .command('import <파일>')
-  .description('표준 파일(loca/v1)로 새 프로젝트 만들기 (앱의 가져오기와 같음; 있던 프로젝트는 건드리지 않음). 먼저 loca format check로 검사합니다. 새 프로젝트는 홈 설정의 기본값을 복사해 가고, 연결 키는 사람이 앱에서 넣습니다')
-  .action(async (file: string) => {
+  .description('표준 파일(loca/v1)로 새 프로젝트 만들기 (앱의 새 프로젝트 › 파일에서와 같음; 있던 프로젝트는 건드리지 않음). 먼저 loca format check로 검사합니다. 빈 프로젝트를 만들고 파일을 원문 넣기처럼 넣으므로, 그 파일은 원문 넣기 기록(loca source log)에 남습니다. 새 프로젝트는 홈 설정의 기본값을 복사해 가고, 연결 키는 사람이 앱에서 넣습니다. 파일의 원문에 시작 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다')
+  .option('--format <ids...>', '서식 규칙에 같이 켤 서식 (거절 메시지의 id)')
+  .option('--no-format', '그 서식을 켜지 않고 만들기')
+  .action(async (file: string, options: { format?: string[] | false }) => {
     const data = readJsonArg(file === '-' ? '-' : `@${file}`);
     const checked = await unwrap(api().projects.validate.$post({ json: data }));
     if (!checked.ok) {
@@ -389,7 +391,14 @@ projects
       if (globals().json) return print(checked);
       return console.log(`형식 오류 ${checked.issues.length}개 (loca format check ${file}로 자세히):\n${checked.issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
     }
-    const summary = await unwrap(api().projects.import.$post({ json: data as never }));
+    // Turning a format on is the person's call: asked before the project is made.
+    if (options.format === undefined && checked.formats.length) {
+      process.exitCode = 1;
+      if (globals().json) return print({ ok: false, formats: checked.formats });
+      return console.log(['파일의 원문에 서식 규칙에 없는 서식이 있습니다.', ...formatQuestion(checked.formats)].join('\n'));
+    }
+    const formats = options.format === false ? [] : (options.format ?? []);
+    const summary = await unwrap(api().projects.import.$post({ query: { name: file === '-' ? undefined : path.basename(file), formats: formats.join(',') || undefined }, json: data as never }));
     if (globals().json) return print(summary);
     console.log(`프로젝트를 만들었습니다: ${checked.summary.name}  (${summary.projectId})\n  묶음 ${summary.groups} · 대사 ${summary.units} · 그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}\n  이 프로젝트로: LOCA_PROJECT=${summary.projectId}`);
   });
@@ -1195,6 +1204,9 @@ withRunScope(runs.command('start <워크플로>'))
     await followRun(outcome, options, '실행 시작');
   });
 
+/** Where a 원문 넣기 came from, as its log says it. */
+const SOURCE_VIA = { app: '앱', proposal: '제안', new: '새 프로젝트' } as const;
+
 /** The formats new lines use that the format rules lack, and how to answer whether to turn them on. */
 const formatQuestion = (formats: { id: string; label: string; count: number; examples: string[] }[]) =>
   formats.length
@@ -1298,7 +1310,7 @@ source
       const knew = Object.entries(knowledge).filter(([, n]) => n).map(([kind, n]) => `${labels[kind] ?? kind} ${n}`);
       const parts = [`묶음 ${added.groups} · 대사 ${added.units} · 노드 ${added.graphNodes} · 연결 ${added.graphEdges}`, knew.length && `지식 ${knew.join(' · ')}`, updated.units + updated.groups + updated.graphNodes && `바꿈 대사 ${updated.units} · 묶음 ${updated.groups} · 노드 ${updated.graphNodes}`, row.summary.formats.length && `서식 ${row.summary.formats.join(', ')}`].filter(Boolean);
       const state = row.undoneAt ? '되돌림' : row.undoId ? '되돌릴 수 있음' : '되돌릴 수 없음 (보관 기간 30일 지남)';
-      console.log(`${new Date(row.createdAt).toLocaleString()}  ${row.name ?? '(이름 없음)'}  ${row.via === 'app' ? '앱' : '제안'}  [${state}]\n  ${parts.join(' · ')}`);
+      console.log(`${new Date(row.createdAt).toLocaleString()}  ${row.name ?? '(이름 없음)'}  ${SOURCE_VIA[row.via]}  [${state}]\n  ${parts.join(' · ')}`);
     }
   });
 

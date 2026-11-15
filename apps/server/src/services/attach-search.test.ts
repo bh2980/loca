@@ -6,7 +6,7 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { chatRoutes } from '../routes/chat.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { runStamp, searchAttach } from './attach-search.ts';
 
 const setup = (extraLines = 0) => {
@@ -33,7 +33,7 @@ const setup = (extraLines = 0) => {
     documents: [{ title: '작품 개요', kind: 'note', body: 'x' }],
     terms: [{ source: 'The Rat', target: '쥐새끼' }, { source: 'Lighthouse', target: '등대' }],
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
   db.insert(s.tags).values({ projectId, name: '청자 미상', color: '#888888' }).run();
   const run = db.insert(s.runs).values({ projectId, workflowName: '번역', workflowVersion: 1, definition: { nodes: [], edges: [], settings: {} } as never, scope: {}, status: 'completed', total: 3 }).returning().get();

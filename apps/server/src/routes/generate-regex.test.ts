@@ -5,7 +5,7 @@ import { editorAiSchema, importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { projectRoutes } from './projects.ts';
 
@@ -21,7 +21,7 @@ function setup(withModel = true) {
     groups: [{ key: 'g', title: 'G' }],
     units: Array.from({ length: 12 }, (_, n) => ({ key: `u${n}`, group: 'g', source: `Line ${n} [[ID_${n}]]` })),
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   if (withModel) db.update(s.projects).set({ editorAi: editorAiSchema.parse({ model: { connectionId: connection.id, model: 'm' } }) }).where(eq(s.projects.id, projectId)).run();
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {

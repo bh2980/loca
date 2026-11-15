@@ -2,7 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { openDatabase } from '../apps/server/src/db/index.ts';
-import { importProject } from '../apps/server/src/services/importer.ts';
+import { createProjectFromFile } from '../apps/server/src/services/project-create.ts';
 import { importFileSchema } from '../packages/shared/src/index.ts';
 import { config } from '../apps/server/src/config.ts';
 
@@ -23,7 +23,7 @@ for (const file of sampleFiles) {
   console.log(`Importing sample: ${file}`);
   const raw = JSON.parse(fs.readFileSync(file, 'utf8'));
   const parsed = importFileSchema.parse(raw);
-  const summary = importProject(db, parsed);
+  const summary = createProjectFromFile(db, parsed);
   console.log(`✓ Imported project "${parsed.project.name}" (ID: ${summary.projectId}) with ${summary.units} lines and ${summary.groups} groups`);
 }
 

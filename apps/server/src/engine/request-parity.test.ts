@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { estimateTokens, importFileSchema, LINE_OVERHEAD, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { preflight } from './preflight.ts';
 import { previewContext, previewRequest } from '../services/request-preview.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
@@ -49,7 +49,7 @@ function setup() {
       edges: [{ from: 'n.harbor', to: 'n.deck' }],
     },
   });
-  const { projectId } = importProject(db, file, choice);
+  const { projectId } = createProjectFromFile(db, file, choice);
   db.insert(s.characters).values([{ projectId, name: 'Alice' }, { projectId, name: 'Bob' }]).run();
   return { db, projectId, choice, taken: units.filter((unit) => unit.source !== '...').map((unit) => unit.key) };
 }

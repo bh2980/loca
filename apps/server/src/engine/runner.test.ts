@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -20,7 +20,7 @@ function setup(lines = 30) {
     groups: [{ key: 'g1', title: 'Scene' }],
     units: Array.from({ length: lines }, (_, index) => ({ key: `u${index}`, group: 'g1', source: index === 0 ? 'Hi {name}' : `Line ${index}` })),
   });
-  const { projectId } = importProject(db, file, choice);
+  const { projectId } = createProjectFromFile(db, file, choice);
   const needsReview = db.insert(s.statuses).values({
     projectId,
     name: '사람 확인 필요',

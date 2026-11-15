@@ -3,8 +3,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { createProject } from './project-create.ts';
-import { importProject } from './importer.ts';
+import { createProject, fileFormatOffers, startingFormatRules } from './project-create.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { createGroup } from './source-mutations.ts';
 import { createLine } from './graph-edit.ts';
 
@@ -31,8 +31,26 @@ it('makes an empty project from the home defaults, and its lines are written in 
 
 it('starts a project made from a file the same way, with what the file brings', () => {
   const empty = createProject(db, { name: 'Empty', description: '', sourceLanguage: 'en', targetLanguage: 'ko' });
-  const file = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'File', sourceLanguage: 'ja' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'a.1', group: 'a', source: 'こんにちは {name}' }] }));
+  const file = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'File', sourceLanguage: 'ja' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'a.1', group: 'a', source: 'こんにちは {name}' }] }));
   const names = (projectId: string) => db.select({ name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((row) => row.name).sort();
   expect(names(file.projectId)).toEqual(names(empty.projectId));
   expect(db.select().from(s.projects).where(eq(s.projects.id, file.projectId)).get()).toMatchObject({ name: 'File', sourceLanguage: 'ja', targetLanguage: 'ko' });
+});
+
+it('a project made from a file is an empty one with the file put in: the log keeps it, and the formats to ask about are offered', () => {
+  const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'HUD', sourceLanguage: 'en' }, groups: [{ key: 'hud', kind: 'ui', title: 'HUD' }], units: [{ key: 'hud.hp', group: 'hud', source: '@hp@ HP {0}' }] });
+  // The presets its lines use come with the project; a custom pattern is asked about.
+  expect(startingFormatRules(file).presets).toEqual(['brace']);
+  expect(fileFormatOffers(file).map((format) => format.id)).toEqual(['@변수@']);
+  const { projectId, units } = createProjectFromFile(db, file, undefined, undefined, { name: 'hud.json', formats: ['@변수@'] });
+  expect(units).toBe(1);
+  expect(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.formatRules.custom.map((rule) => rule.label)).toEqual(['@변수@']);
+  expect(db.select().from(s.sourceImports).where(eq(s.sourceImports.projectId, projectId)).all()).toMatchObject([{ via: 'new', name: 'hud.json', summary: { formats: ['@변수@'] } }]);
+});
+
+it('a file that cannot go in leaves no half-made project behind', () => {
+  const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'Bad' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'g.1', group: 'g', source: 'Hi' }] });
+  const before = db.select().from(s.projects).all().length;
+  expect(() => createProjectFromFile(db, file, undefined, undefined, { formats: ['nope'] })).toThrow(/nope/);
+  expect(db.select().from(s.projects).all()).toHaveLength(before);
 });

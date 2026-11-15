@@ -3,12 +3,12 @@ import { asc, eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from './index.ts';
 import * as s from './schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units: [{ key: 'a1', group: 'g1', source: 'Halt!' }] }), { connectionId: connection.id, model: 'm' });
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units: [{ key: 'a1', group: 'g1', source: 'Halt!' }] }), { connectionId: connection.id, model: 'm' });
   const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const tag = db.insert(s.tags).values({ projectId, name: '말투 어긋남', color: '#ff0000', scope: ['lines'] }).returning().get();

@@ -16,6 +16,8 @@ export const Route = createFileRoute('/p/$projectId/import')({
 type Picked = { id: string; name: string; file: SourceFile } | { id: string; name: string; issues: { path: string; message: string }[] };
 type Added = Awaited<ReturnType<typeof addSourceFile>>;
 
+/** Where a 원문 넣기 came from: a person here, an accepted proposal (the terminal, a chat), or the file the project was made from. */
+const SOURCE_VIA = { app: '앱', proposal: '제안', new: '새 프로젝트' } as const;
 const KNOWLEDGE_LABELS = { characters: '인물', relationships: '관계', documents: '노트', terms: '용어', events: '사건', speechRules: '말투' } as const;
 const some = (keys: readonly string[], shown = 5) => (keys.length > shown ? `${keys.slice(0, shown).join(', ')} 외 ${keys.length - shown}개` : keys.join(', '));
 const count = (keys: readonly string[]) => (keys.length ? `${keys.length.toLocaleString()}개 · ${some(keys)}` : '없음');
@@ -241,7 +243,7 @@ function ImportLog({ projectId, undoing, onUndo }: { projectId: string; undoing:
   const columns: ColumnDef<ImportEntry, unknown>[] = [
     { id: 'at', header: '언제', meta: { width: 128, tone: 'muted', tabular: true }, cell: ({ row }) => new Date(row.original.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) },
     { id: 'name', header: '파일', meta: { width: 140, hideable: false }, cell: ({ row }) => row.original.name ?? '(이름 없음)' },
-    { id: 'via', header: '경로', meta: { width: 56, tone: 'muted' }, cell: ({ row }) => (row.original.via === 'app' ? '앱' : '제안') },
+    { id: 'via', header: '경로', meta: { width: 84, tone: 'muted' }, cell: ({ row }) => SOURCE_VIA[row.original.via] },
     { id: 'summary', header: '내용', meta: { wrap: true }, cell: ({ row }) => entrySummary(row.original) },
     {
       id: 'undo', header: '', meta: { width: 104, dense: true, resizable: false },

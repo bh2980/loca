@@ -4,7 +4,7 @@ import * as ai from '@loca/ai';
 import { importFileSchema, translationTemplate, DEFAULT_RETRY_RULES, type BatchConfig, type RetryRule } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -39,7 +39,7 @@ function setup(lines: number, batch: Partial<BatchConfig>, { resend, wait, retry
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: lines }, (_, index) => ({ key: `g1-${index}`, group: 'g1', source: `S0 L${index}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const template = withoutTerms(translationTemplate({

@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { batchChangeSchema, importFileSchema, lineFilterSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { applyBatch, checkScript, exportLines, findLines, normalizeBatch, scenesWith, validateBatch } from './script-query.ts';
 
 function setup() {
@@ -25,7 +25,7 @@ function setup() {
       { name: 'Bob Stone', aliases: ['CHAR_BOB'] },
     ],
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   return { db, projectId };
 }
 const filter = (input: Parameters<typeof lineFilterSchema.parse>[0]) => lineFilterSchema.parse(input);

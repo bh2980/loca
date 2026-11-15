@@ -852,8 +852,8 @@ export const sourceImports = sqliteTable(
     projectId: projectId(),
     /** The file's name, as the app or the terminal gave it. */
     name: text('name'),
-    /** app: a person on 원문 넣기; proposal: an accepted add_source (the terminal or a chat). */
-    via: text('via', { enum: ['app', 'proposal'] }).notNull(),
+    /** app: a person on 원문 넣기; proposal: an accepted add_source (the terminal or a chat); new: the file the project was made from. */
+    via: text('via', { enum: ['app', 'proposal', 'new'] }).notNull(),
     summary: json<SourceImportSummary>('summary').notNull(),
     /** Its undo record while there is one to put it back with; cleared when that is gone (taken back, or past its keeping). */
     undoId: text('undo_id'),

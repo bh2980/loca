@@ -65,7 +65,7 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
  * `via`: who added it, for the 원문 넣기 log (a person on the page, or an accepted add_source); `by`: who a restarted
  * line's status is set by.
  */
-export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 'app' | 'proposal' = 'app', by: Saver = PERSON): SourceAdded {
+export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 'app' | 'proposal' | 'new' = 'app', by: Saver = PERSON): SourceAdded {
   const { diff, refusal } = sourceRefusal(db, projectId, file);
   if (refusal) throw new Refusal('invalid', refusal);
   const changedUnits = file.update ? new Set(diff.units.changed.map((item) => item.key)) : new Set<string>();

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { groupRows } from '../services/group-rows.ts';
 import { listenerRows } from '../services/project-rows.ts';
 
@@ -16,7 +16,7 @@ describe('listener filter choices', () => {
       groups: [{ key: 'g', title: 'G' }],
       units: Array.from({ length: 6 }, (_, n) => ({ key: `u${n}`, group: 'g', source: `Line ${n}` })),
     });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
     db.update(s.units).set({ kind: 'dialogue', speaker: 'Ann' }).where(eq(s.units.projectId, projectId)).run();
     db.update(s.units).set({ listener: 'Bob', listenerOrigin: 'human' }).where(eq(s.units.id, units[0]!.id)).run();

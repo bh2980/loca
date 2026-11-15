@@ -5,11 +5,11 @@ import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { turnPrompt, writeText } from './chat-stream.ts';
 import { agentText, callTool, panelOutput } from './tool-run.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }], characters: [{ name: 'Alice' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }], characters: [{ name: 'Alice' }] }));
   const chat = db.insert(s.chatSessions).values({ projectId, title: 't', permissionMode: 'ask' }).returning().get();
   const tool = (name: string) => agentCatalog(db, projectId, { model: 'm' }).find((entry) => entry.name === name)!;
   const call = (surface: 'api' | 'acp' | 'terminal', name: string, input: unknown) => callTool(db, { projectId, surface, sessionId: surface === 'terminal' ? null : chat.id, model: 'm' }, tool(name), input);
