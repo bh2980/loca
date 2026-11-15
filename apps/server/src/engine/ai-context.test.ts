@@ -5,13 +5,13 @@ import { contextConfigSchema, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildContext } from './ai-context.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 
 // The sample has a choice (panel / logbook) that joins before the tower, and a loop back into it.
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const rows = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.sort)).all();
   const unit = (key: string) => rows.find((row) => row.key === key)!;
   return { db, projectId, unit, rows };

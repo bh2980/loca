@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { deleteItemGroups } from './item-delete.ts';
 import { undoRecorded } from './undo-records.ts';
 import { linkEvents, projectEventFlow, withLinks } from './event-flow.ts';
@@ -26,7 +26,7 @@ describe('사건 흐름 corrections', () => {
 
   it('links and unlinks events, and a deleted event takes its lines with it until ⌘Z', () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi' }] }));
     const [first, second] = db.insert(s.storyEvents).values([{ projectId, title: '하나' }, { projectId, title: '둘' }]).returning().all();
     const nextOf = (id: string) => projectEventFlow(db, projectId).find((event) => event.id === id)!.next;
 

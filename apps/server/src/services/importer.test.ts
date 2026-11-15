@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 describe('default workflows of a new project', () => {
   it('has 작품 분석 but no "자료 갱신" (that template stays available from "새 워크플로")', () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] });
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
     const names = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((workflow) => workflow.name);
     expect(names).not.toContain('자료 갱신');
     expect(names).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
@@ -22,7 +22,7 @@ describe('default workflows of a new project', () => {
   it('puts imported lines that already have a translation in 번역됨', () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi', translation: '안녕' }, { key: 'b', group: 'g', source: 'Yo' }] });
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
     const names = new Map(db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((status) => [status.id, status.name]));
     const byKey = new Map(db.select().from(s.units).where(eq(s.units.projectId, projectId)).all().map((unit) => [unit.key, names.get(unit.statusId)]));
     expect([byKey.get('a'), byKey.get('b')]).toEqual(['번역됨', '미번역']);
@@ -41,7 +41,7 @@ describe('scene lines as dialogue-graph nodes', () => {
       groups: [{ key: 's1', title: 'S1' }, { key: 'd', kind: 'document', title: 'Doc' }, { key: 'u', kind: 'ui', title: 'UI' }],
       units: [{ key: 'a', group: 's1', source: 'One' }, { key: 'b', group: 's1', source: 'Two' }, { key: 'x', group: 'd', source: 'Letter' }, { key: 'y', group: 'u', source: 'OK' }],
     });
-    const { projectId, graphNodes } = importProject(db, file);
+    const { projectId, graphNodes } = createProjectFromFile(db, file);
     const rows = nodes(db, projectId);
     expect(graphNodes).toBe(2);
     expect(rows.map((node) => [node.key, node.kind, node.origin, node.unitIds.length]).sort()).toEqual([['a', 'script', 'import', 1], ['b', 'script', 'import', 1]]);
@@ -58,7 +58,7 @@ describe('scene lines as dialogue-graph nodes', () => {
       units: [{ key: 'a', group: 'g', source: 'One' }, { key: 'b', group: 'g', source: 'Two' }],
       graph: { nodes: [{ key: 'b', units: ['a'] }], edges: [] },
     });
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
     const rows = nodes(db, projectId);
     expect(rows.map((node) => node.key).sort()).toEqual(['b', 'b#2']);
     expect(rows.find((node) => node.key === 'b#2')!.unitIds).toHaveLength(1);
@@ -70,7 +70,7 @@ describe('character roles in imports', () => {
     const supplied = importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }], characters: [{ name: 'Lead', role: 'main' }, { name: 'Extra' }] });
     expect(supplied.characters.map((character) => character.role)).toEqual(['main', 'unknown']);
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, supplied);
+    const { projectId } = createProjectFromFile(db, supplied);
     expect(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((character) => character.role)).toEqual(['main', 'unknown']);
   });
 });

@@ -6,11 +6,11 @@ import * as s from '../db/schema.ts';
 import { learnImages } from '../domain/ai-calls.ts';
 import { acpImages, incomingImageProblem, withoutImages } from './chat-images.ts';
 import { chatUsage } from './chat-usage.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 function setup(modelLimits: Record<string, { contextWindow?: number; images?: boolean; by: 'api' | 'human' }> = {}) {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
   const connection = db.insert(s.connections).values({ name: 'C', kind: 'grok', modelLimits }).returning().get();
   const chat = db.insert(s.chatSessions).values({ projectId, title: '대화', connectionId: connection.id, model: 'm' }).returning().get();
   return { db, projectId, connection, chat };

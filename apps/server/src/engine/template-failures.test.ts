@@ -4,7 +4,7 @@ import * as ai from '@loca/ai';
 import { importFileSchema, WORKFLOW_TEMPLATES, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -32,7 +32,7 @@ function setup(templateKey: string) {
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `u${index}`, group: `g${index}`, source: `Hello ${index}`, translation: templateKey === 'translation' ? undefined : `안녕 ${index}` }));
   const groups = units.map((unit) => ({ key: unit.group, title: unit.group }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
   const issueTags = issueTagIds(db, projectId);

@@ -3,7 +3,7 @@ import { eq, sql } from 'drizzle-orm';
 import { importFileSchema, lineFilterSchema, mentions } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { buildContext, precedingLines } from '../engine/ai-context.ts';
 import { contextConfigSchema } from '@loca/shared';
 import { checkScript } from '../services/script-query.ts';
@@ -19,7 +19,7 @@ function setup(lines = 3) {
     units: Array.from({ length: lines }, (_, i) => ({ key: `l${i}`, group: i < lines / 2 ? 'g1' : 'g2', speaker: 'Alice', listener: 'Bob', source: `Alice meets Bob at line ${i}`, translation: `번역 ${i}` })),
     characters: [{ name: 'Alice', aliases: [] }, { name: 'Bob', aliases: [] }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   return { db, projectId };
 }
 
@@ -131,7 +131,7 @@ describe('knowledge snapshot cache', () => {
 });
 
 describe('checkScript terms speed', () => {
-  it('20k lines x 1,000 terms finishes in a few seconds and matches the per-pair result', async () => {
+  it('20k lines x 1,000 terms finishes well before matching term by line would (about 17 s), and matches the per-pair result', async () => {
     const lineCount = 20_000;
     const termCount = 1_000;
     const db = openDatabase(':memory:');
@@ -143,13 +143,15 @@ describe('checkScript terms speed', () => {
       units: Array.from({ length: lineCount }, (_, i) => ({ key: `u${i}`, group: 'g', speaker: 'A', source: `Line ${i}: ${words[i % termCount]} and ${words[(i * 7) % termCount].toLowerCase()}, 서울에서 보자.`, translation: i % 3 ? `번역 ${i}` : `번역 ${i} T${i % termCount}` })),
       terms: words.map((source, i) => ({ source, target: `T${i}` })),
     });
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
 
+    // Alone it takes about 1.5 s; with four test files at once sharing the cores the wall clock went past 5 s. What this
+    // guards against is matching term by line again (20 million pairs: about 17 s on the same machine), which 10 s still catches.
     const start = performance.now();
     const found = await checkScript(db, projectId, 'terms', lineFilterSchema.parse({}));
     const ms = performance.now() - start;
     console.log(`checkScript(terms) ${lineCount} lines x ${termCount} terms: ${ms.toFixed(0)} ms, ${found.length} findings`);
-    expect(ms).toBeLessThan(5000);
+    expect(ms).toBeLessThan(10_000);
 
     // Legacy per-pair evaluation on a slice gives the same findings.
     const terms = db.select().from(s.terms).all();

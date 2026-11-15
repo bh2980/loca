@@ -5,7 +5,7 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { sourceRoutes } from './source.ts';
 
 describe('line surroundings', () => {
@@ -24,7 +24,7 @@ describe('line surroundings', () => {
         translation: `Translation ${index}`,
       })),
     });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const target = db.select().from(s.units).where(eq(s.units.key, 'u9')).get()!;
     const app = new Hono<Env>().onError(onError)
       .use(async (context, next) => {

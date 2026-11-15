@@ -2,7 +2,7 @@ import { TERM_MODE_LABELS, type TermMode, agentToolAvailable, effectiveAgentPerm
 import { projectAgentSettings, specPermissionError } from './agent-permission-check.ts';
 import { and, asc, count, desc, eq, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, INPUT_TYPES, nodeName, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@loca/shared';
+import { APPLY_TARGETS, INPUT_TYPES, nodeName, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes, addSourceSchema, FORMAT_PRESETS } from '@loca/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -17,6 +17,7 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, ord
 import { deleteWorkflow, duplicateWorkflow, saveWorkflow } from './workflow-mutations.ts';
 import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
 import { undoRecorded } from './undo-records.ts';
+import { addSource, sourceRefusal } from './source-add.ts';
 import { startRun } from './start-run.ts';
 import { continueRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
@@ -26,7 +27,20 @@ import { projectSettingsInput, readProjectSettings, updateProjectSettings } from
 import { pullDefaults, readAppDefaults } from '../domain/app-defaults.ts';
 
 /** What each project setting is called on a proposal's card. */
-const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
+const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', sourceLanguage: '원문 언어', targetLanguage: '번역 언어', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
+
+/** With update: what changes, and how many lines start over because their source changed. */
+const updateText = (diff: { units: { changed: { fields: string[] }[] }; groups: { changed: unknown[] }; graph: { nodes: { changed: unknown[] } } }) => {
+  const restart = diff.units.changed.filter((item) => item.fields.includes('source')).length;
+  const parts = [diff.units.changed.length && `대사 ${diff.units.changed.length.toLocaleString()}개${restart ? ` (원문이 바뀐 ${restart.toLocaleString()}개는 다시 번역할 상태로)` : ''}`, diff.groups.changed.length && `묶음 ${diff.groups.changed.length}개`, diff.graph.nodes.changed.length && `노드 ${diff.graph.nodes.changed.length}개`].filter(Boolean);
+  return parts.length ? parts.join(' · ') : undefined;
+};
+
+/** What each kind of knowledge a file brings is called. */
+const KNOWLEDGE_LABELS = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' } as const;
+/** The new knowledge items of a file, per kind (`인물 2 · 용어 5`), or nothing. */
+const knowledgeText = (knowledge: Record<keyof typeof KNOWLEDGE_LABELS, { added: number }>) =>
+  (Object.keys(KNOWLEDGE_LABELS) as (keyof typeof KNOWLEDGE_LABELS)[]).filter((kind) => knowledge[kind].added).map((kind) => `${KNOWLEDGE_LABELS[kind]} ${knowledge[kind].added.toLocaleString()}`).join(' · ') || undefined;
 
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
@@ -618,6 +632,40 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         return { ok: true, ...linked, undoId: token };
       },
     }),
+    add_source: tool({
+      description:
+        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Knowledge items (characters, relationships, speech rules, notes, events, terms) the project lacks go in too, with their tags by name (a tag the project lacks is made; one whose places leave the item out is not put on and is listed under tagsSkipped) and the 사건 흐름 lines (eventLinks, by event title) that touch a new event; a relationship or speech rule may name the project\'s characters. Nothing the project has is changed or deleted: a key or knowledge item both have stays as the project has it (a character is the same by any of its names, a term by its source, a note or event by its title), and lines the file leaves out stay. update: true also changes the keys the project has that the file gives otherwise (a patched source, speaker, listener, a line moved to another group, a group\'s title, a node\'s label): a line whose source changed starts over in the initial status with its translation kept; a listener a person set, a group\'s kind and which lines a node holds are not changed (the answer lists them under updated.skipped). Use it only when the person wants the file\'s version (a game patch). When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId: restore_deleted (kind script) takes all of it back, format rules included.',
+      inputSchema: addSourceSchema,
+      check: (input) => {
+        const file = addSourceSchema.safeParse(input);
+        if (!file.success) return { ok: false, error: `파일 형식이 맞지 않습니다: ${file.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.')} ${issue.message}`).join(' / ')}` };
+        const { diff, refusal } = sourceRefusal(db, projectId, file.data);
+        if (refusal) return { ok: false, error: refusal };
+        const changes = file.data.update ? diff.groups.changed.length + diff.units.changed.length + diff.graph.nodes.changed.length : 0;
+        if (!changes && !diff.groups.added.length && !diff.units.added.length && !diff.graph.nodes.added.length && !diff.graph.edges.added && !Object.values(diff.knowledge).some((item) => item.added)) return { ok: false, error: '더할 것이 없습니다. 파일의 key와 지식이 모두 프로젝트에 있습니다.', empty: true };
+        return { ok: true, input, report: diff.warnings.length ? { dropped: [], warnings: [{ key: 'project', issues: diff.warnings }] } : null };
+      },
+      undo: undoesRecord(() => 'script'),
+      preview: (input, of) => {
+        const file = addSourceSchema.safeParse(input);
+        if (!file.success) return [remark('파일 형식이 맞지 않습니다.')];
+        const note = remark(file.data.update ? '새 key와 새 지식을 더하고, 프로젝트와 다르게 적힌 대사·묶음·노드는 파일대로 바꿉니다. 사람이 정한 청자, 묶음의 종류, 노드에 담긴 대사는 바꾸지 않습니다. 지식과 파일에 없는 대사는 그대로 둡니다.' : '새 key와 새 지식만 더합니다. 프로젝트에 이미 있는 key와 지식(같은 이름의 인물, 같은 원문의 용어…)은 그대로 두고, 파일에 없는 대사도 지우지 않습니다.');
+        const total = fields(['파일', `묶음 ${file.data.groups.length.toLocaleString()}개 · 대사 ${file.data.units.length.toLocaleString()}개`]);
+        const formats = fields(['서식 규칙에 켬', (file.data.formats ?? []).map((id) => (Object.hasOwn(FORMAT_PRESETS, id) ? FORMAT_PRESETS[id as keyof typeof FORMAT_PRESETS].label : id))]);
+        if (of.status !== 'pending') return [...total, ...formats, note];
+        const diff = sourceRefusal(db, projectId, file.data).diff;
+        const counted = (keys: string[]) => (keys.length ? `${keys.length.toLocaleString()}개 (${some(keys)})` : undefined);
+        const nodes = diff.graph.nodes.added.length + diff.graph.nodes.own;
+        return [
+          ...total,
+          ...fields(['더할 묶음', counted(diff.groups.added)], ['더할 대사', counted(diff.units.added)], ['더할 그래프 노드', nodes ? `${nodes.toLocaleString()}개${diff.graph.nodes.own ? ` (새 장면 대사에 하나씩 붙는 ${diff.graph.nodes.own.toLocaleString()}개 포함)` : ''}` : undefined], ['더할 연결', diff.graph.edges.added ? `${diff.graph.edges.added.toLocaleString()}개` : undefined], ['더할 지식', knowledgeText(diff.knowledge)], file.data.update && ['바꿀 것', updateText(diff)]),
+          ...formats,
+          ...diff.warnings.map((warning) => onAccept(warning)),
+          note,
+        ];
+      },
+      execute: (file) => ({ ok: true, ...addSource(db, projectId, file, 'proposal', saver) }),
+    }),
     save_document: tool({
       description: 'Create a note (자료 › 노트: story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 노트 context on.',
       inputSchema: upsert(documentInput),
@@ -1018,19 +1066,19 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     restore_deleted: tool({
       description:
-        'Take back one recorded change, by the undoId it answered with. A delete (delete_lines, delete_group, delete_items): the items come back with the same ids and everything that went with them (a line\'s translations, tags, history, run items and graph node with its connections; a character\'s relationships; an event\'s lines; the tags on them). An edit of the dialogue graph (create_unit, link_lines, link_in_order): what it made goes and what it rewrote is as it was. kind is what was changed: script (lines and the dialogue graph), scenes (a group), or the kind given to delete_items. Works once, for 30 days. Refused whole when the project changed so that it cannot go back as it was (its scene or status deleted, its key taken).',
+        'Take back one recorded change, by the undoId it answered with. A delete (delete_lines, delete_group, delete_items): the items come back with the same ids and everything that went with them (a line\'s translations, tags, history, run items and graph node with its connections; a character\'s relationships; an event\'s lines; the tags on them). An edit of the dialogue graph (create_unit, link_lines, link_in_order, add_source): what it made goes and what it rewrote is as it was. kind is what was changed: script (lines and the dialogue graph), scenes (a group), or the kind given to delete_items. Works once, for 30 days. Refused whole when the project changed so that it cannot go back as it was (its scene or status deleted, its key taken).',
       inputSchema: z.object({ kind: z.enum(RESTORABLE_KINDS), id: z.string().min(1) }),
       undo: noUndo('되살린 것은 다시 지워서 되돌립니다'),
       preview: (input) => fields(['되살리기', `지운 ${WHAT[input.kind] ?? input.kind}와 함께 지워진 것`]),
       execute: ({ kind, id }) => undoRecorded(db, projectId, id, kind),
     }),
     read_project_settings: tool({
-      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
+      description: "The project's settings: name, description, source and target language codes, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
       inputSchema: z.object({}),
       execute: () => readProjectSettings(db, projectId) ?? { error: '프로젝트를 찾을 수 없습니다.' },
     }),
     update_project_settings: tool({
-      description: 'Change project settings: name, description, formatRules, exclusionRules, aiAutoConfirm, editorAi, markStyles (the name and colour of each automatic tag, by mark id) (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
+      description: 'Change project settings: name, description, sourceLanguage, targetLanguage (language codes: en, ja, ko…), formatRules, exclusionRules, aiAutoConfirm, editorAi, markStyles (the name and colour of each automatic tag, by mark id) (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
       inputSchema: projectSettingsInput,
       undo: {
         before: () => {

@@ -5,12 +5,12 @@ import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog } from './agent-catalog.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const run = (name: string, input: unknown) => agentCatalog(db, projectId).find((tool) => tool.name === name)!.run(input) as Promise<{ ok: boolean; error?: string; id?: string }>;
   const term = db.insert(s.terms).values({ projectId, source: 'Varn Tower', target: '노코코', note: '탑 이름', status: 'candidate', statusBy: 'ai', origin: 'ai' }).returning().get();
   const tag = (name: string, scope: ('lines' | 'terms')[]) => db.insert(s.tags).values({ projectId, name, color: '#8b5cf6', scope }).returning().get();

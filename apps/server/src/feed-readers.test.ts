@@ -69,6 +69,7 @@ const READS: Record<FeedCollection, Partial<Record<TableName, Reads>>> = {
   proposals: { proposals: 'all', characters: NAMED, relationships: NAMED, speech_rules: NAMED, story_events: NAMED, documents: NAMED, statuses: NAMED, tags: NAMED, workflows: NAMED, groups: NAMED, units: NAMED, terms: NAMED, connections: NAMED, runs: NAMED },
   aiCalls: { ai_calls: 'all' },
   graphViews: { graph_views: 'all' },
+  sourceImports: { source_imports: 'all' },
   chatSessions: { chat_sessions: 'all', ai_calls: 'all' },
   projects: { projects: 'all', units: { ops: ['insert', 'delete'], why: 'Counted; a line never changes project.' } },
   appDefaults: { app_settings: { ops: ['insert', 'update'], why: 'One row, never deleted.' } },
@@ -76,7 +77,7 @@ const READS: Record<FeedCollection, Partial<Record<TableName, Reads>>> = {
 };
 
 /** Everything the seeded rows are called, to read by id. */
-const IDS = ['p1', 'st', 'tag', 'g', 'u', 'term', 'doc', 'ch1', 'ch2', 'rel', 'ev1', 'ev2', 'rule', 'home', 'own', 'w', 'run', 'term-run', 'item', 'term-item', 'call', 'chat-call', 'test-call', 'chat', 'v', 'A', 'B', ''];
+const IDS = ['p1', 'st', 'tag', 'g', 'u', 'term', 'doc', 'ch1', 'ch2', 'rel', 'ev1', 'ev2', 'rule', 'home', 'own', 'w', 'run', 'term-run', 'item', 'term-item', 'call', 'chat-call', 'test-call', 'chat', 'v', 'imp', 'A', 'B', ''];
 
 /** A database with a row of every table, and enough besides that each reader takes every path it has. */
 function seeded() {

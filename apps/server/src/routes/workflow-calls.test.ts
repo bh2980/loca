@@ -3,14 +3,14 @@ import { Hono } from 'hono';
 import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { workflowRoutes } from './workflows.ts';
 vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 const db = openDatabase(':memory:');
 afterEach(() => db.$client.close());
 
 it('lists the workflows that call a workflow (calledBy) and refuses to delete it while any does', async () => {
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
   const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
   const json = { 'content-type': 'application/json' };
   const create = async (name: string) => (await (await app.request(`/projects/${projectId}/workflows`, { method: 'POST', headers: json, body: JSON.stringify({ name }) })).json()) as { id: string; version: number; definition: { nodes: unknown[] } };

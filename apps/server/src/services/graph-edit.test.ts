@@ -3,13 +3,13 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { createLine, deleteNodes, duplicateNodes, linkInOrder, linkNodes, sceneByRef, unlinkEdges } from './graph-edit.ts';
 import { undoRecorded } from './undo-records.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(
+  const { projectId } = createProjectFromFile(
     db,
     importFileSchema.parse({
       format: 'loca/v1',
@@ -92,7 +92,7 @@ describe('editing the dialogue graph', () => {
 describe('linking in script order', () => {
   function scenes() {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(
+    const { projectId } = createProjectFromFile(
       db,
       importFileSchema.parse({
         format: 'loca/v1',

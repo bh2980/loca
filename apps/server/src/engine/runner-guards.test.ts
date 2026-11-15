@@ -4,7 +4,7 @@ import * as ai from '@loca/ai';
 import { errorKindOfCode, importFileSchema, MODEL_ERROR_CODES, MODEL_ERROR_KINDS, translationTemplate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -36,7 +36,7 @@ function setup(scenes: number, size: (scene: number) => number, { resend = true 
   const choice = { connectionId: connection.id, model: 'm' };
   const groups = Array.from({ length: scenes }, (_, index) => ({ key: `g${String(scenes - index).padStart(6, '0')}`, title: `Scene ${index}` }));
   const units = groups.flatMap((group, scene) => Array.from({ length: size(scene) }, (_, index) => ({ key: `${group.key}-${index}`, group: group.key, source: `S${scene} L${index}` })));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups, units }), choice);
   const needsReview = db.insert(s.statuses).values({
     projectId,
     name: '사람 확인 필요',

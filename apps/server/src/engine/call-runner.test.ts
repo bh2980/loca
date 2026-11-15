@@ -4,7 +4,7 @@ import * as ai from '@loca/ai';
 import { importFileSchema, termExtractionTemplate, workflowDefinitionSchema, type WorkflowDefinition } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { preflight } from './preflight.ts';
 import { calledWorkflowErrors, workflowIssues } from '../services/workflow-issues.ts';
 import { memoryStore } from '../domain/secrets.ts';
@@ -25,7 +25,7 @@ function setup({ termsBatch = 8, callError }: { termsBatch?: number; callError?:
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: 8 }, (_, index) => ({ key: `u${index}`, group: 'g1', source: `Hello ${index}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units }), choice);
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
   const review = db.insert(s.statuses).values({ projectId, name: '사람 확인 필요', color: '#b26f00', kind: 'normal', inReview: true, sort: 10 }).returning().get();
 

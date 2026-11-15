@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { createRun } from './run-create.ts';
 import { RunGuards, withCaps } from './run-guards.ts';
@@ -22,7 +22,7 @@ function setup(limits?: s.RunLimits) {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `l${index}`, group: 'g', source: `Line ${index}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units }), choice);
   const definition = workflowDefinitionSchema.parse({
     nodes: [
       { id: 'entry', type: 'entry', position: at, config: {} },

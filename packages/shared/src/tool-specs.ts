@@ -48,6 +48,8 @@ const DELETABLE = [...KNOWLEDGE_KEYS, 'terms', 'tags'] as const;
 const TAGGABLE = [...KNOWLEDGE_KEYS, 'terms'] as const;
 /** What a recorded change can be taken back for (restore_deleted): lines and the dialogue graph, a group, or a kind delete_items takes. */
 export const RESTORABLE_KINDS = ['script', 'scenes', ...DELETABLE] as const;
+/** add_source's knowledge fields and the resource each one makes. */
+const SOURCE_KNOWLEDGE = [['characters', 'characters'], ['relationships', 'relationships'], ['speechRules', 'speechRules'], ['events', 'events'], ['documents', 'documents'], ['terms', 'terms']] as const satisfies readonly (readonly [string, AgentResource])[];
 const taxonomy = (action: AgentAction): NeedsByInput => ({
   of: (input) => (input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', action)] : null),
   options: [[p('statuses', action)], [p('tags', action)]],
@@ -87,6 +89,15 @@ export const TOOL_SPECS = {
   set_listeners: { label: '청자 저장', needs: [p('script', 'update')], batch: ['lines'] },
   link_lines: { label: '대사 그래프 잇기', needs: [p('script', 'update')] },
   link_in_order: { label: '대본 순서로 잇기', needs: [p('script', 'update')], batch: ['scenes', 'lines'] },
+  add_source: {
+    label: '원문 더하기',
+    needs: {
+      // Each kind of knowledge the file brings needs its create (사건 흐름 lines: the events'; what it has already is left alone, but the file is the input).
+      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...SOURCE_KNOWLEDGE.filter(([field]) => rows(input[field]).length || (field === 'events' && rows(input.eventLinks).length)).map(([, resource]) => p(resource, 'create')), ...(input.update === true ? [p('script', 'update'), ...(rows(input.groups).length ? [p('scenes', 'update')] : [])] : []), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
+      options: [[p('script', 'create')], [p('script', 'create'), p('scenes', 'create')], [p('script', 'create'), p('project', 'update')], [p('script', 'create'), p('scenes', 'create'), p('project', 'update')]],
+    },
+    batch: ['groups', 'units', 'characters', 'relationships', 'speechRules', 'events', 'eventLinks', 'documents', 'terms'],
+  },
   // ── knowledge ──
   list_characters: { label: '인물 조회', needs: read('characters', 'relationships') },
   list_relationships: { label: '관계 조회', needs: read('relationships') },

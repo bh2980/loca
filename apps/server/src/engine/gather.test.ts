@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { analysisTemplate, importFileSchema, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -15,7 +15,7 @@ function setup() {
   const choice = { connectionId: connection.id, model: 'm' };
   const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
   const units = groups.flatMap((group, scene) => [0, 1].map((n) => ({ key: `${group.key}-${n}`, group: group.key, speaker: 'MIRA', source: `S${scene} L${n}` })));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Gather' }, groups, units }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Gather' }, groups, units }), choice);
   return { db, projectId, choice };
 }
 

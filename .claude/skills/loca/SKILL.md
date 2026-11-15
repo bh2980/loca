@@ -48,7 +48,7 @@ description: Common rules for working on a loca translation project from the ter
   - 새로 만든 항목을 되돌리는 것은 삭제라서 그 대상의 삭제 권한이 켜져 있어야 합니다.
   - 삭제(`delete_lines`·`delete_group`·`delete_items`)를 되돌리면 지운 것과 거기 딸린 것이 그대로 되살아납니다(30일 안, 한 번). 되살리는 것은 만들기라서 그 대상의 생성 권한이 필요합니다.
 - 목록: `loca proposals list --status pending`으로 기다리는 제안을, `loca proposals show <id>`로 결과를 봅니다.
-- 예외: `loca views create/update/delete`는 번역 데이터가 아니라 그래프에 보일 노드만 저장하므로 바로 저장되고, `loca projects import`는 있던 프로젝트를 건드리지 않고 새로 만들므로 바로 됩니다.
+- 예외: `loca views create/update/delete`는 번역 데이터가 아니라 그래프에 보일 노드만 저장하므로 바로 저장되고, `loca projects create`·`import`는 있던 프로젝트를 건드리지 않고 새로 만들므로 바로 됩니다.
 - 실행 일시정지·취소(`loca runs pause/cancel`)는 비용이 들지 않아 모드와 상관없이 바로 됩니다.
 
 ## 권한

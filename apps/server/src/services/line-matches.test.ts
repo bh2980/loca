@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { lineMatches } from './line-matches.ts';
 
 function setup(sources: [string, string | null][]) {
@@ -14,7 +14,7 @@ function setup(sources: [string, string | null][]) {
     groups: [{ key: 'g', title: 'G' }],
     units: sources.map(([source, translation], n) => ({ key: `u${n}`, group: 'g', source, ...(translation && { translation }) })),
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
   return { db, units };
 }

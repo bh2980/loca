@@ -10,7 +10,7 @@ export default defineConfig({
     // The timeout catches a hang, not a slow machine: with four files at once a test that opens a database and
     // drains a runner passes its usual second several times over. Speed is `pnpm budget`'s to check.
     testTimeout: 20_000,
-    // Keep Windows scale checks from competing with the 5-second term benchmark.
+    // Keep Windows scale checks from competing with the term benchmark (10 s).
     maxWorkers: process.platform === 'win32' ? 1 : 4,
   },
 });

@@ -13,7 +13,7 @@ import { Runner, type ModelPort } from '../engine/runner.ts';
 import { addCandidate } from '../domain/candidates.ts';
 import { proposeChange, undoChanges } from '../services/change-gate.ts';
 import { deleteLines } from '../services/graph-edit.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { FINAL_NEEDS_TEXT, LINE_CHANGED } from '../domain/line-save.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { decideProposal } from '../services/proposals.ts';
@@ -37,7 +37,7 @@ const FILE = importFileSchema.parse({
 });
 
 function setup(mode: 'ask' | 'bypass' = 'bypass', db = openDatabase(':memory:')) {
-  const { projectId } = importProject(db, FILE);
+  const { projectId } = createProjectFromFile(db, FILE);
   const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
   // Deleting is off for the agent until a person switches it on; here the write paths are under test.
   db.update(s.projects).set({ agentSettings: { ...project.agentSettings, permissions: { script: { delete: true }, scenes: { delete: true }, characters: { delete: true }, relationships: { delete: true } } } }).where(eq(s.projects.id, projectId)).run();
@@ -199,6 +199,10 @@ async function dressLineB(ctx: Ctx) {
   return before;
 }
 
+/** The undo records a database holds, and the one of the file its project was made from (it stays: that file can be taken back too). */
+const leftRecords = (db: ReturnType<typeof setup>['db']) => db.select({ id: s.undoRecords.id }).from(s.undoRecords).all().map((row) => row.id);
+const madeFrom = (db: ReturnType<typeof setup>['db']) => db.select({ id: s.sourceImports.undoId }).from(s.sourceImports).where(eq(s.sourceImports.via, 'new')).all().map((row) => row.id);
+
 describe('a delete is undone by one persisted record', () => {
   it('brings a deleted line back whole (texts, tags, history, run items, graph, evidence) from the app and from an accepted proposal', async () => {
     for (const surface of ['app', 'agent'] as const) {
@@ -219,7 +223,8 @@ describe('a delete is undone by one persisted record', () => {
         expect(await undoChanges(ctx.db, ctx.chat.id, [deleted.proposalId!])).toMatchObject([{ ok: false, error: '이미 되돌렸습니다' }]);
       }
       expect(lineB(ctx), surface).toEqual(before);
-      expect(ctx.db.select().from(s.undoRecords).all(), surface).toEqual([]);
+      // Used up: what is left is the record of the file the project was made from.
+      expect(leftRecords(ctx.db), surface).toEqual(madeFrom(ctx.db));
     }
   });
 
@@ -258,7 +263,7 @@ describe('a delete is undone by one persisted record', () => {
     // Nothing changed (the line is already there): nothing to take back, and the proposal says so.
     const again = await tool('link_lines', { from: 'a', to: 'b', action: 'link' });
     expect(db.select().from(s.proposals).where(eq(s.proposals.id, again.proposalId!)).get()!.undo).toEqual({ none: '바뀐 것이 없어 되돌릴 것이 없습니다' });
-    expect(db.select().from(s.undoRecords).all()).toEqual([]);
+    expect(leftRecords(db)).toEqual(madeFrom(db));
   });
 
   it('keeps the record across a restart of the server', async () => {

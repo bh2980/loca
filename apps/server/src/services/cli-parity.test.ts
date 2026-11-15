@@ -8,7 +8,7 @@ import { openDatabase } from '../db/index.ts';
 import { sourceRoutes } from '../routes/source.ts';
 import * as s from '../db/schema.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
 import { resolveLineFilter } from '../domain/line-filter.ts';
 import { askedScope, resolveRunScope } from './run-plan.ts';
@@ -20,7 +20,7 @@ import { listTerms } from '../domain/terms.ts';
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   return { db, projectId };
 }
 
@@ -56,7 +56,7 @@ function filterFixture() {
     graph: { nodes: [{ key: 'n1', units: ['a1', 'a2'] }, { key: 'n2', units: ['a3'] }], edges: [{ from: 'n1', to: 'n2' }] },
     characters: [{ name: 'Mira', aliases: ['MIRA_KEY'] }, { name: 'Jonas' }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(s.units.seq).all();
   const id = (key: string) => units.find((unit) => unit.key === key)!.id;
   const statuses = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all();
@@ -226,7 +226,7 @@ describe('one line filter on every surface', () => {
   it('finds the same lines for text with %, _, \\ and quotes on every surface (a run\'s q is the list\'s search)', async () => {
     const db = openDatabase(':memory:');
     const sources = ['50% done', 'Hello world', 'a_b', 'axb', 'C:\\dir', 'Cdir', 'say "hi"', '100%% sure'];
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: sources.map((source, n) => ({ key: `u${n}`, group: 'g', source })) }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: sources.map((source, n) => ({ key: `u${n}`, group: 'g', source })) }));
     const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
         c.set('deps', { db } as never);

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { agentToolAvailable, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { agentCatalog } from './agent-catalog.ts';
 import { projectReadingRoute } from './reading-route.ts';
 
@@ -57,8 +57,8 @@ const fixture = importFileSchema.parse({
 
 function setup() {
   const db = openDatabase(':memory:');
-  const first = importProject(db, fixture, null as never).projectId;
-  const second = importProject(db, fixture, null as never).projectId;
+  const first = createProjectFromFile(db, fixture, null as never).projectId;
+  const second = createProjectFromFile(db, fixture, null as never).projectId;
   const nodeId = (projectId: string, key: string) => db.select({ id: s.graphNodes.id }).from(s.graphNodes)
     .where(and(eq(s.graphNodes.projectId, projectId), eq(s.graphNodes.key, key))).get()!.id;
   const unit = (projectId: string, key: string) => db.select({ id: s.units.id, key: s.units.key }).from(s.units)

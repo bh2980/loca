@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, type AiNode } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { continuePreflight, continueRun, switchedRun } from '../services/run-continue.ts';
 import { memoryStore } from '../domain/secrets.ts';
@@ -19,7 +19,7 @@ function setup() {
   const b = conn('B', 2);
   const groups = [{ key: 'g', title: 'G' }];
   const units = Array.from({ length: 4 }, (_, index) => ({ key: `u${index}`, group: 'g', source: `L${index}` }));
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups, units }), { connectionId: a.id, model: 'bad' });
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups, units }), { connectionId: a.id, model: 'bad' });
   // Connections belong to the project a workflow runs in.
   db.update(s.connections).set({ projectId }).run();
   const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).get()!;

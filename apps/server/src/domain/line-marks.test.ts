@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { DEFAULT_FORMAT_RULES, importFileSchema, isUnknownListener, matchesMarks, type FormatRules, type ListenerOrigin } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { markConditions, unknownListenerSql } from './line-marks.ts';
 import { addCandidate, declineSuggestion } from './candidates.ts';
 
@@ -18,7 +18,7 @@ describe('unknown listener', () => {
             for (const origin of [null, 'import', 'ai', 'human'] as const)
               for (const confidence of [null, 0.5, 0.95]) cases.push({ kind, speaker, source, listener, origin, confidence });
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: cases.map((item, index) => ({ key: `u${index}`, group: 'g', source: item.source })) });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     cases.forEach((item, index) =>
       db.update(s.units).set({ kind: item.kind, speaker: item.speaker, listener: item.listener, listenerOrigin: item.origin, listenerConfidence: item.confidence }).where(and(eq(s.units.projectId, projectId), eq(s.units.key, `u${index}`))).run(),
     );
@@ -58,7 +58,7 @@ describe('AI 제안 대기', () => {
   it('marks the lines with a waiting suggestion, and only while it waits', () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'A' }, { key: 'b', group: 'g', source: 'B' }] });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
     const marked = () => db.select({ key: s.units.key }).from(s.units).where(and(eq(s.units.projectId, projectId), ...markConditions(projectId, ['aiSuggestion']))).all().map((row) => row.key);
     const suggestion = addCandidate(db, { unitId: unit('a').id, text: '제안', origin: 'ai', state: 'pending' });

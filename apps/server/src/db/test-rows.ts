@@ -28,6 +28,7 @@ export function rows(db: Db): { table: TableName; scope: string; topics: Topic[]
     put(s.graphEdges, p, ['graph'], { id: 'e', projectId: p, fromId: 'n1', toId: 'n2' }),
     put(s.graphLayouts, p, ['graph'], { projectId: p, scope: 'dialogue', status: 'pending' }),
     put(s.graphViews, p, ['graph'], { id: 'v', projectId: p, label: 'V', nodeIds: ['n1'] }),
+    put(s.sourceImports, p, ['units'], { id: 'imp', projectId: p, via: 'app', summary: { added: { groups: 0, units: 1, graphNodes: 0, graphEdges: 0 }, knowledge: { characters: 0, relationships: 0, documents: 0, terms: 0, events: 0, speechRules: 0 }, updated: { units: 0, groups: 0, graphNodes: 0, restarted: 0 }, formats: [] } }),
     put(s.aiCalls, p, ['calls'], { id: 'call', projectId: p, kind: 'run', label: 'L', startedAt: at }),
     put(s.aiCalls, p, ['calls', 'chat'], { id: 'chat-call', projectId: p, kind: 'chat', label: 'L', startedAt: at }),
     put(s.aiCalls, 'app', ['calls'], { id: 'test-call', projectId: null, kind: 'test', label: 'L', startedAt: at }),

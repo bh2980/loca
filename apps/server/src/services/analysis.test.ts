@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { scriptText } from '../engine/script-text.ts';
 
 function setup() {
@@ -17,7 +17,7 @@ function setup() {
     ],
     graph: { nodes: [{ key: 'n1', units: ['a1'] }, { key: 'n2', units: ['a2', 'a3'] }], edges: [{ from: 'n1', to: 'n2', label: 'Apologize' }] },
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   return { db, projectId };
 }
 

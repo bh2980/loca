@@ -4,7 +4,7 @@ import { importFileSchema, workflowDefinitionSchema, type ProposalDetail } from 
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { proposeChange } from './change-gate.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { agentCatalog, prepareProposal } from './agent-catalog.ts';
 import { proposalDetails } from './proposal-details.ts';
 import { decideProposal, listedProposal, propose } from './proposals.ts';
@@ -17,7 +17,7 @@ function setup() {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: '내 연결', baseUrl: 'http://localhost:1/v1' }).returning().get();
   db.update(s.connections).set({ modelLimits: { m: { maxOutput: 1000, by: 'api' } } }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'T' },
     groups: [{ key: 'g', title: '부두' }, { key: 'u', title: '메뉴', kind: 'ui' }],

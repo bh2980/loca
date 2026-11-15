@@ -23,7 +23,7 @@ const item = (id: NavItem['id'], label: string, path: string, icon: LucideIcon, 
 export const NAV_GROUPS: NavGroup[] = [
   { id: 'home', label: '', items: [item('home', '홈', '', Home, 'home', '')] },
   { id: 'translate', label: '번역', items: [
-    item('script', '대사', '/script', Languages, 'translate', '번역', { also: ['/reviews'] }),
+    item('script', '대사', '/script', Languages, 'translate', '번역', { also: ['/reviews', '/import'] }),
     item('graph', '그래프', '/graph', GitBranch, 'translate', '번역'),
     item('glossary', '용어집', '/glossary', BookMarked, 'translate', '번역'),
   ] },

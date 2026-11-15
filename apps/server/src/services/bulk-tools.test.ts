@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import * as s from '../db/schema.ts';
 import { agentTools } from './agent-tools.ts';
 import { itemCount } from '@loca/shared';
@@ -12,7 +12,7 @@ import { prepareProposal } from './agent-catalog.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi.' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi.' }] }));
   const run = async (name: string, input: object) => (await (agentTools(db, projectId) as Record<string, { execute?: (i: never, o: never) => unknown }>)[name]!.execute!(input as never, { toolCallId: 't', messages: [] } as never)) as Record<string, unknown>;
   // These tests delete through the tools: switch deleting on, as a person would (it is off by default).
   db.update(s.projects).set({ agentSettings: { permissions: Object.fromEntries(Object.entries(AGENT_RESOURCES).map(([resource, info]) => [resource, Object.fromEntries(info.actions.map((action) => [action, true]))])) } as never }).where(eq(s.projects.id, projectId)).run();

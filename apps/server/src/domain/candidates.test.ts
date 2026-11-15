@@ -5,13 +5,13 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { personOwns } from '../engine/apply-candidate.ts';
 import { addCandidate, declineSuggestion } from './candidates.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { saveLine } from './line-save.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hello' }] });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;
   return { db, unit, list: () => db.select().from(s.candidates).where(eq(s.candidates.unitId, unit.id)).all() };
 }

@@ -1,6 +1,6 @@
 import { memo, useEffect } from 'react';
 import { Link, useNavigate, useRouterState } from '@tanstack/react-router';
-import { BookOpen, Check, ChevronsUpDown, Languages, Monitor, Moon, Plus, Settings, Sun, Workflow } from 'lucide-react';
+import { BookOpen, Check, ChevronsUpDown, FolderOpen, Languages, Monitor, Moon, Plus, Settings, Sun, Workflow } from 'lucide-react';
 import { Sidebar, SidebarBrand, SidebarContent, SidebarFooter, SidebarHeader, SidebarMenu, SidebarMenuBadge, SidebarMenuButton, SidebarMenuIcon, SidebarMenuItem, SidebarRail, useSidebar, DropdownMenu, DropdownMenuItem, DropdownMenuLabel, DropdownMenuRadioGroup, DropdownMenuSeparator, DropdownMenuTrigger, DropdownMenuRadioItem, Icon, SidebarGroup, SidebarGroupLabel, SidebarMenuLabel, Text, DropdownMenuContent, MenuLabel, PersonAvatar } from '@loca/ui';
 import { holds, NAV_GROUPS, useCurrentNav, type NavGroup, type NavItem } from '@/lib/nav';
 import { setTheme, useTheme, type ThemeChoice } from '@/lib/theme';
@@ -82,7 +82,8 @@ function ProjectSwitcher({ projectId }: { projectId: string }) {
         <MenuLabel tone="strong">프로젝트</MenuLabel>
         {projects.data?.map((entry) => <DropdownMenuItem key={entry.id} onSelect={() => void navigate({ to: '/p/$projectId', params: { projectId: entry.id } })}><Text truncate>{entry.name}</Text>{entry.id === projectId && <Icon icon={Check} marginLeft="auto" />}</DropdownMenuItem>)}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><Plus /> 프로젝트 가져오기</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void navigate({ to: '/new', search: { from: 'empty' } })}><Plus /> 새 프로젝트</DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => void navigate({ to: '/' })}><FolderOpen /> 모든 프로젝트</DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
   );

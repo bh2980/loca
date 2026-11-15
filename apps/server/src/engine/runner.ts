@@ -61,6 +61,8 @@ export class Runner {
   private ticking = false;
   /** A tick stopped at SETTLE_BUDGET_MS with instant work left; the next one is already queued. */
   private followUp?: NodeJS.Timeout;
+  /** The last tick left instant work for a run (stopped at SETTLE_BUDGET_MS): drain goes on with it at once, as the follow-up tick does. */
+  private instantLeft = false;
   /** Requests in flight per run, each with the node it is for: how many of a node's batches are being worked on at once. Nothing is in flight after a restart. */
   private inflight = new Map<string, Set<{ nodeId: string; done: Promise<void> }>>();
   /** One abort signal per run with requests out: cancelling the run, or stopping the server, ends them. */
@@ -106,7 +108,11 @@ export class Runner {
   /** Runs every runnable step until nothing changes. Tests call this directly. */
   async drain(maxRounds = 1000) {
     for (let round = 0; round < maxRounds; round++) {
+      this.instantLeft = false;
       const active = await this.tick();
+      // Not after the requests in flight: they may be held until this run's lines are sent too (a busy machine
+      // stops the instant pass early far more often).
+      if (this.instantLeft) continue;
       const pending = this.pending();
       if (!active && !pending.length) return;
       await Promise.allSettled(pending);
@@ -258,6 +264,7 @@ export class Runner {
       settle(this.db, run, instant, started + SETTLE_BUDGET_MS);
       if (performance.now() - started >= SETTLE_BUDGET_MS) {
         // The server serves what waited, then this run goes on (not at the next interval: that would slow it).
+        this.instantLeft = true;
         if (this.timer && !this.followUp) this.followUp = setTimeout(() => {
           this.followUp = undefined;
           void this.tick();

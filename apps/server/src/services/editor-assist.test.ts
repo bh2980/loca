@@ -6,7 +6,7 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { Refusal } from '../refusal.ts';
 import { assistLine } from './editor-assist.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { memoryStore } from '../domain/secrets.ts';
 
 function setup(assistModel = true) {
@@ -18,7 +18,7 @@ function setup(assistModel = true) {
     groups: [{ key: 'g1', title: 'Harbor', section: 'Ch 1' }],
     units: [{ key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late.", translation: '늦었네.' }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const model = { connectionId: connection.id, model: 'm' };
   if (assistModel) db.update(s.projects).set({ editorAi: { model } as never }).where(eq(s.projects.id, projectId)).run();
   const unit = db.select().from(s.units).where(eq(s.units.projectId, projectId)).get()!;

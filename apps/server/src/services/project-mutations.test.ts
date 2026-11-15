@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema, translationTemplate } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { createStatus, createTag, deleteStatuses, orderTags, projectTags, updateStatus } from './project-taxonomy.ts';
 import { deleteWorkflow, saveWorkflow } from './workflow-mutations.ts';
 import { Refusal } from '../refusal.ts';
@@ -11,7 +11,7 @@ import { FINAL_NEEDS_TEXT } from '../domain/line-save.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Mutation test' },
     groups: [{ key: 'scene', title: 'Scene' }],
     units: [{ key: 'scene.1', group: 'scene', source: 'Hello' }],

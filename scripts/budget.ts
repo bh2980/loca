@@ -16,7 +16,7 @@ import * as ai from '../packages/ai/src/index.ts';
 import { ANALYSIS_WORKFLOW, WORKFLOW_TEMPLATES, analysisTemplate, importFileSchema, type TemplateIds } from '../packages/shared/src/index.ts';
 import { openDatabase } from '../apps/server/src/db/index.ts';
 import * as s from '../apps/server/src/db/schema.ts';
-import { importProject } from '../apps/server/src/services/importer.ts';
+import { createProjectFromFile } from '../apps/server/src/services/project-create.ts';
 import { snapshotWorkflowModels } from '../apps/server/src/domain/model-target.ts';
 import { memoryStore } from '../apps/server/src/domain/secrets.ts';
 import { Runner, type ModelPort } from '../apps/server/src/engine/runner.ts';
@@ -105,7 +105,7 @@ async function runScenario(scenario: Scenario, size: number): Promise<Metrics> {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://localhost:1/v1', maxOutputTokens: 8000, timeoutSeconds: 30 }).returning().get();
   const choice = { connectionId: connection.id, model: 'mock' };
   const { file } = realistic(size);
-  const { projectId } = importProject(db, importFileSchema.parse(file), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse(file), choice);
   // New projects get only the first four templates (번역, 청자 추정, 인물·관계 추출, 사건 추출); the others are added here.
   if (!db.select().from(s.workflows).all().some((row) => row.projectId === projectId && row.name === scenario.workflow)) {
     const statuses = db.select().from(s.statuses).all().filter((row) => row.projectId === projectId);

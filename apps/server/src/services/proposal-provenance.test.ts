@@ -3,14 +3,14 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal, propose } from './proposals.ts';
 
 // An agent's change is written by AI; who decided it is the person who accepted it, or AI when the
 // terminal's permission mode applied it (과제 9 A).
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Provenance' }, groups: [{ key: 'g', title: 'Scene' }],
     units: [{ key: 'line', group: 'g', source: 'Yes!\n', speaker: 'Alice' }],
   }));

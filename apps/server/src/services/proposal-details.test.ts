@@ -7,13 +7,13 @@ import { importFileSchema, toolRoute, TOOL_NAMES, type ProposalDetail, type Prop
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { agentTools, type ToolDef } from './agent-tools.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { propose } from './proposals.ts';
 import { proposalDetails } from './proposal-details.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: '인트로' }], units: [{ key: 'u1', group: 'g', speaker: 'Tomato', source: 'Hello there, new Townframer.' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: '인트로' }], units: [{ key: 'u1', group: 'g', speaker: 'Tomato', source: 'Hello there, new Townframer.' }] }));
   const alice = db.insert(s.characters).values({ projectId, name: 'Alice', profile: '밝은 성격', gender: 'female' }).returning().get();
   const details = (tool: string, input: Record<string, unknown>) => proposalDetails(db, propose(db, { projectId, sessionId: null, source: 'cli', tool, input }));
   return { db, projectId, alice, details };

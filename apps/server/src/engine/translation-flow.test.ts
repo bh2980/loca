@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { promptEntries } from './prompts.ts';
@@ -16,7 +16,7 @@ type Entry = { id: string; source: string; candidate?: string; previous?: { issu
 async function run({ source = 'Hello', translate = (line: Entry) => `번역 ${line.source}`, revise = (line: Entry, n: number) => `수정${n} ${line.source}`, passes = (_line: Entry, _review: number) => true }: { source?: string; translate?: (line: Entry) => string; revise?: (line: Entry, n: number) => string; passes?: (line: Entry, review: number) => boolean } = {}) {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-  const { projectId } = importProject(
+  const { projectId } = createProjectFromFile(
     db,
     importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Scene' }], units: [{ key: 'u0', group: 'g1', source }] }),
     { connectionId: connection.id, model: 'm' },
@@ -109,7 +109,7 @@ describe('the default 검수 workflow, end to end with a fake model', () => {
   it('judges the speech level only of lines with a speaker → listener rule', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
-    const { projectId } = importProject(
+    const { projectId } = createProjectFromFile(
       db,
       importFileSchema.parse({
         format: 'loca/v1',

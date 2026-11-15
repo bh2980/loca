@@ -1,7 +1,6 @@
 import { createFileRoute, Link } from '@tanstack/react-router';
-import { FolderOpen } from 'lucide-react';
+import { FileUp, FolderOpen, Plus } from 'lucide-react';
 import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
-import { ImportProjectDialog } from '@/components/import-project';
 import { useProjects } from '@/lib/app-data';
 
 export const Route = createFileRoute('/')({ component: Home });
@@ -21,7 +20,16 @@ function Home() {
           <Button asChild variant="ghost">
             <Link to="/settings">설정</Link>
           </Button>
-          {!!projects.data?.length && <ImportProjectDialog />}
+          {!!projects.data?.length && (
+            <>
+              <Button asChild variant="outline">
+                <Link to="/new" search={{ from: 'file' }}><FileUp /> 파일에서 만들기</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/new" search={{ from: 'empty' }}><Plus /> 새 프로젝트</Link>
+              </Button>
+            </>
+          )}
         </Inline>
       </Stack>
 
@@ -39,7 +47,14 @@ function Home() {
             <EmptyTitle>프로젝트가 없습니다</EmptyTitle>
           </EmptyHeader>
           <EmptyContent>
-            <ImportProjectDialog />
+            <Inline gap="condensed">
+              <Button asChild variant="outline">
+                <Link to="/new" search={{ from: 'file' }}><FileUp /> 파일에서 만들기</Link>
+              </Button>
+              <Button asChild>
+                <Link to="/new" search={{ from: 'empty' }}><Plus /> 새 프로젝트</Link>
+              </Button>
+            </Inline>
           </EmptyContent>
         </EmptyState>
       )}

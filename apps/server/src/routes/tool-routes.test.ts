@@ -5,13 +5,13 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { proposalRoutes } from './proposals.ts';
 import { scriptRoutes } from './script.ts';
 
 function setup(mode: 'ask' | 'auto' | 'bypass' = 'ask') {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }, { key: 'b', group: 'g', speaker: 'Bob', source: 'Bye' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', speaker: 'Alice', source: 'Hi' }, { key: 'b', group: 'g', speaker: 'Bob', source: 'Bye' }] }));
   const settings = (patch: Record<string, unknown>) => {
     const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
     db.update(s.projects).set({ agentSettings: { ...project.agentSettings, ...patch } }).where(eq(s.projects.id, projectId)).run();
