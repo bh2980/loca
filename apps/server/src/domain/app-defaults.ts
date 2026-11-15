@@ -10,6 +10,7 @@ import {
   type AppDefaults,
   type AppDefaultSection,
   type DraftModelChoice,
+  type ProjectFileSettings,
   type SavedRef,
   type SavedWorkflow,
   type WorkflowDefinition,
@@ -115,13 +116,9 @@ const projectStatuses = (tx: Pick<Db, 'select'>, projectId: string) => tx.select
 /** The project's tags but 확인 권장 (the one tag the app keeps, every project's anyway). */
 const projectTags = (tx: Pick<Db, 'select'>, projectId: string) => tx.select().from(s.tags).where(eq(s.tags.projectId, projectId)).orderBy(asc(s.tags.sort)).all();
 
-/** A home workflow (a template or a saved one) made for this project: its statuses, tags and connections found by name. */
-function homeWorkflows(tx: Tx, projectId: string, defaults: AppDefaults, model: DraftModelChoice): { name: string; description: string; definition: WorkflowDefinition }[] {
+/** Saved ids (a saved workflow's, a project file's settings') → this project's: the status, tag or connection of the same name, '' for none. */
+function refIds(tx: Pick<Db, 'select'>, projectId: string, refs: Record<string, SavedRef>): Map<string, string> {
   const statuses = projectStatuses(tx, projectId);
-  const templates = defaults.workflows.templates.flatMap((key) => {
-    const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key);
-    return template ? [{ name: template.name, description: template.description, definition: workflowDefinitionSchema.parse(template.build({ model, ...templateStatusIds(statuses), issueTags: issueTagIds(tx, projectId) })) }] : [];
-  });
   const tags = new Map(tx.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.name, tag.id]));
   const connections = new Map(connectionsOf(tx, projectId).map((row) => [row.name, row.id]));
   const byKind = templateStatusIds(statuses);
@@ -133,10 +130,20 @@ function homeWorkflows(tx: Tx, projectId: string, defaults: AppDefaults, model: 
     const like = ref.statusKind === 'initial' ? byKind.untranslated : ref.statusKind === 'final' ? byKind.confirmed : ref.inReview ? byKind.needsReview : byKind.translated;
     return like ?? '';
   };
+  return new Map(Object.entries(refs).map(([id, ref]) => [id, find(ref)]));
+}
+
+/** A home workflow (a template or a saved one) made for this project: its statuses, tags and connections found by name. */
+function homeWorkflows(tx: Tx, projectId: string, defaults: AppDefaults, model: DraftModelChoice): { name: string; description: string; definition: WorkflowDefinition }[] {
+  const statuses = projectStatuses(tx, projectId);
+  const templates = defaults.workflows.templates.flatMap((key) => {
+    const template = WORKFLOW_TEMPLATES.find((entry) => entry.key === key);
+    return template ? [{ name: template.name, description: template.description, definition: workflowDefinitionSchema.parse(template.build({ model, ...templateStatusIds(statuses), issueTags: issueTagIds(tx, projectId) })) }] : [];
+  });
   const saved = defaults.workflows.saved.map((workflow) => ({
     name: workflow.name,
     description: workflow.description,
-    definition: remapIds(workflow.definition, new Map(Object.entries(workflow.refs).map(([id, ref]) => [id, find(ref)]))),
+    definition: remapIds(workflow.definition, refIds(tx, projectId, workflow.refs)),
   }));
   return [...templates, ...saved];
 }
@@ -155,11 +162,12 @@ function insertTags(tx: Tx, projectId: string, defaults: AppDefaults, only?: Set
   return rows.length;
 }
 
-/** A project's own set-up a new project starts with instead of the home's (a project file: its statuses, tags and workflows). */
+/** A project's own set-up a new project starts with instead of the home's (a project file: its statuses, tags, workflows and settings). */
 export interface SetUp {
   statuses?: AppDefaults['statuses'];
   tags?: AppDefaults['tags'];
   workflows?: SavedWorkflow[];
+  settings?: ProjectFileSettings;
 }
 
 /**
@@ -172,12 +180,20 @@ export function seedProject(tx: Tx, projectId: string, model: DraftModelChoice =
   const home = readAppDefaults(tx);
   const defaults: AppDefaults = { ...home, statuses: from.statuses ?? home.statuses, tags: from.tags ?? home.tags, workflows: from.workflows ? { templates: [], saved: from.workflows } : home.workflows };
   const { ids, keys } = copyConnections(tx, null, projectId);
-  tx.update(s.projects)
-    .set({ editorAi: moveEditorAi(defaults.editorAi, ids), agentSettings: moveAgentSettings(defaults.agentSettings, ids), aiAutoConfirm: defaults.aiAutoConfirm })
-    .where(eq(s.projects.id, projectId))
-    .run();
   insertStatuses(tx, projectId, defaults);
   insertTags(tx, projectId, defaults);
+  // A project file's settings in place of the home's; its editor AI's connections found by name. The chat's permissions stay the home's.
+  const own = from.settings;
+  const agentSettings = moveAgentSettings(defaults.agentSettings, ids);
+  tx.update(s.projects)
+    .set({
+      editorAi: own?.editorAi ? moveEditorAi(own.editorAi, refIds(tx, projectId, own.refs)) : moveEditorAi(defaults.editorAi, ids),
+      agentSettings: own?.prompts ? { ...agentSettings, prompts: own.prompts } : agentSettings,
+      aiAutoConfirm: own?.aiAutoConfirm ?? defaults.aiAutoConfirm,
+      ...(own?.markStyles && { markStyles: own.markStyles }),
+    })
+    .where(eq(s.projects.id, projectId))
+    .run();
   // What checks and reviews find gets ordinary tags (a home default of the same name stands in for one).
   seedIssueTags(tx, projectId);
   for (const workflow of homeWorkflows(tx, projectId, defaults, model)) tx.insert(s.workflows).values({ projectId, ...workflow }).run();
@@ -246,8 +262,8 @@ export function pullDefaults(db: Db, projectId: string, sections: AppDefaultSect
   return report;
 }
 
-/** Ids in a workflow that stand for this project's statuses, tags and connections, as names (savedWorkflowSchema.refs). */
-export function workflowRefs(tx: Pick<Db, 'select'>, projectId: string, definition: WorkflowDefinition): Record<string, SavedRef> {
+/** Ids in a workflow (or the editor's AI settings) that stand for this project's statuses, tags and connections, as names (savedWorkflowSchema.refs). */
+export function workflowRefs(tx: Pick<Db, 'select'>, projectId: string, definition: unknown): Record<string, SavedRef> {
   const known = new Map<string, SavedRef>([
     ...projectStatuses(tx, projectId).map((status) => [status.id, { kind: 'status', name: status.name, statusKind: status.kind, inReview: status.inReview }] as const),
     ...tx.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.id, { kind: 'tag', name: tag.name }] as const),

@@ -242,3 +242,36 @@ it('keeps a log line of each file that changed something: taken back it says so,
   addSource(db, projectId, addSourceSchema.parse({ format: 'loca/v1', units: [{ key: 'intro.8', group: 'intro', source: 'Eight.' }] }));
   expect(log().map((row) => [row.undoId === null, row.undoneAt === null])).toEqual([[true, false], [true, true], [false, true]]);
 });
+
+it('puts the file\'s tags on new knowledge where the tag may go, links new events in the 사건 흐름, and one undo takes it all back', () => {
+  const projectId = made();
+  db.insert(s.tags).values({ projectId, name: '대사만', color: '#112233', scope: ['lines'] }).run();
+  const old = db.insert(s.storyEvents).values({ projectId, title: '정전' }).returning().get();
+  db.insert(s.storyEvents).values({ projectId, title: '복구' }).run();
+  const added = addSource(db, projectId, addSourceSchema.parse({
+    format: 'loca/v1',
+    units: [{ key: 'intro.1', group: 'intro', source: 'Hello.' }],
+    characters: [{ name: 'Cleo', tags: ['주요', '대사만'] }],
+    events: [{ title: '대피', tags: ['주요'] }],
+    // One touches the new event; the other is between two events the project has, which keep their own.
+    eventLinks: [{ from: '정전', to: '대피', kind: 'added' }, { from: '정전', to: '복구', kind: 'hidden' }],
+  }));
+  const cleo = db.select().from(s.characters).where(eq(s.characters.name, 'Cleo')).get()!;
+  const flee = db.select().from(s.storyEvents).where(eq(s.storyEvents.title, '대피')).get()!;
+  const main = db.select().from(s.tags).where(eq(s.tags.name, '주요')).get()!;
+  expect(db.select().from(s.knowledgeTags).all().map((row) => [row.kind, row.itemId, row.tagId]).sort()).toEqual([['characters', cleo.id, main.id], ['events', flee.id, main.id]].sort());
+  // A tag that only goes on lines is not put on a person, and the answer says so.
+  expect(added.tagsSkipped).toEqual([{ key: '대사만', reason: expect.stringContaining('인물·관계') }]);
+  expect(db.select().from(s.eventLinks).all().map((link) => [link.fromId, link.toId, link.kind])).toEqual([[old.id, flee.id, 'added']]);
+
+  undoRecorded(db, projectId, added.undoId!, 'script');
+  expect(db.select().from(s.knowledgeTags).all()).toEqual([]);
+  expect(db.select().from(s.eventLinks).all()).toEqual([]);
+  expect(db.select().from(s.tags).where(eq(s.tags.name, '주요')).all()).toEqual([]);
+});
+
+it('refuses a 사건 흐름 line to an event neither the file nor the project has', () => {
+  const projectId = made();
+  const { refusal } = sourceRefusal(db, projectId, addSourceSchema.parse({ format: 'loca/v1', units: [{ key: 'intro.1', group: 'intro', source: 'Hello.' }], events: [{ title: '대피' }], eventLinks: [{ from: '없는 일', to: '대피', kind: 'added' }] }));
+  expect(refusal).toContain('eventLinks.0.from 없는 일');
+});

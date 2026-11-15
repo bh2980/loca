@@ -76,3 +76,51 @@ it('a line status the file does not bring is refused when the project is made', 
   expect(result.success).toBe(false);
   expect(result.error!.issues[0]).toMatchObject({ path: ['units', 0, 'status'], message: '없는 상태: 없는 상태' });
 });
+
+it('the file keeps what a person set on knowledge and the project: styles, term scopes, tags, 사건 흐름 corrections, listeners, settings', () => {
+  // The home has the connection the editor's AI uses, so a project made again finds it by name.
+  db.insert(s.connections).values({ kind: 'openai', name: '내 API' }).run();
+  const { projectId } = createProjectFromFile(db, sample());
+  const connection = db.select().from(s.connections).where(eq(s.connections.projectId, projectId)).get()!;
+  const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
+  db.update(s.projects).set({
+    aiAutoConfirm: false,
+    markStyles: { review: { name: '봐 주세요', color: '#123456' } },
+    editorAi: { ...project.editorAi, model: { connectionId: connection.id, model: 'gpt-x' } },
+    agentSettings: { ...project.agentSettings, terminalPermissionMode: 'bypass', prompts: [{ name: '말투', text: '반말로' }] },
+  }).where(eq(s.projects.id, projectId)).run();
+
+  const people = db.insert(s.tags).values({ projectId, name: '주요', color: '#112233', scope: ['people', 'terms'] }).returning().get();
+  const hero = db.insert(s.characters).values({ projectId, name: 'Hero', style: { length: 'concise', force: 'strong' }, origin: 'ai', statusBy: 'ai', reviewNote: '근거 부족' }).returning().get();
+  db.insert(s.knowledgeTags).values({ kind: 'characters', itemId: hero.id, tagId: people.id }).run();
+  const term = db.insert(s.terms).values({ projectId, source: 'Help', target: '도움말', scope: ['ui'], matchCase: true, targetCandidates: ['도움'] }).returning().get();
+  db.insert(s.knowledgeTags).values({ kind: 'terms', itemId: term.id, tagId: people.id }).run();
+  const [cause, effect] = ['정전', '대피'].map((title) => db.insert(s.storyEvents).values({ projectId, title }).returning().get());
+  db.insert(s.eventLinks).values({ projectId, fromId: cause!.id, toId: effect!.id, kind: 'added' }).run();
+  const line = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).get()!;
+  db.update(s.units).set({ listener: 'Hero', listenerOrigin: 'human', listenerConfidence: null }).where(eq(s.units.id, line.id)).run();
+
+  const again = createProjectFromFile(db, importFileSchema.parse(JSON.parse(JSON.stringify(exportProject(db, projectId))))).projectId;
+
+  const made = db.select().from(s.projects).where(eq(s.projects.id, again)).get()!;
+  expect(made.aiAutoConfirm).toBe(false);
+  expect(made.markStyles).toEqual({ review: { name: '봐 주세요', color: '#123456' } });
+  const madeConnection = db.select().from(s.connections).where(eq(s.connections.projectId, again)).get()!;
+  expect(made.editorAi.model).toEqual({ connectionId: madeConnection.id, model: 'gpt-x' });
+  expect(made.agentSettings.prompts).toEqual([{ name: '말투', text: '반말로' }]);
+  // The chat's permissions are not in the file: the new project asks as the home says.
+  expect(made.agentSettings.terminalPermissionMode).toBe('ask');
+
+  const madeHero = db.select().from(s.characters).where(and(eq(s.characters.projectId, again), eq(s.characters.name, 'Hero'))).get()!;
+  expect(madeHero).toMatchObject({ style: { length: 'concise', force: 'strong' }, origin: 'ai', statusBy: 'ai', reviewNote: '근거 부족' });
+  const madeTerm = db.select().from(s.terms).where(and(eq(s.terms.projectId, again), eq(s.terms.source, 'Help'))).get()!;
+  expect(madeTerm).toMatchObject({ scope: ['ui'], matchCase: true, targetCandidates: ['도움'] });
+  const madeTag = db.select().from(s.tags).where(and(eq(s.tags.projectId, again), eq(s.tags.name, '주요'))).get()!;
+  expect(madeTag.scope).toEqual(['terms', 'people']);
+  const tagged = db.select().from(s.knowledgeTags).where(eq(s.knowledgeTags.tagId, madeTag.id)).all();
+  expect(tagged.map((row) => [row.kind, row.itemId]).sort()).toEqual([['characters', madeHero.id], ['terms', madeTerm.id]].sort());
+  const madeEvents = new Map(db.select().from(s.storyEvents).where(eq(s.storyEvents.projectId, again)).all().map((event) => [event.id, event.title]));
+  expect(db.select().from(s.eventLinks).where(eq(s.eventLinks.projectId, again)).all().map((link) => [madeEvents.get(link.fromId), madeEvents.get(link.toId), link.kind])).toEqual([['정전', '대피', 'added']]);
+  const madeLine = db.select().from(s.units).where(and(eq(s.units.projectId, again), eq(s.units.key, line.key))).get()!;
+  expect(madeLine).toMatchObject({ listener: 'Hero', listenerOrigin: 'human' });
+});

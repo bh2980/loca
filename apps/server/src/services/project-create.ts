@@ -61,8 +61,8 @@ export interface FileProjectSummary {
  */
 export function createProjectFromFile(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }, secrets?: SecretStore, extra: { formats?: string[]; name?: string } = {}): FileProjectSummary {
   const { formatRules: _own, ...facts } = file.project;
-  // A project's own file brings its statuses, tags and workflows: the new project starts with those, not the home's.
-  const { projectId, keys } = db.transaction((tx) => insertProject(tx, { ...facts, formatRules: startingFormatRules(file) }, model, { statuses: file.statuses, tags: file.tags, workflows: file.workflows }));
+  // A project's own file brings its statuses, tags, workflows and settings: the new project starts with those, not the home's.
+  const { projectId, keys } = db.transaction((tx) => insertProject(tx, { ...facts, formatRules: startingFormatRules(file) }, model, { statuses: file.statuses, tags: file.tags, workflows: file.workflows, settings: file.settings }));
   copyKeys(db, secrets, keys);
   try {
     const { added } = addSource(db, projectId, { ...file, formats: extra.formats ?? [], update: false, name: extra.name }, 'new');

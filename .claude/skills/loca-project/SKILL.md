@@ -13,7 +13,7 @@ description: Set up and maintain a loca project's own structure and settings —
 loca projects create "작품 이름" --source en --target ko   # 빈 프로젝트. 묶음·대사는 아래 '원문 구조'로
 loca format check "$W/game.loca.json"           # 앱 없이 검사: 형식 오류, 개수, 경고
 loca projects import "$W/game.loca.json"        # 파일로 새 프로젝트. 출력의 id를 LOCA_PROJECT로
-loca projects export "$W/backup.loca.json"      # 프로젝트 전체를 파일 하나로 (상태·태그·워크플로·번역·메모까지). import로 같은 프로젝트를 다시 만듦
+loca projects export "$W/backup.loca.json"      # 프로젝트 전체를 파일 하나로 (상태·태그·워크플로·설정·번역·메모·지식의 태그까지). import로 같은 프로젝트를 다시 만듦. 이력·후보·실행·AI 기록·채팅·채팅 권한·연결 키는 빠짐
 ```
 - 파일로 만들면 빈 프로젝트에 파일을 원문 넣기처럼 넣습니다. 그 파일은 `loca source log`에 ‘새 프로젝트’로 남습니다. 파일의 원문에 시작 서식 규칙에 없는 서식(예: `@이름@`)이 있으면 `projects import`가 거절하고 묻습니다. 사용자에게 켤지 물어 `--format <id...>`나 `--no-format`을 줍니다.
 - 새 프로젝트는 홈 설정의 기본값(상태, 태그, 워크플로, 연결 등)을 복사해 갑니다. 연결의 API 키는 사람이 앱에서 넣습니다. `loca connections`에서 "(키 없음)"이면 사용자에게 알립니다.

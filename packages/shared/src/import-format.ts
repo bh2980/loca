@@ -1,7 +1,10 @@
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
-import { formatRulesSchema } from './format-check.ts';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, EVENT_LINK_KINDS, GENDERS, KNOWLEDGE_ORIGINS, LISTENER_ORIGINS, STATUS_BY } from './knowledge.ts';
+import { savedPromptsSchema } from './agent.ts';
+import { editorAiSchema } from './editor-ai.ts';
+import { markStylesSchema } from './marks.ts';
+import { formatRulesSchema, termScopeSchema } from './format-check.ts';
 import { exclusionReason, exclusionRulesSchema, LINE_TRANSLATE, type ExclusionReason } from './exclusion.ts';
-import { savedWorkflowSchema, templateStatusesSchema, templateTagSchema } from './app-defaults.ts';
+import { savedRefSchema, savedWorkflowSchema, templateStatusesSchema, templateTagSchema } from './app-defaults.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 
@@ -31,6 +34,21 @@ const key = z.string().min(1).max(512);
 const meta = z.record(z.string(), z.unknown()).optional();
 /** A knowledge item's or term's standing in a project's own export (후보: not yet used as AI context); left out, confirmed. */
 const standing = z.enum(['candidate', 'confirmed']).optional();
+/**
+ * What a project's own export says of a knowledge item or term besides its words: where it came from (left out, the
+ * file), who put it in its standing, and the project's tags on it by name (a tag the project lacks is made; one whose
+ * places leave the item out is not put on).
+ */
+const provenance = {
+  origin: z.enum(KNOWLEDGE_ORIGINS).optional(),
+  statusBy: z.enum(STATUS_BY).optional(),
+  tags: z.array(z.string().trim().min(1)).optional(),
+};
+/** A knowledge item's lines it was drawn from and why the analysis wants a person to look at it (확인 권장). */
+const grounds = {
+  evidence: z.array(key).default([]),
+  reviewNote: z.string().optional(),
+};
 
 export const importGroupSchema = z.object({
   key,
@@ -52,6 +70,9 @@ export const importUnitSchema = z.object({
   speaker: z.string().optional(),
   /** Who the line is addressed to (a character name), when the game data knows it. */
   listener: z.string().optional(),
+  /** Who decided the listener (a project's own export): the game data (left out), the AI with its confidence, or a person. */
+  listenerOrigin: z.enum(LISTENER_ORIGINS).optional(),
+  listenerConfidence: z.number().min(0).max(1).optional(),
   source: z.string(),
   translation: z.string().optional(),
   /** Labels from the game data (category, voiced, a length limit…): they become the project's tags. */
@@ -110,7 +131,12 @@ export const importCharacterSchema = z.object({
   /** child, teen, young (adult), middle(-aged), old, or unknown. */
   ageBand: z.enum(AGE_BANDS).default('unknown'),
   /** How central the character is to the story. */
-  role: z.enum(CHARACTER_ROLES).default('unknown'),  status: standing,
+  role: z.enum(CHARACTER_ROLES).default('unknown'),
+  /** The Korean written style a person chose for the character's lines (a project's own export). */
+  style: characterStyleSchema.optional(),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importRelationshipSchema = z.object({
@@ -119,7 +145,10 @@ export const importRelationshipSchema = z.object({
   kind: z.string().min(1),
   description: z.string().default(''),
   mutual: z.boolean().default(false),
-  changes: z.array(relationshipChangeSchema).default([]),  status: standing,
+  changes: z.array(relationshipChangeSchema).default([]),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importEventSchema = z.object({
@@ -128,7 +157,17 @@ export const importEventSchema = z.object({
   cause: z.string().default(''),
   outcome: z.string().default(''),
   participants: z.array(z.string()).default([]),
-  evidence: z.array(key).default([]),  status: standing,
+  status: standing,
+  ...provenance,
+  ...grounds,
+});
+
+/** A line of the 사건 흐름 a person drew (added) or took away (hidden) between two events, by their titles (a project's own export). */
+export const importEventLinkSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  kind: z.enum(EVENT_LINK_KINDS),
+  origin: z.enum(KNOWLEDGE_ORIGINS).optional(),
 });
 
 export const importSpeechRuleSchema = z.object({
@@ -138,20 +177,34 @@ export const importSpeechRuleSchema = z.object({
   address: z.string().default(''),
   note: z.string().default(''),
   /** The rule applies from this line on; omitted = from the beginning. */
-  start: key.optional(),  status: standing,
+  start: key.optional(),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importDocumentSchema = z.object({
   title: z.string().min(1),
   kind: z.enum(DOCUMENT_KINDS).default('note'),
   body: z.string().default(''),
-  alwaysInclude: z.boolean().default(false),  status: standing,
+  alwaysInclude: z.boolean().default(false),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importTermSchema = z.object({
   source: z.string().min(1),
   target: z.string().default(''),
-  note: z.string().default(''),  status: standing,
+  note: z.string().default(''),
+  /** The kinds of line it applies to; left out, every line. */
+  scope: termScopeSchema.optional(),
+  /** Matched in its exact case only. */
+  matchCase: z.boolean().optional(),
+  /** Other Korean forms it has had or been offered, newest first. */
+  targetCandidates: z.array(z.string()).optional(),
+  status: standing,
+  ...provenance,
 });
 
 /** A new project's own facts: what the app's 새 프로젝트, `loca projects create` and a file's `project` all give. */
@@ -164,7 +217,7 @@ export const newProjectSchema = z.object({
 export type NewProject = z.infer<typeof newProjectSchema>;
 
 /** What a file's parts point at by key or name, and what each kind is called in a message. */
-export const FILE_REFERENCE_LABELS = { group: '묶음', unit: '대사', node: '노드', character: '인물' } as const;
+export const FILE_REFERENCE_LABELS = { group: '묶음', unit: '대사', node: '노드', character: '인물', event: '사건' } as const;
 export type FileReferenceKind = keyof typeof FILE_REFERENCE_LABELS;
 export interface FileReference {
   path: (string | number)[];
@@ -189,6 +242,7 @@ const fileShape = z.object({
   terms: z.array(importTermSchema).default([]),
   events: z.array(importEventSchema).default([]),
   speechRules: z.array(importSpeechRuleSchema).default([]),
+  eventLinks: z.array(importEventLinkSchema).default([]),
   /**
    * A project's own export (프로젝트 파일로 내보내기) carries its set-up too: the statuses in order, the tags, the workflows
    * with what their ids stand for (refs, by name). A project made from the file starts with these instead of the 홈 설정's.
@@ -197,6 +251,20 @@ const fileShape = z.object({
   statuses: templateStatusesSchema.optional(),
   tags: z.array(templateTagSchema).optional(),
   workflows: z.array(savedWorkflowSchema).optional(),
+  /**
+   * A project's own settings (its export): AI 결과 바로 확정, the editor's AI (its connections in `refs`, by name, found
+   * again as a workflow's are), the automatic tags' names and colours, the saved instructions. A project made from the
+   * file starts with them; adding the file to a project leaves the project's as they are. Not the chat's permissions.
+   */
+  settings: z
+    .object({
+      aiAutoConfirm: z.boolean().optional(),
+      editorAi: editorAiSchema.optional(),
+      markStyles: markStylesSchema.optional(),
+      prompts: savedPromptsSchema.optional(),
+      refs: z.record(z.string(), savedRefSchema).default({}),
+    })
+    .optional(),
 });
 const projectFacts = newProjectSchema.extend({
   /** Placeholder / tag families in this game's strings; the extractor knows them best. */
@@ -225,7 +293,13 @@ function fileReferences(file: FileBody): FileReference[] {
     rel.changes.forEach((change, at) => ref(['relationships', index, 'changes', at, 'at'], 'unit', change.at));
   });
   file.speechRules.forEach((rule, index) => rule.start && ref(['speechRules', index, 'start'], 'unit', rule.start));
-  file.events.forEach((event, index) => event.evidence.forEach((key, at) => ref(['events', index, 'evidence', at], 'unit', key)));
+  for (const kind of ['characters', 'relationships', 'events', 'speechRules', 'documents'] as const) {
+    file[kind].forEach((item, index) => item.evidence.forEach((key, at) => ref([kind, index, 'evidence', at], 'unit', key)));
+  }
+  file.eventLinks.forEach((link, index) => {
+    ref(['eventLinks', index, 'from'], 'event', link.from);
+    ref(['eventLinks', index, 'to'], 'event', link.to);
+  });
   return refs;
 }
 
@@ -236,6 +310,7 @@ function fileKeys(file: FileBody): Record<FileReferenceKind, Set<string>> {
     unit: new Set(file.units.map((unit) => unit.key)),
     node: new Set((file.graph?.nodes ?? []).map((node) => node.key)),
     character: new Set(file.characters.flatMap((character) => [character.name, ...character.aliases])),
+    event: new Set(file.events.map((event) => event.title)),
   };
 }
 
@@ -303,6 +378,8 @@ export type SourceFile = z.infer<typeof sourceFileSchema>;
 export type AddSourceInput = z.infer<typeof addSourceSchema>;
 
 export type ImportFile = z.infer<typeof importFileSchema>;
+/** A project file's own settings (a project's export), as a project made from it starts with them. */
+export type ProjectFileSettings = NonNullable<ImportFile['settings']>;
 
 /** The standard file as JSON Schema, for converter authors (`loca format schema`). Cross-reference checks are not expressible there. */
 export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io: 'input', unrepresentable: 'any' });
@@ -324,6 +401,7 @@ export function summarizeImport(file: ImportFile) {
     graphNodes: file.graph?.nodes.length ?? 0,
     graphEdges: file.graph?.edges.length ?? 0,
     characters: file.characters.length,
+    relationships: file.relationships.length,
     documents: file.documents.length,
     terms: file.terms.length,
     events: file.events.length,

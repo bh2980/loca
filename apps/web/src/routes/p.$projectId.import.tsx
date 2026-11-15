@@ -120,6 +120,7 @@ function ImportSource() {
               {added.formats.length > 0 && ` · 서식 규칙에 켬 ${added.formats.join(', ')}`}
               {added.updated.units + added.updated.groups + added.updated.graphNodes > 0 && ` · 바꿈: 대사 ${added.updated.units.toLocaleString()} · 묶음 ${added.updated.groups} · 노드 ${added.updated.graphNodes}${added.updated.restarted ? ` (다시 번역할 대사 ${added.updated.restarted.toLocaleString()})` : ''}`}
               {added.updated.skipped.length > 0 && ` · 바꾸지 않음 ${added.updated.skipped.length}개 (${some(added.updated.skipped.map((skip) => `${skip.key}: ${skip.reason}`), 2)})`}
+              {added.tagsSkipped.length > 0 && ` · 붙이지 않은 태그 ${some(added.tagsSkipped.map((skip) => `${skip.key}: ${skip.reason}`), 2)}`}
             </Notice>
           )}
 

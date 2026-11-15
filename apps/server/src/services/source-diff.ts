@@ -84,6 +84,7 @@ export function diffSource(db: Db, projectId: string, file: SourceFile): SourceD
     unit: new Set(unitByKey.keys()),
     node: new Set(nodeByKey.keys()),
     character: new Set(characterOf.keys()),
+    event: new Set(db.select({ title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all().map((row) => row.title)),
   };
   const unresolved = unresolvedReferences(file, known).map((ref) => ({ path: ref.path.join('.'), message: `프로젝트에도 파일에도 없는 ${FILE_REFERENCE_LABELS[ref.to]}: ${ref.key}` }));
 

@@ -1293,7 +1293,7 @@ source
     }
     const outcome = await proposeTool('add_source', { ...parsed.data, formats, update: options.update === true, name: file === '-' ? undefined : path.basename(file) } as ToolInputs['add_source']);
     printOutcome(outcome, '원문 더하기');
-    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[]; updated?: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] } } | null) : null;
+    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[]; updated?: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] }; tagsSkipped?: { key: string; reason: string }[] } | null) : null;
     if (!added?.added) return;
     console.log(`  더함  묶음 ${added.added.groups} · 대사 ${added.added.units} · 그래프 노드 ${added.added.graphNodes} · 연결 ${added.added.graphEdges}`);
     const update = added.updated;
@@ -1306,6 +1306,7 @@ source
     const newKnowledge = Object.entries(added.knowledge?.added ?? {}).filter(([, n]) => n).map(([kind, n]) => `${knowledgeLabels[kind] ?? kind} ${n}`);
     if (newKnowledge.length) console.log(`  더함  지식 ${newKnowledge.join(' · ')}`);
     if (added.knowledge?.kept) console.log(`  그대로 둠  프로젝트에 이미 있는 지식 ${added.knowledge.kept}개`);
+    for (const skip of added.tagsSkipped ?? []) console.log(`  붙이지 않은 태그  ${skip.key}: ${skip.reason}`);
     if (added.formats?.length) console.log(`  서식 규칙에 켬  ${added.formats.join(', ')}`);
     console.log(`  되돌리기: loca proposals undo ${outcome.proposalId}`);
   });
@@ -1582,7 +1583,7 @@ format
     const warnings = importWarnings(result.data);
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
-    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
+    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 관계 ${summary.relationships} · 말투 ${summary.speechRules} · 사건 ${summary.events} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
     if (summary.excluded) console.log(`  번역 제외로 보이는 원문 ${summary.excluded} (${Object.entries(summary.excludedBy).map(([reason, count]) => `${EXCLUSION_REASON_LABELS[reason as keyof typeof EXCLUSION_REASON_LABELS]} ${count}`).join(' · ')}): 진행률·실행·내보내기에서 빠집니다. 규칙은 앱의 설정 › 에디터 › 번역 제외`);
     console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);

@@ -1,8 +1,9 @@
-import { and, eq, sql } from 'drizzle-orm';
-import { templateStatusIds, unitKindOf, withFormats, type AddSourceInput } from '@loca/shared';
+import { eq, sql } from 'drizzle-orm';
+import { knowledgeKindScope, TAG_SCOPE_LABELS, templateStatusIds, unitKindOf, withFormats, type AddSourceInput, type KnowledgeTagKind } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
+import { setKnowledgeTag } from '../domain/knowledge-tags.ts';
 import { Refusal } from '../refusal.ts';
 import { diffSource, knowledgeMatch, type SourceDiff } from './source-diff.ts';
 import { changed, initialStatus, invalidate, refreshNodeGroups, refuseBusy, resequence } from './source-mutations.ts';
@@ -28,6 +29,8 @@ export interface SourceAdded {
    * so start over (initial status; their translation stays), and what was not changed with why.
    */
   updated: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] };
+  /** Tags a knowledge item of the file names that cannot go on it (the tag's places leave its kind out), with why. */
+  tagsSkipped: { key: string; reason: string }[];
   /** restore_deleted (kind script) takes back everything this added and changed; null when nothing was. */
   undoId: string | null;
 }
@@ -76,6 +79,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
   // Lines a running or paused workflow holds keep their input (as any change of a line's source).
   if (changedUnits.size) refuseBusy(db, projectId, db.select({ id: s.units.id, key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().filter((row) => changedUnits.has(row.key)).map((row) => row.id));
   const updated: SourceAdded['updated'] = { units: 0, groups: 0, graphNodes: 0, restarted: 0, skipped: [] };
+  const tagSkips: SourceAdded['tagsSkipped'] = [];
   const addedGroups = new Set(diff.groups.added);
   const addedUnits = new Set(diff.units.added);
   const addedNodes = new Set(diff.graph.nodes.added);
@@ -124,7 +128,8 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
         kind: unit.kind ?? unitKindOf(group.kind),
         speaker: unit.speaker ?? null,
         listener: unit.listener ?? null,
-        listenerOrigin: unit.listener ? 'import' : null,
+        listenerOrigin: unit.listener ? (unit.listenerOrigin ?? 'import') : null,
+        listenerConfidence: unit.listener ? (unit.listenerConfidence ?? null) : null,
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
@@ -139,14 +144,20 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
       if (candidateId) record.made('candidates', tx.insert(s.candidates).values({ id: candidateId, unitId: row.id, text: unit.translation!, origin: 'import' }).returning({ id: s.candidates.id }).get().id);
     });
 
-    // Tags from the game data: joined to the project's by name, a missing one made.
-    const tagNames = [...new Set(units.flatMap((unit) => unit.tags))];
-    tagNames.forEach((name, index) => {
-      const own = tx.select({ id: s.tags.id }).from(s.tags).where(and(eq(s.tags.projectId, projectId), eq(s.tags.name, name))).get()?.id;
-      const tagId = own ?? tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[index % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id;
-      if (!own) record.made('tags', tagId);
-      attachUnitTags(tx, projectId, units.filter((unit) => unit.tags.includes(name)).map((unit) => unitIds.get(unit.key)!), { add: [tagId] }, { onMisplaced: 'skip' });
-    });
+    // Tags by name (the game data's labels, a project file's tags on lines and knowledge): the project's, a missing one made.
+    const tagIds = new Map(tx.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.name, tag.id]));
+    let madeTags = 0;
+    const tagIdOf = (name: string) => {
+      const own = tagIds.get(name);
+      if (own) return own;
+      const id = tx.insert(s.tags).values({ projectId, name, color: TAG_COLORS[madeTags++ % TAG_COLORS.length] }).returning({ id: s.tags.id }).get().id;
+      record.made('tags', id);
+      tagIds.set(name, id);
+      return id;
+    };
+    for (const name of new Set(units.flatMap((unit) => unit.tags))) {
+      attachUnitTags(tx, projectId, units.filter((unit) => unit.tags.includes(name)).map((unit) => unitIds.get(unit.key)!), { add: [tagIdOf(name)] }, { onMisplaced: 'skip' });
+    }
 
     const nodeRows = tx.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
     const nodeIds = new Map(nodeRows.map((node) => [node.key, node.id]));
@@ -185,26 +196,77 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
 
     // Knowledge the project lacks, as a new project's would come in; what it has stays as it is.
     const fresh = known.added;
+    const tagged: { kind: KnowledgeTagKind; id: string; tags?: string[] }[] = [];
+    // What every knowledge item brings besides its words: its standing, where it came from (the file, unless it says), its grounds.
+    const standing = (item: { status?: 'candidate' | 'confirmed'; origin?: 'human' | 'ai' | 'import' | 'script'; statusBy?: 'ai' | 'human'; evidence: string[]; reviewNote?: string }) =>
+      ({ status: item.status, origin: item.origin ?? 'import', statusBy: item.statusBy, evidence: item.evidence, reviewNote: item.reviewNote }) as const;
     const newCharacterOf = new Map<string, string>();
     for (const index of fresh.characters) {
       const character = file.characters[index]!;
-      const { id } = tx.insert(s.characters).values({ projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, status: character.status, origin: 'import' }).returning({ id: s.characters.id }).get();
+      const { id } = tx.insert(s.characters).values({ projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, style: character.style, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, ...standing(character) }).returning({ id: s.characters.id }).get();
       record.made('characters', id);
+      tagged.push({ kind: 'characters', id, tags: character.tags });
       for (const name of [character.name, ...character.aliases]) newCharacterOf.set(name, id);
     }
     // A person by any name: the project's character, a new one, or either by the main name the file gives an alias.
     const idOf = (name: string) => known.characterIdOf.get(name) ?? newCharacterOf.get(name) ?? known.characterIdOf.get(known.person(name)) ?? newCharacterOf.get(known.person(name))!;
     for (const index of fresh.relationships) {
       const rel = file.relationships[index]!;
-      record.made('relationships', tx.insert(s.relationships).values({ projectId, fromId: idOf(rel.from), toId: idOf(rel.to), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, origin: 'import' }).returning({ id: s.relationships.id }).get().id);
+      const { id } = tx.insert(s.relationships).values({ projectId, fromId: idOf(rel.from), toId: idOf(rel.to), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, ...standing(rel) }).returning({ id: s.relationships.id }).get();
+      record.made('relationships', id);
+      tagged.push({ kind: 'relationships', id, tags: rel.tags });
     }
-    for (const index of fresh.documents) record.made('documents', tx.insert(s.documents).values({ projectId, ...file.documents[index]!, origin: 'import' }).returning({ id: s.documents.id }).get().id);
-    for (const index of fresh.events) record.made('story_events', tx.insert(s.storyEvents).values({ projectId, ...file.events[index]!, origin: 'import' }).returning({ id: s.storyEvents.id }).get().id);
+    for (const index of fresh.documents) {
+      const doc = file.documents[index]!;
+      const { id } = tx.insert(s.documents).values({ projectId, title: doc.title, kind: doc.kind, body: doc.body, alwaysInclude: doc.alwaysInclude, ...standing(doc) }).returning({ id: s.documents.id }).get();
+      record.made('documents', id);
+      tagged.push({ kind: 'documents', id, tags: doc.tags });
+    }
+    // Events by title, the project's and the new ones, for the 사건 흐름's lines.
+    const eventIds = new Map<string, string>();
+    for (const row of tx.select({ id: s.storyEvents.id, title: s.storyEvents.title }).from(s.storyEvents).where(eq(s.storyEvents.projectId, projectId)).all()) if (!eventIds.has(row.title)) eventIds.set(row.title, row.id);
+    const newEvents = new Set<string>();
+    for (const index of fresh.events) {
+      const event = file.events[index]!;
+      const { id } = tx.insert(s.storyEvents).values({ projectId, title: event.title, summary: event.summary, cause: event.cause, outcome: event.outcome, participants: event.participants, ...standing(event) }).returning({ id: s.storyEvents.id }).get();
+      record.made('story_events', id);
+      tagged.push({ kind: 'events', id, tags: event.tags });
+      newEvents.add(id);
+      if (!eventIds.has(event.title)) eventIds.set(event.title, id);
+    }
+    // A person's correction to the 사건 흐름 that touches a new event (two events the project has keep their own).
+    for (const link of file.eventLinks) {
+      const fromId = eventIds.get(link.from)!;
+      const toId = eventIds.get(link.to)!;
+      if (fromId === toId || (!newEvents.has(fromId) && !newEvents.has(toId))) continue;
+      const row = tx.insert(s.eventLinks).values({ projectId, fromId, toId, kind: link.kind, origin: link.origin ?? 'import' }).onConflictDoNothing().returning({ id: s.eventLinks.id }).get();
+      if (row) record.made('event_links', row.id);
+    }
     for (const index of fresh.speechRules) {
       const rule = file.speechRules[index]!;
-      record.made('speech_rules', tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, status: rule.status, origin: 'import' }).returning({ id: s.speechRules.id }).get().id);
+      const { id } = tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, ...standing(rule) }).returning({ id: s.speechRules.id }).get();
+      record.made('speech_rules', id);
+      tagged.push({ kind: 'speechRules', id, tags: rule.tags });
     }
-    for (const index of fresh.terms) record.made('terms', tx.insert(s.terms).values({ projectId, ...file.terms[index]! }).returning({ id: s.terms.id }).get().id);
+    for (const index of fresh.terms) {
+      const term = file.terms[index]!;
+      const { id } = tx.insert(s.terms).values({ projectId, source: term.source, target: term.target, note: term.note, status: term.status, origin: term.origin ?? 'import', statusBy: term.statusBy, scope: term.scope, matchCase: term.matchCase, targetCandidates: term.targetCandidates }).returning({ id: s.terms.id }).get();
+      record.made('terms', id);
+      tagged.push({ kind: 'terms', id, tags: term.tags });
+    }
+    // Their tags, where each tag may go (a tag whose places leave the item out is said, not put on).
+    const byTag = new Map<string, { kind: KnowledgeTagKind; name: string; tagId: string; ids: string[] }>();
+    for (const item of tagged) {
+      for (const name of item.tags ?? []) {
+        const tagId = tagIdOf(name);
+        const entry = byTag.get(`${item.kind}\u0000${tagId}`) ?? { kind: item.kind, name, tagId, ids: [] };
+        entry.ids.push(item.id);
+        byTag.set(`${item.kind}\u0000${tagId}`, entry);
+      }
+    }
+    for (const { kind, name, tagId, ids } of byTag.values()) {
+      if (setKnowledgeTag(tx, projectId, kind, ids, tagId, true)) tagSkips.push({ key: name, reason: `${TAG_SCOPE_LABELS[knowledgeKindScope(kind)]}에 붙일 수 없는 태그라 ${ids.length}개 항목에 붙이지 않았습니다` });
+    }
 
     if (file.update) {
       // Groups: their words; a group's kind holds its lines' kind, so it is not changed here.
@@ -305,6 +367,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     knowledge,
     formats: file.formats ?? [],
     updated,
+    tagsSkipped: tagSkips,
     undoId,
   };
 }
