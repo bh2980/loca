@@ -107,10 +107,11 @@ describe('the selection in the URL', () => {
     expect(apply(inView, graphSearch.sectionFromScript('view:v')).open).toEqual(['chain:a']);
   });
 
-  it('a route view picked again from its own menu keeps its script', () => {
+  it('a view picked from a route view menu opens with its script too; the whole graph has none', () => {
     const script: GraphSearch = { scope: 'dialogue', section: 'view:v', script: true };
     expect(apply(script, graphSearch.sectionFromScript('view:v')).script).toBe(true);
-    expect(apply(script, graphSearch.sectionFromScript('view:w')).script).toBeUndefined();
+    expect(apply(script, graphSearch.sectionFromScript('view:w')).script).toBe(true);
+    expect(apply(script, graphSearch.sectionFromScript('all')).script).toBeUndefined();
   });
 
   it('folding a run moves the selection only when there is one', () => {

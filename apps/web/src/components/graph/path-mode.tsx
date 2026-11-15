@@ -7,7 +7,7 @@ import { ReadingRouteGraph } from '@/components/graph/reading-route-graph';
 import { RouteList } from '@/components/graph/route-list';
 import { useViewActions } from '@/components/graph/view-inspector';
 import { RunDialog } from '@/components/workflow/run-dialog';
-import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, SplitPane, Stack, Text } from '@loca/ui';
+import { Box, Button, GraphEndpointBar, GraphScriptSplit, Icon, Inline, Input, Popover, PopoverContent, PopoverTrigger, Spinner, SplitPane, Stack, Text, useRevealDock } from '@loca/ui';
 import { LineDetail } from '@/components/line-detail';
 import type { GraphEndpointStep } from '@loca/ui';
 import { q } from '@/lib/queries';
@@ -119,6 +119,7 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
   const route = useQuery({ ...q.readingRoute(projectId, { start, end, via: activeVia || undefined }), enabled: Boolean(start && end) });
   // The AI step the details pane shows a request of (as the graph's node pane keeps it).
   const [aiNode, setAiNode] = useState<string>();
+  const revealDock = useRevealDock();
   const data = route.data;
   const found = data?.status === 'found' && data.start === start && data.end === end;
 
@@ -189,6 +190,7 @@ export function PathMode({ projectId, toggle, viewMenu, layoutToggle, view, star
                 onOpenDetail={(unitId) => {
                   if (unitId !== edit) onEdit(unitId);
                   onDetail(true);
+                  revealDock?.();
                 }}
               />
             </GraphScriptSplit>
