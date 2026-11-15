@@ -87,6 +87,14 @@ export const TOOL_SPECS = {
   set_listeners: { label: '청자 저장', needs: [p('script', 'update')], batch: ['lines'] },
   link_lines: { label: '대사 그래프 잇기', needs: [p('script', 'update')] },
   link_in_order: { label: '대본 순서로 잇기', needs: [p('script', 'update')], batch: ['scenes', 'lines'] },
+  add_source: {
+    label: '원문 더하기',
+    needs: {
+      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
+      options: [[p('script', 'create')], [p('script', 'create'), p('scenes', 'create')], [p('script', 'create'), p('project', 'update')], [p('script', 'create'), p('scenes', 'create'), p('project', 'update')]],
+    },
+    batch: ['groups', 'units'],
+  },
   // ── knowledge ──
   list_characters: { label: '인물 조회', needs: read('characters', 'relationships') },
   list_relationships: { label: '관계 조회', needs: read('relationships') },

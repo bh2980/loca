@@ -38,7 +38,7 @@ it('the same file again is the same, and its knowledge is already there', () => 
   const diff = diffSource(db, projectId, sourceFileSchema.parse(dialogue));
   expect(diff.groups.same).toBe(1);
   expect(diff.units).toMatchObject({ added: [], changed: [], same: 2, missing: [] });
-  expect(diff.graph).toEqual({ nodes: { added: [], changed: [], same: 2 }, edges: { added: 0, same: 1 } });
+  expect(diff.graph).toEqual({ nodes: { added: [], changed: [], same: 2, own: 0 }, edges: { added: 0, same: 1 } });
   expect(diff.knowledge).toMatchObject({ characters: { added: 0, existing: 2 }, relationships: { added: 0, existing: 1 }, terms: { added: 0, existing: 1 } });
   expect(diff.warnings).toEqual([]);
 });
@@ -68,7 +68,7 @@ it('a file may point at the project\'s own groups, nodes and people; what nothin
   expect(importFileSchema.safeParse(more).success).toBe(false);
   const diff = diffSource(db, projectId, sourceFileSchema.parse(more));
   expect(diff.units.added).toEqual(['intro.3']);
-  expect(diff.graph).toEqual({ nodes: { added: ['n3'], changed: [], same: 0 }, edges: { added: 2, same: 0 } });
+  expect(diff.graph).toEqual({ nodes: { added: ['n3'], changed: [], same: 0, own: 0 }, edges: { added: 2, same: 0 } });
   // Anna is Ana: the friendship is there already.
   expect(diff.knowledge.relationships).toEqual({ added: 1, existing: 1 });
   expect(diff.unresolved).toEqual([

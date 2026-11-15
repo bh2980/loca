@@ -1,5 +1,5 @@
 import { eq } from 'drizzle-orm';
-import { FILE_REFERENCE_LABELS, unresolvedReferences, type FileReferenceKind, type SourceFile } from '@loca/shared';
+import { FILE_REFERENCE_LABELS, newFormats, unresolvedReferences, type FileReferenceKind, type FormatOffer, type SourceFile } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { Refusal } from '../refusal.ts';
@@ -27,7 +27,10 @@ export interface SourceDiff {
   groups: KeyDiff;
   /** missing: the project's lines in the groups the file brings again that the file no longer has. */
   units: KeyDiff & { missing: string[] };
-  graph: { nodes: KeyDiff; edges: { added: number; same: number } };
+  /** own: the new scene lines no new node of the file holds, each of which gets a node of its own. */
+  graph: { nodes: KeyDiff & { own: number }; edges: { added: number; same: number } };
+  /** The formats the new lines use that the project's format rules do not keep. */
+  formats: FormatOffer[];
   knowledge: Record<'characters' | 'relationships' | 'documents' | 'terms' | 'events' | 'speechRules', ItemDiff>;
   /** Keys and names the file points at that neither it nor the project has: the file cannot go in as it is. */
   unresolved: { path: string; message: string }[];
@@ -63,13 +66,13 @@ const itemDiff = <T,>(items: T[], has: (item: T) => boolean): ItemDiff => {
  * the groups it brings again, which knowledge items are new, and the references nothing has.
  */
 export function diffSource(db: Db, projectId: string, file: SourceFile): SourceDiff {
-  const project = db.select({ sourceLanguage: s.projects.sourceLanguage, targetLanguage: s.projects.targetLanguage }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  const project = db.select({ sourceLanguage: s.projects.sourceLanguage, targetLanguage: s.projects.targetLanguage, formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get();
   if (!project) throw new Refusal('missing', '프로젝트가 없습니다.');
 
   const groups = db.select({ id: s.groups.id, key: s.groups.key, kind: s.groups.kind, title: s.groups.title, description: s.groups.description, section: s.groups.section }).from(s.groups).where(eq(s.groups.projectId, projectId)).all();
   const units = db.select({ id: s.units.id, key: s.units.key, groupId: s.units.groupId, kind: s.units.kind, speaker: s.units.speaker, listener: s.units.listener, source: s.units.source }).from(s.units).where(eq(s.units.projectId, projectId)).all();
   const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key, type: s.graphNodes.type, label: s.graphNodes.label, groupId: s.graphNodes.groupId, unitIds: s.graphNodes.unitIds }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
-  const edges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId, kind: s.graphEdges.kind }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
+  const edges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();
   const characters = db.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
 
   const groupByKey = new Map(groups.map((group) => [group.key, group]));
@@ -109,10 +112,17 @@ export function diffSource(db: Db, projectId: string, file: SourceFile): SourceD
     const lines = had.unitIds.map((id) => unitKeyOf.get(id));
     return changedFields({ units: [node.units, lines], type: [node.type, had.type], label: [node.label, had.label], group: [node.group, had.groupId && groupKeyOf.get(had.groupId)] });
   });
-  const edgeId = (from: string | undefined, to: string | undefined, kind: string | null | undefined) => `${from}\u0000${to}\u0000${kind ?? ''}`;
-  const edgeIds = new Set(edges.map((edge) => edgeId(nodeKeyOf.get(edge.fromId), nodeKeyOf.get(edge.toId), edge.kind)));
+  // A connection is one node to another (the graph has none twice).
+  const edgeId = (from: string | undefined, to: string | undefined) => `${from}\u0000${to}`;
+  const edgeIds = new Set(edges.map((edge) => edgeId(nodeKeyOf.get(edge.fromId), nodeKeyOf.get(edge.toId))));
   const fileEdges = file.graph?.edges ?? [];
-  const sameEdges = fileEdges.filter((edge) => edgeIds.has(edgeId(edge.from, edge.to, edge.kind))).length;
+  const sameEdges = fileEdges.filter((edge) => edgeIds.has(edgeId(edge.from, edge.to))).length;
+
+  const added = new Set(unitDiff.added);
+  const addedUnits = file.units.filter((unit) => added.has(unit.key));
+  const fileGroupKind = new Map(file.groups.map((group) => [group.key, group.kind]));
+  const held = new Set((file.graph?.nodes ?? []).filter((node) => !nodeByKey.has(node.key)).flatMap((node) => node.units));
+  const own = addedUnits.filter((unit) => (groupByKey.get(unit.group)?.kind ?? fileGroupKind.get(unit.group)) === 'scene' && !held.has(unit.key)).length;
 
   const knowledge = knowledgeDiff(db, projectId, file, characters, characterOf);
 
@@ -123,7 +133,8 @@ export function diffSource(db: Db, projectId: string, file: SourceFile): SourceD
   return {
     groups: groupDiff,
     units: { ...unitDiff, missing },
-    graph: { nodes: nodeDiff, edges: { added: fileEdges.length - sameEdges, same: sameEdges } },
+    graph: { nodes: { ...nodeDiff, own }, edges: { added: fileEdges.length - sameEdges, same: sameEdges } },
+    formats: newFormats(addedUnits.map((unit) => unit.source), project.formatRules),
     knowledge,
     unresolved,
     warnings,

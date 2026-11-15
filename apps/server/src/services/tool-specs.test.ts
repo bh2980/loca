@@ -55,6 +55,7 @@ const NOT_BATCH: Partial<Record<ToolName, Record<string, string>>> = {
   update_tag: { scope: 'where one tag may be put' },
   order_settings: { names: 'one ordering of the statuses or tags' },
   tag_items: { add: 'the tags put on each of `ids`', remove: 'the tags taken off each of `ids`' },
+  add_source: { ...Object.fromEntries(['characters', 'relationships', 'documents', 'terms', 'events', 'speechRules'].map((field) => [field, 'knowledge items of the file, which add_source does not add'])), formats: 'format rules turned on with the lines, a few at most' },
   pull_app_defaults: { sections: 'the settings sections pulled, six at most' },
 };
 
@@ -86,6 +87,7 @@ const DERIVED: Record<ToolName, [ToolClass, ToolRoute]> = {
   set_listeners: ['change', 'gate'],
   link_lines: ['change', 'gate'],
   link_in_order: ['change', 'gate'],
+  add_source: ['change', 'gate'],
   list_characters: ['read', 'now'],
   list_relationships: ['read', 'now'],
   list_speech_rules: ['read', 'now'],

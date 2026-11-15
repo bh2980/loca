@@ -16,6 +16,8 @@ export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const GROUP_KIND_LABELS = { scene: '장면', document: '문서', ui: 'UI' } as const;
 export const SOURCE_GROUP_LABELS = { scene: '장면', ui: 'UI 묶음', document: '문서 묶음' } as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
+/** The kind of a line of a group of this kind that does not say its own. */
+export const unitKindOf = (kind: (typeof GROUP_KINDS)[number]): (typeof UNIT_KINDS)[number] => (kind === 'scene' ? 'dialogue' : kind);
 /** script: lines; choice: an option the player picks (its text is a line too); the rest carry no text. */
 export const GRAPH_NODE_KINDS = ['script', 'choice', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
 /** Content nodes carry text to translate; control nodes (branches, waits, events…) shape the flow. */
@@ -42,7 +44,8 @@ export const importUnitSchema = z.object({
   key,
   group: key,
   order: z.number().int().optional(),
-  kind: z.enum(UNIT_KINDS).default('dialogue'),
+  /** Left out, its group's (scene → dialogue, document, ui); given, as given (a scene's narration may be a document). */
+  kind: z.enum(UNIT_KINDS).optional(),
   speaker: z.string().optional(),
   /** Who the line is addressed to (a character name), when the game data knows it. */
   listener: z.string().optional(),
@@ -257,7 +260,16 @@ export const importFileSchema = fileShape
  * key or name. Those references are checked against the project (diffSource), not here.
  */
 export const sourceFileSchema = fileShape.extend({ project: projectFacts.optional() }).superRefine((file, ctx) => checkFile(file, ctx, false));
+/**
+ * add_source's input: a file to add, and the formats its new lines use that the project's rules lack to turn on with
+ * it (FormatOffer ids from the diff; [] to add without them). Left out while there are such formats, the add is
+ * refused until someone decides.
+ */
+export const addSourceSchema = fileShape
+  .extend({ project: projectFacts.optional(), formats: z.array(z.string().min(1)).max(50).optional() })
+  .superRefine((file, ctx) => checkFile(file, ctx, false));
 export type SourceFile = z.infer<typeof sourceFileSchema>;
+export type AddSourceInput = z.infer<typeof addSourceSchema>;
 
 export type ImportFile = z.infer<typeof importFileSchema>;
 
@@ -297,8 +309,9 @@ export function importWarnings(file: ImportFile): { message: string; examples: s
   const warnings: { message: string; examples: string[] }[] = [];
   if (file.graph) {
     const placed = new Set(file.graph.nodes.flatMap((node) => node.units));
-    const loose = file.units.filter((unit) => unit.kind === 'dialogue' && !placed.has(unit.key));
-    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 대사(kind dialogue) ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
+    const scenes = new Set(file.groups.filter((group) => group.kind === 'scene').map((group) => group.key));
+    const loose = file.units.filter((unit) => scenes.has(unit.group) && !placed.has(unit.key));
+    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 장면 대사 ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
   }
   if (file.characters.length) {
     const names = new Set(file.characters.flatMap((character) => [character.name, ...character.aliases]));

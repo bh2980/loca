@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@loca/shared';
+import { detectFormatRules, templateStatusIds, unitKindOf, type DraftModelChoice, type ImportFile } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { copyKeys, type KeyCopy } from '../domain/app-defaults.ts';
 import { insertProject } from './project-create.ts';
@@ -44,6 +44,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
     const translatedStatus = picked.translated ?? startStatus;
 
     const groupIds = new Map<string, string>();
+    const groupKinds = new Map(file.groups.map((group) => [group.key, group.kind]));
     insertMany(
       tx,
       s.groups,
@@ -71,7 +72,7 @@ export function importProject(db: Db, file: ImportFile, model: DraftModelChoice 
         groupId,
         key: unit.key,
         sort: unit.order ?? index,
-        kind: unit.kind,
+        kind: unit.kind ?? unitKindOf(groupKinds.get(unit.group)!),
         speaker: unit.speaker ?? null,
         listener: unit.listener ?? null,
         listenerOrigin: unit.listener ? 'import' : null,

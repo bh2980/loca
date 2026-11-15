@@ -27,7 +27,7 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
    - 인물 목록에 없는 화자 → 프로필·관계가 문맥에 붙지 않습니다. 표기 차이(`ALICE`/`Alice`)면 별칭으로 묶습니다.
    - 요약의 ‘번역 제외로 보이는 원문’(빈 원문·서식만·글자 없음)이 많으면, 대사가 아닌 것(빈 칸, 제어 문자열)을 넣고 있지 않은지 봅니다. 이런 줄은 앱에서 번역 대상에서 빠지니 지울 필요는 없습니다.
 5. 전체를 변환하고 다시 검사합니다. 요약의 묶음·대사·노드 수가 원본 수와 맞는지 확인합니다.
-6. 있던 프로젝트에 더할 파일(빠졌던 UI 스크립트 등)이면 `loca format check` 대신 `loca source diff`로 검사합니다(`loca-project`의 ‘있던 프로젝트에 원문 더하기’). 그런 파일은 `project`를 빼고 프로젝트의 key를 가리켜도 됩니다.
+6. 있던 프로젝트에 더할 파일(빠졌던 UI 스크립트 등)이면 `loca format check` 대신 `loca source diff`로 검사하고 `loca source add`로 더합니다(`loca-project`의 ‘있던 프로젝트에 원문 더하기’). 그런 파일은 `project`를 빼고 프로젝트의 key를 가리켜도 됩니다.
 7. 사용자에게 파일 경로와 요약을 알립니다. **가져오기는 사용자가 loca 앱에서 합니다**(시작 화면 ‘표준 파일 가져오기’). 가져오기 전에 같은 검사와 경고가 다시 보입니다.
 
 ## 칸
@@ -36,7 +36,7 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `format` | `"loca/v1"` | 다른 값은 거부됩니다 |
 | `project` | `name`, `description`, `sourceLanguage`(기본 `en`), `targetLanguage`(기본 `ko`), `formatRules` | 아래 ‘자리표시자·태그’ |
 | `groups[]` | 묶음: `key`, `kind`(`scene`/`document`/`ui`), `title`, `description`, `section`, `order`, `meta` | 아래 ‘묶음 나누기’ |
-| `units[]` | 대사·문구: `key`, `group`, `order`, `kind`(`dialogue`/`document`/`ui`), `speaker`, `listener`, `source`, `translation`, `tags`, `meta` | `translation`이 있으면 현재 번역이 되고 상태는 기본 상태 세트의 ‘번역됨’으로 들어갑니다. 공식·기존 번역일 때만 넣습니다. `listener`(누구에게 하는 말인지, 인물 이름)는 게임 데이터가 확실히 알 때만. `tags`는 게임 데이터의 분류(예: `["UI", "음성", "20자 제한"]`)로, 같은 이름은 프로젝트 태그 하나가 되어 필터·실행 범위·워크플로 조건에 쓰입니다 |
+| `units[]` | 대사·문구: `key`, `group`, `order`, `kind`(`dialogue`/`document`/`ui`: 빼면 묶음 종류를 따름), `speaker`, `listener`, `source`, `translation`, `tags`, `meta` | `translation`이 있으면 현재 번역이 되고 상태는 기본 상태 세트의 ‘번역됨’으로 들어갑니다. 공식·기존 번역일 때만 넣습니다. `listener`(누구에게 하는 말인지, 인물 이름)는 게임 데이터가 확실히 알 때만. `tags`는 게임 데이터의 분류(예: `["UI", "음성", "20자 제한"]`)로, 같은 이름은 프로젝트 태그 하나가 되어 필터·실행 범위·워크플로 조건에 쓰입니다 |
 | `graph.nodeTypes` | 게임의 노드 클래스 이름 → `{ kind, label, description }` | `kind`: `script`(대사 있음)·`choice`(플레이어가 고르는 선택지, 문구가 대사로 들어감)·`condition`·`wait`·`event`·`state`·`connector`·`unknown` |
 | `graph.nodes[]` | `key`, `type`, `kind`, `label`, `units`(이 노드가 보여 주는 대사 key, 순서대로), `group`, `meta` | 대사가 없는 컨테이너 노드는 `group`으로 장면을 알려 줍니다 |
 | `graph.edges[]` | `from`, `to`, `kind`, `label` | 선택지 문구나 조건은 `label`에 |

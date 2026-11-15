@@ -2,7 +2,7 @@ import { agentToolAvailable, effectiveAgentPermissions, APP_DEFAULT_SECTION_LABE
 import { projectAgentSettings, specPermissionError } from './agent-permission-check.ts';
 import { and, asc, count, desc, eq, isNull, like, ne, or, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { APPLY_TARGETS, INPUT_TYPES, nodeName, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes } from '@loca/shared';
+import { APPLY_TARGETS, INPUT_TYPES, nodeName, AI_OUTPUTS, DEFAULT_TAG_COLOR, AI_PRESETS, AI_PRESET_IDS, aiNodeConfigSchema, KNOWLEDGE_TAG_KINDS, patchOf, TAG_SCOPES, batchChangeSchema, CONDITION_MARK_IDS, CONNECTION_KIND_INFO, ITEM_ERROR_KIND_IDS, createGroupSchema, createUnitSchema, findReadingRouteInputSchema, FUNCTIONS, LINE_MARK_IDS, lineFilterSchema, NODE_TYPES, sourceOf, updateGroupSchema, updateUnitSchema, workflowDefinitionSchema, functionTakes, addSourceSchema, FORMAT_PRESETS } from '@loca/shared';
 import { z as zod } from 'zod';
 import type { Db } from '../db/index.ts';
 import { inList } from '../db/chunk.ts';
@@ -17,6 +17,7 @@ import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, ord
 import { deleteWorkflow, duplicateWorkflow, saveWorkflow } from './workflow-mutations.ts';
 import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
 import { undoRecorded } from './undo-records.ts';
+import { addSource, sourceRefusal } from './source-add.ts';
 import { startRun } from './start-run.ts';
 import { continueRun } from './run-continue.ts';
 import { groupRunErrors, runErrors } from './run-errors.ts';
@@ -618,6 +619,46 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         return { ok: true, ...linked, undoId: token };
       },
     }),
+    add_source: tool({
+      description:
+        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Nothing the project has is changed or deleted: a key both have stays as the project has it, and lines the file leaves out stay. Knowledge items (characters, terms…) in the file are not added. When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId; undoing the change takes all of it back, format rules included.',
+      inputSchema: addSourceSchema,
+      check: (input) => {
+        const file = addSourceSchema.safeParse(input);
+        if (!file.success) return { ok: false, error: `파일 형식이 맞지 않습니다: ${file.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.')} ${issue.message}`).join(' / ')}` };
+        const { diff, refusal } = sourceRefusal(db, projectId, file.data);
+        if (refusal) return { ok: false, error: refusal };
+        if (!diff.groups.added.length && !diff.units.added.length && !diff.graph.nodes.added.length && !diff.graph.edges.added) return { ok: false, error: '더할 것이 없습니다. 파일의 key가 모두 프로젝트에 있습니다.', empty: true };
+        return { ok: true, input, report: diff.warnings.length ? { dropped: [], warnings: [{ key: 'project', issues: diff.warnings }] } : null };
+      },
+      undo: {
+        before: () => ({ formatRules: db.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.formatRules ?? null }),
+        after: (_db, proposal, before, result) => {
+          if (!isRecord(result) || typeof result.undoId !== 'string') return { none: '바뀐 것이 없어 되돌릴 것이 없습니다' };
+          const formats = Array.isArray(proposal.input.formats) && proposal.input.formats.length > 0;
+          return { calls: [undoCall('restore_deleted', { kind: 'script', id: result.undoId }), ...(formats && isRecord(before.formatRules) ? [undoCall('update_project_settings', { formatRules: before.formatRules })] : [])] };
+        },
+      },
+      preview: (input, of) => {
+        const file = addSourceSchema.safeParse(input);
+        if (!file.success) return [remark('파일 형식이 맞지 않습니다.')];
+        const note = remark('새 key만 더합니다. 프로젝트에 이미 있는 key는 그대로 두고, 파일에 없는 대사도 지우지 않습니다. 인물·용어 같은 지식은 더하지 않습니다.');
+        const total = fields(['파일', `묶음 ${file.data.groups.length.toLocaleString()}개 · 대사 ${file.data.units.length.toLocaleString()}개`]);
+        const formats = fields(['서식 규칙에 켬', (file.data.formats ?? []).map((id) => (Object.hasOwn(FORMAT_PRESETS, id) ? FORMAT_PRESETS[id as keyof typeof FORMAT_PRESETS].label : id))]);
+        if (of.status !== 'pending') return [...total, ...formats, note];
+        const diff = sourceRefusal(db, projectId, file.data).diff;
+        const counted = (keys: string[]) => (keys.length ? `${keys.length.toLocaleString()}개 (${some(keys)})` : undefined);
+        const nodes = diff.graph.nodes.added.length + diff.graph.nodes.own;
+        return [
+          ...total,
+          ...fields(['더할 묶음', counted(diff.groups.added)], ['더할 대사', counted(diff.units.added)], ['더할 그래프 노드', nodes ? `${nodes.toLocaleString()}개${diff.graph.nodes.own ? ` (새 장면 대사에 하나씩 붙는 ${diff.graph.nodes.own.toLocaleString()}개 포함)` : ''}` : undefined], ['더할 연결', diff.graph.edges.added ? `${diff.graph.edges.added.toLocaleString()}개` : undefined]),
+          ...formats,
+          ...diff.warnings.map((warning) => onAccept(warning)),
+          note,
+        ];
+      },
+      execute: (file) => ({ ok: true, ...addSource(db, projectId, file) }),
+    }),
     save_document: tool({
       description: 'Create a note (자료 › 노트: story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 노트 context on.',
       inputSchema: upsert(documentInput),
@@ -1018,7 +1059,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     restore_deleted: tool({
       description:
-        'Take back one recorded change, by the undoId it answered with. A delete (delete_lines, delete_group, delete_items): the items come back with the same ids and everything that went with them (a line\'s translations, tags, history, run items and graph node with its connections; a character\'s relationships; an event\'s lines; the tags on them). An edit of the dialogue graph (create_unit, link_lines, link_in_order): what it made goes and what it rewrote is as it was. kind is what was changed: script (lines and the dialogue graph), scenes (a group), or the kind given to delete_items. Works once, for 30 days. Refused whole when the project changed so that it cannot go back as it was (its scene or status deleted, its key taken).',
+        'Take back one recorded change, by the undoId it answered with. A delete (delete_lines, delete_group, delete_items): the items come back with the same ids and everything that went with them (a line\'s translations, tags, history, run items and graph node with its connections; a character\'s relationships; an event\'s lines; the tags on them). An edit of the dialogue graph (create_unit, link_lines, link_in_order, add_source): what it made goes and what it rewrote is as it was. kind is what was changed: script (lines and the dialogue graph), scenes (a group), or the kind given to delete_items. Works once, for 30 days. Refused whole when the project changed so that it cannot go back as it was (its scene or status deleted, its key taken).',
       inputSchema: z.object({ kind: z.enum(RESTORABLE_KINDS), id: z.string().min(1) }),
       undo: noUndo('되살린 것은 다시 지워서 되돌립니다'),
       preview: (input) => fields(['되살리기', `지운 ${WHAT[input.kind] ?? input.kind}와 함께 지워진 것`]),
