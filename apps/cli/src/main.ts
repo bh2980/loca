@@ -61,7 +61,7 @@ async function projectId(): Promise<string> {
   if (cachedProject) return cachedProject;
   const wanted = globals().project ?? process.env.LOCA_PROJECT;
   const projects = await unwrap(api().cli.projects.$get());
-  if (!projects.length) throw new CliError('프로젝트가 없습니다. 앱에서 표준 파일을 먼저 가져오세요.');
+  if (!projects.length) throw new CliError('프로젝트가 없습니다. 앱에서 만들거나 loca projects create <이름> / loca projects import <파일>로 만드세요.');
   const match = wanted
     ? (projects.find((project) => project.id === wanted) ??
       projects.find((project) => project.name.toLowerCase() === wanted.toLowerCase()) ??
@@ -355,7 +355,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
 
 // ── commands ─────────────────────────────────────────────────────────
 
-const projects = program.command('projects').description('프로젝트: 목록, 표준 파일로 새로 만들기');
+const projects = program.command('projects').description('프로젝트: 목록, 새로 만들기(빈 프로젝트 또는 표준 파일로)');
 
 projects
   .command('list', { isDefault: true })
@@ -364,6 +364,18 @@ projects
     const rows = await unwrap(api().cli.projects.$get());
     if (globals().json) return printList(rows.length, rows);
     for (const project of rows) console.log(`${project.name}  (${project.id})`);
+  });
+
+projects
+  .command('create <이름>')
+  .description('빈 프로젝트 만들기 (앱의 새 프로젝트와 같음). 홈 설정의 기본값을 복사해 가고, 묶음과 대사는 나중에 씁니다(loca call create_group · create_unit)')
+  .option('--source <언어>', '원문 언어 코드', 'en')
+  .option('--target <언어>', '번역 언어 코드', 'ko')
+  .option('--description <설명>', '프로젝트 설명', '')
+  .action(async (name: string, options: { source: string; target: string; description: string }) => {
+    const created = await unwrap(api().projects.$post({ json: { name, description: options.description, sourceLanguage: options.source, targetLanguage: options.target } }));
+    if (globals().json) return print(created);
+    console.log(`프로젝트를 만들었습니다: ${name}  (${created.projectId})\n  이 프로젝트로: LOCA_PROJECT=${created.projectId}`);
   });
 
 projects
@@ -377,7 +389,7 @@ projects
       if (globals().json) return print(checked);
       return console.log(`형식 오류 ${checked.issues.length}개 (loca format check ${file}로 자세히):\n${checked.issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
     }
-    const summary = await unwrap(api().projects.$post({ json: data as never }));
+    const summary = await unwrap(api().projects.import.$post({ json: data as never }));
     if (globals().json) return print(summary);
     console.log(`프로젝트를 만들었습니다: ${checked.summary.name}  (${summary.projectId})\n  묶음 ${summary.groups} · 대사 ${summary.units} · 그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}\n  이 프로젝트로: LOCA_PROJECT=${summary.projectId}`);
   });
@@ -1202,7 +1214,7 @@ graph
 
 graph
   .command('order')
-  .description('대본 순서로 잇기 제안 올리기: 장면 안에서 노드를 대본 순서대로 잇습니다. 이미 나가는 길·들어오는 길이 있는 노드는 건드리지 않습니다 (그래프 없이 가져온 파일용)')
+  .description('대본 순서로 잇기 제안 올리기: 장면 안에서 노드를 대본 순서대로 잇습니다. 이미 나가는 길·들어오는 길이 있는 노드는 건드리지 않습니다 (연결 없이 들어온 대사용: 그래프 없는 파일, 손으로 쓴 장면)')
   .option('--scene <scenes...>', '장면 (키·id·제목): 그 장면의 모든 노드')
   .option('--line <keys...>', '대사 키: 이 대사들의 노드끼리만 (장면별로)')
   .action(async (options: { scene?: string[]; line?: string[] }) => {

@@ -34,13 +34,16 @@ function ProjectSettings() {
   return <ProjectForm key={project.data.id} projectId={projectId} project={project.data} />;
 }
 
+const FIELD_LABELS = { name: '이름', description: '설명', sourceLanguage: '원문 언어', targetLanguage: '번역 언어' } as const;
+
 function ProjectForm({ projectId, project }: { projectId: string; project: { name: string; description: string | null; sourceLanguage: string; targetLanguage: string; formatRules: FormatRules } }) {
   const navigate = useNavigate();
   const [confirmName, setConfirmName] = useState('');
   // Fields the person has not edited follow the saved project (a rename from chat shows); the unsaved edit survives leaving the page.
-  const saved = { name: project.name, description: project.description ?? '' };
+  const saved = { name: project.name, description: project.description ?? '', sourceLanguage: project.sourceLanguage, targetLanguage: project.targetLanguage };
   const { draft: form, setDraft: setForm, dirty, conflicts, keepMine, takeSaved, reset } = useFormFrom(saved, `project.${projectId}`);
-  const { name, description } = form;
+  const { name, description, sourceLanguage, targetLanguage } = form;
+  const valid = Boolean(name.trim()) && sourceLanguage.trim().length >= 2 && targetLanguage.trim().length >= 2;
 
   const save = useMutation({
     mutationFn: () => saveProject(projectId, changedFields(form, saved)),
@@ -64,7 +67,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
             title="기본 정보"
             footer={
               <>
-                <Button disabled={!dirty || !name.trim() || save.isPending} onClick={() => save.mutate()}>
+                <Button disabled={!dirty || !valid || save.isPending} onClick={() => save.mutate()}>
                   저장
                 </Button>
                 {dirty && (
@@ -75,7 +78,7 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
               </>
             }
           >
-            {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => (field === 'name' ? '이름' : '설명'))} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
+            {conflicts.length > 0 && <ChangedElsewhere fields={conflicts.map((field) => FIELD_LABELS[field as keyof typeof FIELD_LABELS])} onTakeSaved={takeSaved} onKeepMine={keepMine} />}
             <Field.Group>
               <Field>
                 <Field.Label htmlFor="project-name">이름</Field.Label>
@@ -86,10 +89,13 @@ function ProjectForm({ projectId, project }: { projectId: string; project: { nam
                 <Textarea id="project-description" rows={3} value={description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
               </Field>
               <Field>
-                <Field.Label>언어</Field.Label>
-                <Field.Description>
-                  {project.sourceLanguage} → {project.targetLanguage}
-                </Field.Description>
+                <Field.Label htmlFor="project-source-language">원문 언어</Field.Label>
+                <Input id="project-source-language" value={sourceLanguage} onChange={(event) => setForm({ ...form, sourceLanguage: event.target.value })} />
+                <Field.Description>언어 코드 (en, ja, zh…). 번역 제외의 &lsquo;원문 언어 글자 없음&rsquo;이 이 언어의 글자를 봅니다.</Field.Description>
+              </Field>
+              <Field>
+                <Field.Label htmlFor="project-target-language">번역 언어</Field.Label>
+                <Input id="project-target-language" value={targetLanguage} onChange={(event) => setForm({ ...form, targetLanguage: event.target.value })} />
               </Field>
             </Field.Group>
           </Section>

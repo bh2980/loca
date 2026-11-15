@@ -26,7 +26,7 @@ import { projectSettingsInput, readProjectSettings, updateProjectSettings } from
 import { pullDefaults, readAppDefaults } from '../domain/app-defaults.ts';
 
 /** What each project setting is called on a proposal's card. */
-const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
+const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', sourceLanguage: '원문 언어', targetLanguage: '번역 언어', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
 
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
@@ -1025,12 +1025,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
       execute: ({ kind, id }) => undoRecorded(db, projectId, id, kind),
     }),
     read_project_settings: tool({
-      description: "The project's settings: name, description, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
+      description: "The project's settings: name, description, source and target language codes, format rules (placeholder presets and custom patterns the format check keeps), exclusion rules (번역 제외: which sources are not for translation — blank, format tokens only, no letters, no letter of the source language, patterns), AI 문맥 (aiAutoConfirm: true = AI results that are knowledge or terms are confirmed right away and so used as AI context; false = they are candidates a person confirms; lines are never affected), editor AI, mark colours, and the agent settings (switched-off tools, default permission mode, terminalPermissionMode — how changes from the terminal `loca` are decided; read-only for you).",
       inputSchema: z.object({}),
       execute: () => readProjectSettings(db, projectId) ?? { error: '프로젝트를 찾을 수 없습니다.' },
     }),
     update_project_settings: tool({
-      description: 'Change project settings: name, description, formatRules, exclusionRules, aiAutoConfirm, editorAi, markStyles (the name and colour of each automatic tag, by mark id) (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
+      description: 'Change project settings: name, description, sourceLanguage, targetLanguage (language codes: en, ja, ko…), formatRules, exclusionRules, aiAutoConfirm, editorAi, markStyles (the name and colour of each automatic tag, by mark id) (send only what changes; each object replaces the stored one, so read_project_settings first and send it whole with your edit). Agent settings (tools, permission mode) cannot be changed by you.',
       inputSchema: projectSettingsInput,
       undo: {
         before: () => {

@@ -3,12 +3,13 @@ import { Hono } from 'hono';
 import { and, eq, inArray } from 'drizzle-orm';
 import { ACTIVE_RUN_STATUSES } from '../engine/run-create.ts';
 import { z } from 'zod';
-import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, patchOf, summarizeImport } from '@loca/shared';
+import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, newProjectSchema, patchOf, summarizeImport } from '@loca/shared';
 import { found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { importProject } from '../services/importer.ts';
+import { createProject } from '../services/project-create.ts';
 import { cancelLayout, computeLayouts } from '../services/layout.ts';
 import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
@@ -21,7 +22,10 @@ export const projectRoutes = new Hono<Env>()
       return c.json({ ok: false as const, issues: result.error.issues.slice(0, 50).map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
     return c.json({ ok: true as const, summary: summarizeImport(result.data), warnings: importWarnings(result.data) });
   })
-  .post('/', validate('json', importFileSchema), (c) => {
+  /** 새 프로젝트: an empty one from the 홈 설정; its lines are written or imported later. */
+  .post('/', validate('json', newProjectSchema), (c) => c.json(createProject(c.var.deps.db, c.req.valid('json'), c.var.deps.secrets), 201))
+  /** A new project from a standard file. */
+  .post('/import', validate('json', importFileSchema), (c) => {
     const { db } = c.var.deps;
     const summary = importProject(db, c.req.valid('json'), undefined, c.var.deps.secrets);
     void computeLayouts(db, summary.projectId);

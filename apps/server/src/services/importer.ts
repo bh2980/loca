@@ -1,7 +1,8 @@
 import { and, eq } from 'drizzle-orm';
 import { detectFormatRules, templateStatusIds, type DraftModelChoice, type ImportFile } from '@loca/shared';
 import type { Db } from '../db/index.ts';
-import { copyKeys, seedProject, type KeyCopy } from '../domain/app-defaults.ts';
+import { copyKeys, type KeyCopy } from '../domain/app-defaults.ts';
+import { insertProject } from './project-create.ts';
 import type { SecretStore } from '../domain/secrets.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 
@@ -23,31 +24,19 @@ export interface ImportSummary {
 }
 
 /**
- * Creates a project from a validated standard file, starting from the 홈 설정 (seedProject: its
- * connections, statuses, tags, editor and chat settings, workflows). Everything lands in one
- * transaction or nothing does; the copied connections' keys follow when `secrets` is given.
+ * Creates a project from a validated standard file: a new project (insertProject, from the 홈 설정)
+ * with the file's contents. Everything lands in one transaction or nothing does; the copied
+ * connections' keys follow when `secrets` is given.
  */
 export function importProject(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }, secrets?: SecretStore): ImportSummary {
-  const projectId = crypto.randomUUID();
+  let projectId = '';
   let addedNodes = 0;
   let keys: KeyCopy[] = [];
   db.transaction((tx) => {
     const detected = !file.project.formatRules ? detectFormatRules(file.units.map((u) => u.source)) : null;
     const formatRules = file.project.formatRules ?? (detected && detected.recommendedPresets.length > 0 ? { presets: detected.recommendedPresets, custom: [] } : undefined);
-    tx.insert(s.projects)
-      .values({
-        id: projectId,
-        name: file.project.name,
-        description: file.project.description,
-        sourceLanguage: file.project.sourceLanguage,
-        targetLanguage: file.project.targetLanguage,
-        nodeTypes: file.graph?.nodeTypes ?? {},
-        ...(formatRules && { formatRules }),
-      })
-      .run();
-
     // Before the lines: they take its statuses, and the file's tags join its tags by name.
-    keys = seedProject(tx, projectId, model).keys;
+    ({ projectId, keys } = insertProject(tx, { ...file.project, formatRules, nodeTypes: file.graph?.nodeTypes }, model));
     const statuses = tx.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().sort((a, b) => a.sort - b.sort);
     const picked = templateStatusIds(statuses);
     // A line that comes with a translation starts in the first in-between status outside the review inbox (번역됨), or the first status.

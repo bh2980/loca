@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
+import { agentSettingsSchema, APP_FEED, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type NewProject, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
 import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
@@ -131,8 +131,11 @@ export const deleteProject = (projectId: string) => sent(APP_FEED, client.projec
 /** Checks a project file without importing it: what it holds and what is wrong with it. */
 export const validateProjectFile = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
 
+/** A new, empty project: done once the projects list has it. */
+export const createProject = (project: NewProject) => sent(APP_FEED, client.projects.$post({ json: project }));
+
 /** A new project from a file: done once the projects list has it. */
-export const importProjectFile = (data: unknown) => sent(APP_FEED, client.projects.$post({ json: data as never }));
+export const importProjectFile = (data: unknown) => sent(APP_FEED, client.projects.import.$post({ json: data as never }));
 
 /** 홈 기본값 가져오기: the checked sections of the home's defaults come into this project; answers with what each did. */
 export const pullDefaults = (projectId: string, sections: AppDefaultSection[]) => sent(projectId, client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections } }));

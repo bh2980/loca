@@ -2,6 +2,7 @@ import { createFileRoute, Link } from '@tanstack/react-router';
 import { FolderOpen } from 'lucide-react';
 import { Button, SectionHeading, EmptyContent, EmptyHeader, EmptyMedia, EmptyTitle, Box, Inline, Stack, BrandMark, Grid, ProjectCard, ProjectCardLink, ProjectListFrame, Skeleton, EmptyState } from '@loca/ui';
 import { ImportProjectDialog } from '@/components/import-project';
+import { NewProjectDialog } from '@/components/new-project';
 import { useProjects } from '@/lib/app-data';
 
 export const Route = createFileRoute('/')({ component: Home });
@@ -21,7 +22,12 @@ function Home() {
           <Button asChild variant="ghost">
             <Link to="/settings">설정</Link>
           </Button>
-          {!!projects.data?.length && <ImportProjectDialog />}
+          {!!projects.data?.length && (
+            <>
+              <ImportProjectDialog variant="outline" />
+              <NewProjectDialog />
+            </>
+          )}
         </Inline>
       </Stack>
 
@@ -39,7 +45,10 @@ function Home() {
             <EmptyTitle>프로젝트가 없습니다</EmptyTitle>
           </EmptyHeader>
           <EmptyContent>
-            <ImportProjectDialog />
+            <Inline gap="condensed">
+              <ImportProjectDialog variant="outline" />
+              <NewProjectDialog />
+            </Inline>
           </EmptyContent>
         </EmptyState>
       )}

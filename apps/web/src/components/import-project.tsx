@@ -9,7 +9,7 @@ type Validation = Awaited<ReturnType<typeof validate>>;
 const validate = validateProjectFile;
 
 /** Pick a standard-format file → see what it contains or exactly where it is invalid → create. */
-export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) {
+export function ImportProjectDialog({ trigger, variant = 'default' }: { trigger?: React.ReactNode; variant?: 'default' | 'outline' }) {
   const navigate = useNavigate();
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<{ name: string; data: unknown } | null>(null);
@@ -46,8 +46,8 @@ export function ImportProjectDialog({ trigger }: { trigger?: React.ReactNode }) 
     <Dialog open={open} onOpenChange={(next) => (setOpen(next), next || (setFile(null), setResult(null)))}>
       <DialogTrigger asChild>
         {trigger ?? (
-          <Button>
-            <FileUp /> 표준 파일 가져오기
+          <Button variant={variant}>
+            <FileUp /> 파일에서 만들기
           </Button>
         )}
       </DialogTrigger>

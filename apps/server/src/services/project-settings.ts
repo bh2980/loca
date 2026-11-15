@@ -1,11 +1,11 @@
 import { eq } from 'drizzle-orm';
 import { z } from 'zod';
-import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markStylesSchema, type AgentSettings } from '@loca/shared';
+import { agentSettingsSchema, editorAiSchema, exclusionRulesSchema, formatRulesSchema, markStylesSchema, newProjectSchema, type AgentSettings } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 
 /**
- * The project's settings a person or the agent may change: name, description, format rules, AI
+ * The project's settings a person or the agent may change: name, description, languages, format rules, AI
  * 문맥 (aiAutoConfirm), editor AI, mark colours. The agent's own settings (which tools it has, its
  * permission mode) are left out of the agent's tool on purpose: a script or web page that talks
  * the agent into a change must not be able to widen what it may do (#45).
@@ -13,6 +13,8 @@ import * as s from '../db/schema.ts';
 export const projectSettingsInput = z.object({
   name: z.string().trim().min(1).optional(),
   description: z.string().optional(),
+  sourceLanguage: newProjectSchema.shape.sourceLanguage.removeDefault().optional(),
+  targetLanguage: newProjectSchema.shape.targetLanguage.removeDefault().optional(),
   formatRules: formatRulesSchema.optional(),
   exclusionRules: exclusionRulesSchema.optional(),
   aiAutoConfirm: z.boolean().optional(),
@@ -26,6 +28,6 @@ export function updateProjectSettings(db: Db, projectId: string, patch: z.infer<
 }
 
 export function readProjectSettings(db: Db, projectId: string) {
-  const row = db.select({ name: s.projects.name, description: s.projects.description, formatRules: s.projects.formatRules, exclusionRules: s.projects.exclusionRules, aiAutoConfirm: s.projects.aiAutoConfirm, editorAi: s.projects.editorAi, markStyles: s.projects.markStyles, agentSettings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get();
+  const row = db.select({ name: s.projects.name, description: s.projects.description, sourceLanguage: s.projects.sourceLanguage, targetLanguage: s.projects.targetLanguage, formatRules: s.projects.formatRules, exclusionRules: s.projects.exclusionRules, aiAutoConfirm: s.projects.aiAutoConfirm, editorAi: s.projects.editorAi, markStyles: s.projects.markStyles, agentSettings: s.projects.agentSettings }).from(s.projects).where(eq(s.projects.id, projectId)).get();
   return row ? { ...row, exclusionRules: exclusionRulesSchema.parse(row.exclusionRules), editorAi: editorAiSchema.parse(row.editorAi), agentSettings: agentSettingsSchema.parse(row.agentSettings ?? {}) } : null;
 }

@@ -156,7 +156,7 @@ export function GraphStatus({ drawn }: { drawn: DrawnGraphData }) {
         <EmptyState size="pane" overlay>
           <EmptyHeader>
             <EmptyTitle>그래프가 없습니다</EmptyTitle>
-            <EmptyDescription>가져온 파일에 그래프 정보가 없습니다.</EmptyDescription>
+            <EmptyDescription>장면 대사가 없습니다. 장면 대사는 하나하나가 그래프의 노드가 됩니다.</EmptyDescription>
           </EmptyHeader>
         </EmptyState>
       )}

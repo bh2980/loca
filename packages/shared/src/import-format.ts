@@ -142,14 +142,19 @@ export const importTermSchema = z.object({
   note: z.string().default(''),
 });
 
+/** A new project's own facts: what the app's 새 프로젝트, `loca projects create` and a file's `project` all give. */
+export const newProjectSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().default(''),
+  sourceLanguage: z.string().trim().min(2).default('en'),
+  targetLanguage: z.string().trim().min(2).default('ko'),
+});
+export type NewProject = z.infer<typeof newProjectSchema>;
+
 export const importFileSchema = z
   .object({
     format: z.literal(IMPORT_FORMAT),
-    project: z.object({
-      name: z.string().min(1),
-      description: z.string().default(''),
-      sourceLanguage: z.string().min(2).default('en'),
-      targetLanguage: z.string().min(2).default('ko'),
+    project: newProjectSchema.extend({
       /** Placeholder / tag families in this game's strings; the extractor knows them best. */
       formatRules: formatRulesSchema.optional(),
     }),

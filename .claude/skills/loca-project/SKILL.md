@@ -8,10 +8,11 @@ description: Set up and maintain a loca project's own structure and settings —
 공통 규칙(연결, 제안, 권한, 터미널 권한 모드)은 `loca` 스킬을 따릅니다. 아래 도구는 모두 `loca call <도구> <입력>`으로 부르고, 바꾸는 도구는 터미널 권한 모드에 따라 바로 반영되거나 제안이 됩니다. 입력 형식은 `loca tools <도구>`로 먼저 봅니다.
 
 ## 프로젝트 만들기
-표준 파일(`loca/v1`, 변환기는 `loca-import-format`)로 새 프로젝트를 만듭니다. 있던 프로젝트는 건드리지 않습니다.
+빈 프로젝트를 만들거나, 표준 파일(`loca/v1`, 변환기는 `loca-import-format`)로 새 프로젝트를 만듭니다. 둘 다 있던 프로젝트는 건드리지 않습니다.
 ```
+loca projects create "작품 이름" --source en --target ko   # 빈 프로젝트. 묶음·대사는 아래 '원문 구조'로
 loca format check "$W/game.loca.json"           # 앱 없이 검사: 형식 오류, 개수, 경고
-loca projects import "$W/game.loca.json"        # 새 프로젝트. 출력의 id를 LOCA_PROJECT로
+loca projects import "$W/game.loca.json"        # 파일로 새 프로젝트. 출력의 id를 LOCA_PROJECT로
 ```
 - 새 프로젝트는 홈 설정의 기본값(상태, 태그, 워크플로, 연결 등)을 복사해 갑니다. 연결의 API 키는 사람이 앱에서 넣습니다. `loca connections`에서 "(키 없음)"이면 사용자에게 알립니다.
 
