@@ -48,6 +48,8 @@ const DELETABLE = [...KNOWLEDGE_KEYS, 'terms', 'tags'] as const;
 const TAGGABLE = [...KNOWLEDGE_KEYS, 'terms'] as const;
 /** What a recorded change can be taken back for (restore_deleted): lines and the dialogue graph, a group, or a kind delete_items takes. */
 export const RESTORABLE_KINDS = ['script', 'scenes', ...DELETABLE] as const;
+/** add_source's knowledge fields and the resource each one makes. */
+const SOURCE_KNOWLEDGE = [['characters', 'characters'], ['relationships', 'relationships'], ['speechRules', 'speechRules'], ['events', 'events'], ['documents', 'documents'], ['terms', 'terms']] as const satisfies readonly (readonly [string, AgentResource])[];
 const taxonomy = (action: AgentAction): NeedsByInput => ({
   of: (input) => (input.type === 'status' || input.type === 'tag' ? [p(input.type === 'status' ? 'statuses' : 'tags', action)] : null),
   options: [[p('statuses', action)], [p('tags', action)]],
@@ -90,10 +92,11 @@ export const TOOL_SPECS = {
   add_source: {
     label: '원문 더하기',
     needs: {
-      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
+      // Each kind of knowledge the file brings needs its create (what it has already is left alone, but the file is the input).
+      of: (input) => [p('script', 'create'), ...(rows(input.groups).length ? [p('scenes', 'create')] : []), ...SOURCE_KNOWLEDGE.filter(([field]) => rows(input[field]).length).map(([, resource]) => p(resource, 'create')), ...(Array.isArray(input.formats) && input.formats.length ? [p('project', 'update')] : [])],
       options: [[p('script', 'create')], [p('script', 'create'), p('scenes', 'create')], [p('script', 'create'), p('project', 'update')], [p('script', 'create'), p('scenes', 'create'), p('project', 'update')]],
     },
-    batch: ['groups', 'units'],
+    batch: ['groups', 'units', 'characters', 'relationships', 'speechRules', 'events', 'documents', 'terms'],
   },
   // ── knowledge ──
   list_characters: { label: '인물 조회', needs: read('characters', 'relationships') },

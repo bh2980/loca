@@ -61,16 +61,20 @@ function ImportSource() {
   }
 
   const data = diff.data;
-  const adds = data ? data.groups.added.length + data.units.added.length + data.graph.nodes.added.length + data.graph.edges.added : 0;
+  const knowledgeAdded = data ? Object.values(data.knowledge).reduce((sum, item) => sum + item.added, 0) : 0;
+  const adds = data ? data.groups.added.length + data.units.added.length + data.graph.nodes.added.length + data.graph.edges.added + knowledgeAdded : 0;
   const blocked = !!data?.unresolved.length;
   const nodes = data ? data.graph.nodes.added.length + data.graph.nodes.own : 0;
-  const knowledge = data ? Object.entries(KNOWLEDGE_LABELS).flatMap(([kind, label]) => { const item = data.knowledge[kind as keyof typeof KNOWLEDGE_LABELS]; return item.added + item.existing ? [`${label} ${(item.added + item.existing).toLocaleString()}`] : []; }) : [];
+  // Per kind, the items of the file the project lacks (added) or has (kept as it is).
+  const knowledgeOf = (part: 'added' | 'existing') => (data ? Object.entries(KNOWLEDGE_LABELS).flatMap(([kind, label]) => { const n = data.knowledge[kind as keyof typeof KNOWLEDGE_LABELS][part]; return n ? [`${label} ${n.toLocaleString()}`] : []; }) : []);
+  const newKnowledge = knowledgeOf('added');
+  const keptKnowledge = knowledgeOf('existing');
 
   return (
     <Page title="원문 넣기" flush>
       <PageBody label="원문 넣기">
         <Box spaceY="wide">
-          <Section variant="page" title="파일" description="표준 파일(loca/v1)에서 이 프로젝트에 없는 key만 더합니다. 이미 있는 대사는 파일과 달라도 바꾸지 않고, 파일에 없는 대사도 지우지 않습니다. 파일은 프로젝트에 있는 묶음·대사·노드·인물을 key나 이름으로 가리켜도 됩니다.">
+          <Section variant="page" title="파일" description="표준 파일(loca/v1)에서 이 프로젝트에 없는 key와 지식(인물·관계·말투·사건·노트·용어)만 더합니다. 이미 있는 대사와 지식은 파일과 달라도 바꾸지 않고, 파일에 없는 대사도 지우지 않습니다. 파일은 프로젝트에 있는 묶음·대사·노드·인물을 key나 이름으로 가리켜도 됩니다.">
             <FileDropZone accept=".json,application/json" dragging={dragging} onDraggingChange={setDragging} onFile={(chosen) => void load(chosen)}>
               {picked ? <Text weight="medium" tone="default">{picked.name}</Text> : dragging ? '여기에 놓기' : '파일을 끌어다 놓거나 눌러서 선택'}
             </FileDropZone>
@@ -104,6 +108,7 @@ function ImportSource() {
               }
             >
               더했습니다: 묶음 {added.added.groups.toLocaleString()} · 대사 {added.added.units.toLocaleString()} · 그래프 노드 {added.added.graphNodes.toLocaleString()} · 연결 {added.added.graphEdges.toLocaleString()}
+              {Object.values(added.knowledge.added).some(Boolean) && ` · 지식 ${Object.entries(KNOWLEDGE_LABELS).flatMap(([kind, label]) => { const n = added.knowledge.added[kind as keyof typeof KNOWLEDGE_LABELS]; return n ? [`${label} ${n.toLocaleString()}`] : []; }).join(' · ')}`}
               {added.formats.length > 0 && ` · 서식 규칙에 켬 ${added.formats.join(', ')}`}
             </Notice>
           )}
@@ -114,7 +119,7 @@ function ImportSource() {
               title="더할 것"
               footer={
                 <Button disabled={!data || blocked || !adds || add.isPending} onClick={() => add.mutate()}>
-                  {add.isPending && <Spinner />} {data && adds ? `대사 ${data.units.added.length.toLocaleString()}개 더하기` : '더하기'}
+                  {add.isPending && <Spinner />} {data && data.units.added.length ? `대사 ${data.units.added.length.toLocaleString()}개 더하기` : '더하기'}
                 </Button>
               }
             >
@@ -126,7 +131,7 @@ function ImportSource() {
               {diff.error && <Text as="p" variant="body" tone="danger">{diff.error.message}</Text>}
               {data && (
                 <Box spaceY="comfortable">
-                  {!adds && !blocked && <Text as="p" variant="body" tone="muted">더할 것이 없습니다. 파일의 key가 모두 프로젝트에 있습니다.</Text>}
+                  {!adds && !blocked && <Text as="p" variant="body" tone="muted">더할 것이 없습니다. 파일의 key와 지식이 모두 프로젝트에 있습니다.</Text>}
                   {adds > 0 && (
                     <KeyValue align="start" framed>
                       <KeyValueRow label="묶음">{count(data.groups.added)}</KeyValueRow>
@@ -136,6 +141,7 @@ function ImportSource() {
                         {data.graph.nodes.own > 0 && <Text tone="muted"> · 새 장면 대사에 하나씩 붙는 {data.graph.nodes.own.toLocaleString()}개 포함</Text>}
                       </KeyValueRow>
                       <KeyValueRow label="연결"><Text tabular>{data.graph.edges.added.toLocaleString()}개</Text></KeyValueRow>
+                      {newKnowledge.length > 0 && <KeyValueRow label="지식">{newKnowledge.join(' · ')}</KeyValueRow>}
                     </KeyValue>
                   )}
 
@@ -184,7 +190,7 @@ function ImportSource() {
                       <li>그대로 둠: 프로젝트와 다르게 적힌 key {(data.units.changed.length + data.groups.changed.length + data.graph.nodes.changed.length).toLocaleString()}개 ({some([...data.units.changed, ...data.groups.changed, ...data.graph.nodes.changed].map((item) => `${item.key}: ${item.fields.join('·')}`), 3)})</li>
                     )}
                     {data.units.missing.length > 0 && <li>그대로 둠: 파일이 다시 가져온 묶음에서 빠진 대사 {data.units.missing.length.toLocaleString()}개 ({some(data.units.missing, 3)})</li>}
-                    {knowledge.length > 0 && <li>더하지 않음: 파일의 {knowledge.join(' · ')}</li>}
+                    {keptKnowledge.length > 0 && <li>그대로 둠: 프로젝트에 이미 있는 {keptKnowledge.join(' · ')} (같은 이름의 인물, 같은 원문의 용어, 같은 제목의 노트·사건…)</li>}
                   </Box>
                 </Box>
               )}

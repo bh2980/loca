@@ -55,11 +55,6 @@ function keyDiff<T extends { key: string }>(items: T[], change: (item: T) => str
   return diff;
 }
 
-const itemDiff = <T,>(items: T[], has: (item: T) => boolean): ItemDiff => {
-  const existing = items.filter(has).length;
-  return { added: items.length - existing, existing };
-};
-
 /**
  * What adding `file` to the project would do, matched by key (원문 비교; the database is not touched): its
  * groups, lines and graph nodes that are new, changed or the same, the project's lines it no longer has in
@@ -124,7 +119,7 @@ export function diffSource(db: Db, projectId: string, file: SourceFile): SourceD
   const held = new Set((file.graph?.nodes ?? []).filter((node) => !nodeByKey.has(node.key)).flatMap((node) => node.units));
   const own = addedUnits.filter((unit) => (groupByKey.get(unit.group)?.kind ?? fileGroupKind.get(unit.group)) === 'scene' && !held.has(unit.key)).length;
 
-  const knowledge = knowledgeDiff(db, projectId, file, characters, characterOf);
+  const knowledge = knowledgeDiff(db, projectId, file);
 
   const warnings: string[] = [];
   if (file.project && file.project.sourceLanguage !== project.sourceLanguage) warnings.push(`파일의 원문 언어(${file.project.sourceLanguage})가 프로젝트(${project.sourceLanguage})와 다릅니다.`);
@@ -141,9 +136,18 @@ export function diffSource(db: Db, projectId: string, file: SourceFile): SourceD
   };
 }
 
-/** The file's knowledge items the project has already, each told by what names it; what to do with them is a merge's question. */
-function knowledgeDiff(db: Db, projectId: string, file: SourceFile, characters: { id: string; name: string }[], characterOf: Map<string, string>): SourceDiff['knowledge'] {
-  // A name as the project knows it (a character's main name for any alias), else as the file writes it.
+type KnowledgeKind = keyof SourceDiff['knowledge'];
+
+/**
+ * Which of the file's knowledge items the project lacks (their indexes, per kind), each told by what names it: a
+ * character by any of its names, a relationship by its two people and kind, a speech rule by its two people and
+ * where it starts, a note or an event by its title, a term by its source whatever its case. `characterIdOf` finds a
+ * project character by any of its names, `person` a name as the project knows it (else as the file writes it).
+ */
+export function knowledgeMatch(db: Db, projectId: string, file: SourceFile) {
+  const characters = db.select({ id: s.characters.id, name: s.characters.name, aliases: s.characters.aliases }).from(s.characters).where(eq(s.characters.projectId, projectId)).all();
+  const characterIdOf = new Map(characters.flatMap((character) => [character.name, ...character.aliases].map((name) => [name, character.id] as const)));
+  const characterOf = new Map(characters.flatMap((character) => [character.name, ...character.aliases].map((name) => [name, character.name] as const)));
   const fileCharacterOf = new Map(file.characters.flatMap((character) => [character.name, ...character.aliases].map((name) => [name, character.name] as const)));
   const person = (name: string) => characterOf.get(name) ?? characterOf.get(fileCharacterOf.get(name) ?? '') ?? fileCharacterOf.get(name) ?? name;
 
@@ -160,12 +164,21 @@ function knowledgeDiff(db: Db, projectId: string, file: SourceFile, characters: 
   const rule = (from: string, to: string, start: string | null | undefined) => `${from}\u0000${to}\u0000${start ?? ''}`;
   const rules = new Set(db.select({ from: s.speechRules.fromName, to: s.speechRules.toName, start: s.speechRules.startKey }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all().map((row) => rule(row.from, row.to, row.start)));
 
-  return {
-    characters: itemDiff(file.characters, (character) => [character.name, ...character.aliases].some((name) => characterOf.has(name))),
-    relationships: itemDiff(file.relationships, (rel) => relationships.has(relationship(person(rel.from), person(rel.to), rel.kind))),
-    documents: itemDiff(file.documents, (doc) => documents.has(doc.title)),
-    terms: itemDiff(file.terms, (term) => terms.has(termKey(term.source))),
-    events: itemDiff(file.events, (event) => events.has(event.title)),
-    speechRules: itemDiff(file.speechRules, (speech) => rules.has(rule(speech.from, speech.to, speech.start))),
+  const fresh = <T,>(items: T[], has: (item: T) => boolean) => items.flatMap((item, index) => (has(item) ? [] : [index]));
+  const added: Record<KnowledgeKind, number[]> = {
+    characters: fresh(file.characters, (character) => [character.name, ...character.aliases].some((name) => characterOf.has(name))),
+    relationships: fresh(file.relationships, (rel) => relationships.has(relationship(person(rel.from), person(rel.to), rel.kind))),
+    documents: fresh(file.documents, (doc) => documents.has(doc.title)),
+    terms: fresh(file.terms, (term) => terms.has(termKey(term.source))),
+    events: fresh(file.events, (event) => events.has(event.title)),
+    speechRules: fresh(file.speechRules, (speech) => rules.has(rule(speech.from, speech.to, speech.start))),
   };
+  return { added, characterIdOf, person };
+}
+
+/** The file's knowledge items the project has already and those it lacks, as counts. */
+function knowledgeDiff(db: Db, projectId: string, file: SourceFile): SourceDiff['knowledge'] {
+  const { added } = knowledgeMatch(db, projectId, file);
+  const count = (kind: KnowledgeKind) => ({ added: added[kind].length, existing: file[kind].length - added[kind].length });
+  return { characters: count('characters'), relationships: count('relationships'), documents: count('documents'), terms: count('terms'), events: count('events'), speechRules: count('speechRules') };
 }

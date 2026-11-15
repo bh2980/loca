@@ -4,7 +4,7 @@ import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 import { Refusal } from '../refusal.ts';
-import { diffSource, type SourceDiff } from './source-diff.ts';
+import { diffSource, knowledgeMatch, type SourceDiff } from './source-diff.ts';
 import { changed, invalidate, refreshNodeGroups, resequence } from './source-mutations.ts';
 import { recorder } from './undo-records.ts';
 
@@ -17,8 +17,8 @@ export interface SourceAdded {
   kept: { groups: number; units: number; graphNodes: number };
   /** The project's lines in the groups the file brought again that the file no longer has: not deleted. */
   missing: number;
-  /** The file's knowledge items (characters, terms…): not added by this. */
-  knowledge: number;
+  /** The file's knowledge items the project lacked (added, per kind) and those it has (kept as the project has them). */
+  knowledge: { added: Record<keyof SourceDiff['knowledge'], number>; kept: number };
   /** The formats turned on in the project's format rules with it (FormatOffer ids). */
   formats: string[];
   /** restore_deleted (kind script) takes back everything this added; null when nothing was added. */
@@ -50,7 +50,8 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
  * the project has is changed or deleted: a key both have stays as the project has it, and a line the file left out
  * stays. A new line without a kind takes its group's, starts in the project's initial status (번역됨 with the translation the
  * file brings, as a candidate), and a new scene line no node of the file holds gets a node of its own with no
- * connection. Knowledge items are not added. The formats named in `formats` are turned on in the project's format
+ * connection. Knowledge items (characters, relationships, speech rules, notes, events, terms) the project lacks go in
+ * as a new project's would, matched as diffSource matches them; the ones it has stay as they are. The formats named in `formats` are turned on in the project's format
  * rules, and the undo record puts them back with the rest. One transaction and one undo record (kind script).
  */
 export function addSource(db: Db, projectId: string, file: AddSourceInput): SourceAdded {
@@ -63,6 +64,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
   const units = file.units.filter((unit) => addedUnits.has(unit.key));
   const nodes = (file.graph?.nodes ?? []).filter((node) => addedNodes.has(node.key));
 
+  const known = knowledgeMatch(db, projectId, file);
   let edges = 0;
   let loose = 0;
   const undoId = db.transaction((tx) => {
@@ -159,6 +161,29 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
       loose++;
     }
 
+    // Knowledge the project lacks, as a new project's would come in; what it has stays as it is.
+    const fresh = known.added;
+    const newCharacterOf = new Map<string, string>();
+    for (const index of fresh.characters) {
+      const character = file.characters[index]!;
+      const { id } = tx.insert(s.characters).values({ projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, origin: 'import' }).returning({ id: s.characters.id }).get();
+      record.made('characters', id);
+      for (const name of [character.name, ...character.aliases]) newCharacterOf.set(name, id);
+    }
+    // A person by any name: the project's character, a new one, or either by the main name the file gives an alias.
+    const idOf = (name: string) => known.characterIdOf.get(name) ?? newCharacterOf.get(name) ?? known.characterIdOf.get(known.person(name)) ?? newCharacterOf.get(known.person(name))!;
+    for (const index of fresh.relationships) {
+      const rel = file.relationships[index]!;
+      record.made('relationships', tx.insert(s.relationships).values({ projectId, fromId: idOf(rel.from), toId: idOf(rel.to), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, origin: 'import' }).returning({ id: s.relationships.id }).get().id);
+    }
+    for (const index of fresh.documents) record.made('documents', tx.insert(s.documents).values({ projectId, ...file.documents[index]!, origin: 'import' }).returning({ id: s.documents.id }).get().id);
+    for (const index of fresh.events) record.made('story_events', tx.insert(s.storyEvents).values({ projectId, ...file.events[index]!, origin: 'import' }).returning({ id: s.storyEvents.id }).get().id);
+    for (const index of fresh.speechRules) {
+      const rule = file.speechRules[index]!;
+      record.made('speech_rules', tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' }).returning({ id: s.speechRules.id }).get().id);
+    }
+    for (const index of fresh.terms) record.made('terms', tx.insert(s.terms).values({ projectId, ...file.terms[index]! }).returning({ id: s.terms.id }).get().id);
+
     if (file.formats?.length) {
       record.rewritten('projects', projectId, ['format_rules']);
       const { formatRules } = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()!;
@@ -171,7 +196,8 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
     return record.save('script');
   });
   if (undoId) changed(db, projectId);
-  const knowledge = Object.values(diff.knowledge).reduce((sum, item) => sum + item.added + item.existing, 0);
+  const kinds = Object.keys(diff.knowledge) as (keyof SourceDiff['knowledge'])[];
+  const knowledge = { added: Object.fromEntries(kinds.map((kind) => [kind, diff.knowledge[kind].added])) as SourceAdded['knowledge']['added'], kept: kinds.reduce((sum, kind) => sum + diff.knowledge[kind].existing, 0) };
   return {
     added: { groups: groups.length, units: units.length, graphNodes: nodes.length + loose, graphEdges: edges },
     kept: { groups: diff.groups.changed.length, units: diff.units.changed.length, graphNodes: diff.graph.nodes.changed.length },

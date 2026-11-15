@@ -29,6 +29,12 @@ import { pullDefaults, readAppDefaults } from '../domain/app-defaults.ts';
 /** What each project setting is called on a proposal's card. */
 const SETTING_LABELS: Record<string, string> = { name: '이름', description: '설명', sourceLanguage: '원문 언어', targetLanguage: '번역 언어', formatRules: '서식 규칙', exclusionRules: '번역 제외 규칙', aiAutoConfirm: 'AI 문맥', editorAi: '편집기 AI', markStyles: '자동 태그 표시' };
 
+/** What each kind of knowledge a file brings is called. */
+const KNOWLEDGE_LABELS = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' } as const;
+/** The new knowledge items of a file, per kind (`인물 2 · 용어 5`), or nothing. */
+const knowledgeText = (knowledge: Record<keyof typeof KNOWLEDGE_LABELS, { added: number }>) =>
+  (Object.keys(KNOWLEDGE_LABELS) as (keyof typeof KNOWLEDGE_LABELS)[]).filter((kind) => knowledge[kind].added).map((kind) => `${KNOWLEDGE_LABELS[kind]} ${knowledge[kind].added.toLocaleString()}`).join(' · ') || undefined;
+
 /** 홈 기본값 sections the agent may pull (connections carry keys and chat settings its own permissions: the person's). */
 const PULLABLE = ['editorAi', 'prompts', 'aiAutoConfirm', 'statuses', 'tags', 'workflows'] as const;
 import { changeView, listViews, pickNodes, routeNodes, saveView, sectionWithMost, viewSection, VIEW_LIMIT, type ViewRoute } from './graph-views.ts';
@@ -621,21 +627,21 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     add_source: tool({
       description:
-        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Nothing the project has is changed or deleted: a key both have stays as the project has it, and lines the file leaves out stay. Knowledge items (characters, terms…) in the file are not added. When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId: restore_deleted (kind script) takes all of it back, format rules included.',
+        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Knowledge items (characters, relationships, speech rules, notes, events, terms) the project lacks go in too; a relationship or speech rule may name the project\'s characters. Nothing the project has is changed or deleted: a key or knowledge item both have stays as the project has it (a character is the same by any of its names, a term by its source, a note or event by its title), and lines the file leaves out stay. When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId: restore_deleted (kind script) takes all of it back, format rules included.',
       inputSchema: addSourceSchema,
       check: (input) => {
         const file = addSourceSchema.safeParse(input);
         if (!file.success) return { ok: false, error: `파일 형식이 맞지 않습니다: ${file.error.issues.slice(0, 3).map((issue) => `${issue.path.join('.')} ${issue.message}`).join(' / ')}` };
         const { diff, refusal } = sourceRefusal(db, projectId, file.data);
         if (refusal) return { ok: false, error: refusal };
-        if (!diff.groups.added.length && !diff.units.added.length && !diff.graph.nodes.added.length && !diff.graph.edges.added) return { ok: false, error: '더할 것이 없습니다. 파일의 key가 모두 프로젝트에 있습니다.', empty: true };
+        if (!diff.groups.added.length && !diff.units.added.length && !diff.graph.nodes.added.length && !diff.graph.edges.added && !Object.values(diff.knowledge).some((item) => item.added)) return { ok: false, error: '더할 것이 없습니다. 파일의 key와 지식이 모두 프로젝트에 있습니다.', empty: true };
         return { ok: true, input, report: diff.warnings.length ? { dropped: [], warnings: [{ key: 'project', issues: diff.warnings }] } : null };
       },
       undo: undoesRecord(() => 'script'),
       preview: (input, of) => {
         const file = addSourceSchema.safeParse(input);
         if (!file.success) return [remark('파일 형식이 맞지 않습니다.')];
-        const note = remark('새 key만 더합니다. 프로젝트에 이미 있는 key는 그대로 두고, 파일에 없는 대사도 지우지 않습니다. 인물·용어 같은 지식은 더하지 않습니다.');
+        const note = remark('새 key와 새 지식만 더합니다. 프로젝트에 이미 있는 key와 지식(같은 이름의 인물, 같은 원문의 용어…)은 그대로 두고, 파일에 없는 대사도 지우지 않습니다.');
         const total = fields(['파일', `묶음 ${file.data.groups.length.toLocaleString()}개 · 대사 ${file.data.units.length.toLocaleString()}개`]);
         const formats = fields(['서식 규칙에 켬', (file.data.formats ?? []).map((id) => (Object.hasOwn(FORMAT_PRESETS, id) ? FORMAT_PRESETS[id as keyof typeof FORMAT_PRESETS].label : id))]);
         if (of.status !== 'pending') return [...total, ...formats, note];
@@ -644,7 +650,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         const nodes = diff.graph.nodes.added.length + diff.graph.nodes.own;
         return [
           ...total,
-          ...fields(['더할 묶음', counted(diff.groups.added)], ['더할 대사', counted(diff.units.added)], ['더할 그래프 노드', nodes ? `${nodes.toLocaleString()}개${diff.graph.nodes.own ? ` (새 장면 대사에 하나씩 붙는 ${diff.graph.nodes.own.toLocaleString()}개 포함)` : ''}` : undefined], ['더할 연결', diff.graph.edges.added ? `${diff.graph.edges.added.toLocaleString()}개` : undefined]),
+          ...fields(['더할 묶음', counted(diff.groups.added)], ['더할 대사', counted(diff.units.added)], ['더할 그래프 노드', nodes ? `${nodes.toLocaleString()}개${diff.graph.nodes.own ? ` (새 장면 대사에 하나씩 붙는 ${diff.graph.nodes.own.toLocaleString()}개 포함)` : ''}` : undefined], ['더할 연결', diff.graph.edges.added ? `${diff.graph.edges.added.toLocaleString()}개` : undefined], ['더할 지식', knowledgeText(diff.knowledge)]),
           ...formats,
           ...diff.warnings.map((warning) => onAccept(warning)),
           note,

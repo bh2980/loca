@@ -1242,7 +1242,7 @@ source
 
 source
   .command('add <파일>')
-  .description('파일에서 프로젝트에 없는 key만 더하기를 제안으로 올리기: 새 묶음·대사·그래프 노드·연결. 프로젝트에 있는 key는 그대로 두고 파일에 없는 대사도 지우지 않습니다. 인물·용어 같은 지식은 더하지 않습니다. 먼저 loca source diff로 확인하세요. 새 대사에 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다. 반영된 것은 loca proposals undo로 한 번에 되돌립니다')
+  .description('파일에서 프로젝트에 없는 key와 지식만 더하기를 제안으로 올리기: 새 묶음·대사·그래프 노드·연결과 새 인물·관계·말투·사건·노트·용어. 프로젝트에 있는 key와 지식은 그대로 두고 파일에 없는 대사도 지우지 않습니다. 먼저 loca source diff로 확인하세요. 새 대사에 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다. 반영된 것은 loca proposals undo로 한 번에 되돌립니다')
   .option('--format <ids...>', '서식 규칙에 같이 켤 새 서식 (source diff의 새 서식 id)')
   .option('--no-format', '새 서식을 서식 규칙에 켜지 않고 더하기')
   .action(async (file: string, options: { format?: string[] | false }) => {
@@ -1265,13 +1265,16 @@ source
     }
     const outcome = await proposeTool('add_source', { ...parsed.data, formats } as ToolInputs['add_source']);
     printOutcome(outcome, '원문 더하기');
-    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: number; formats?: string[] } | null) : null;
+    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[] } | null) : null;
     if (!added?.added) return;
     console.log(`  더함  묶음 ${added.added.groups} · 대사 ${added.added.units} · 그래프 노드 ${added.added.graphNodes} · 연결 ${added.added.graphEdges}`);
     const kept = (added.kept?.groups ?? 0) + (added.kept?.units ?? 0) + (added.kept?.graphNodes ?? 0);
     if (kept) console.log(`  그대로 둠  파일과 다른 key ${kept}개 (프로젝트의 것을 유지)`);
     if (added.missing) console.log(`  그대로 둠  파일에 없는 대사 ${added.missing}개 (지우지 않음)`);
-    if (added.knowledge) console.log(`  더하지 않음  지식 ${added.knowledge}개`);
+    const knowledgeLabels: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' };
+    const newKnowledge = Object.entries(added.knowledge?.added ?? {}).filter(([, n]) => n).map(([kind, n]) => `${knowledgeLabels[kind] ?? kind} ${n}`);
+    if (newKnowledge.length) console.log(`  더함  지식 ${newKnowledge.join(' · ')}`);
+    if (added.knowledge?.kept) console.log(`  그대로 둠  프로젝트에 이미 있는 지식 ${added.knowledge.kept}개`);
     if (added.formats?.length) console.log(`  서식 규칙에 켬  ${added.formats.join(', ')}`);
     console.log(`  되돌리기: loca proposals undo ${outcome.proposalId}`);
   });

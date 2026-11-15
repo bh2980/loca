@@ -32,7 +32,7 @@ it('adds the UI strings after the dialogue, and one undo takes them all back', (
   const projectId = made();
   const ui = sourceFileSchema.parse({ format: 'loca/v1', groups: [{ key: 'menu', kind: 'ui', title: 'Menu' }], units: [{ key: 'menu.start', group: 'menu', source: 'Start', translation: '시작', tags: ['button'] }, { key: 'menu.quit', group: 'menu', source: 'Quit' }] });
   const added = addSource(db, projectId, ui);
-  expect(added).toMatchObject({ added: { groups: 1, units: 2, graphNodes: 0, graphEdges: 0 }, missing: 0, knowledge: 0 });
+  expect(added).toMatchObject({ added: { groups: 1, units: 2, graphNodes: 0, graphEdges: 0 }, missing: 0, knowledge: { kept: 0 } });
   // The group's kind decides the line's (the file left kind out); after the dialogue in script order.
   expect(lines(projectId).map((line) => [line.key, line.kind])).toEqual([['intro.1', 'dialogue'], ['intro.2', 'dialogue'], ['menu.start', 'ui'], ['menu.quit', 'ui']]);
   expect(lines(projectId).find((line) => line.key === 'menu.start')!.translation).toBe('시작');
@@ -53,11 +53,51 @@ it('leaves what the project has as it is: a changed line, a missing line, its kn
     characters: [{ name: 'Ana' }, { name: 'Cleo' }],
   });
   const added = addSource(db, projectId, next);
-  expect(added).toMatchObject({ added: { groups: 0, units: 1, graphNodes: 1 }, kept: { units: 1 }, missing: 1, knowledge: 2 });
+  expect(added).toMatchObject({ added: { groups: 0, units: 1, graphNodes: 1 }, kept: { units: 1 }, missing: 1, knowledge: { added: { characters: 1 }, kept: 1 } });
   // intro.3 goes after the group's lines, with a node of its own; intro.1 keeps its source, intro.2 stays.
   expect(lines(projectId).map((line) => [line.key, line.source])).toEqual([['intro.1', 'Hello.'], ['intro.2', 'Hi.'], ['intro.3', 'Bye.']]);
   expect(nodes(projectId)).toEqual(['intro.3', 'n1', 'n2']);
-  expect(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all()).toHaveLength(2);
+  // Ana is there already; Cleo is new.
+  expect(db.select({ name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((row) => row.name).sort()).toEqual(['Ana', 'Ben', 'Cleo']);
+});
+
+it('adds the knowledge the project lacks, joined to its people by any name, and keeps what it has; one undo takes it back', () => {
+  const projectId = made();
+  // A person edited in the app since: the file's older profile must not come back.
+  db.update(s.characters).set({ profile: '앱에서 고친 프로필', aliases: ['Anna'] }).where(eq(s.characters.name, 'Ana')).run();
+  db.insert(s.terms).values({ projectId, source: 'Monaco', target: '모나코' }).run();
+  const more = sourceFileSchema.parse({
+    format: 'loca/v1',
+    units: [{ key: 'intro.3', group: 'intro', speaker: 'Cleo', source: 'Hey.' }],
+    characters: [{ name: 'Ana', profile: '파일의 옛 프로필' }, { name: 'Cleo', aliases: ['C'] }],
+    relationships: [{ from: 'C', to: 'Anna', kind: 'rival' }, { from: 'Ana', to: 'Ben', kind: 'friend' }],
+    speechRules: [{ from: 'Cleo', to: 'Ana', level: 'hae' }],
+    terms: [{ source: 'monaco', target: '모나코!' }, { source: 'Relay', target: '중계소' }],
+    documents: [{ title: 'World', body: '…' }],
+  });
+  const added = addSource(db, projectId, more);
+  // Kept: Ana (by name) and monaco (Monaco, whatever the case).
+  expect(added.knowledge).toEqual({ added: { characters: 1, relationships: 2, documents: 1, terms: 1, events: 0, speechRules: 1 }, kept: 2 });
+  const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((row) => [row.id, row]));
+  expect([...people.values()].find((row) => row.name === 'Ana')!.profile).toBe('앱에서 고친 프로필');
+  // C is Cleo (the file's alias), Anna is Ana (the project's): the rivalry joins them.
+  const rivalry = db.select().from(s.relationships).where(eq(s.relationships.kind, 'rival')).get()!;
+  expect([people.get(rivalry.fromId)!.name, people.get(rivalry.toId)!.name]).toEqual(['Cleo', 'Ana']);
+  expect(db.select({ source: s.terms.source }).from(s.terms).where(eq(s.terms.projectId, projectId)).all().map((row) => row.source).sort()).toEqual(['Monaco', 'Relay']);
+
+  undoRecorded(db, projectId, added.undoId!, 'script');
+  expect([...db.select({ name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((row) => row.name)].sort()).toEqual(['Ana', 'Ben']);
+  expect(db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all()).toHaveLength(0);
+  expect(db.select().from(s.terms).where(eq(s.terms.projectId, projectId)).all()).toHaveLength(1);
+  expect(db.select().from(s.documents).where(eq(s.documents.projectId, projectId)).all()).toHaveLength(0);
+  expect(db.select().from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).all()).toHaveLength(0);
+});
+
+it('a file of knowledge only is something to add', () => {
+  const projectId = made();
+  const added = addSource(db, projectId, sourceFileSchema.parse({ format: 'loca/v1', units: [{ key: 'intro.1', group: 'intro', speaker: 'Ana', source: 'Hello.' }], terms: [{ source: 'Relay', target: '중계소' }] }));
+  expect(added).toMatchObject({ added: { units: 0 }, knowledge: { added: { terms: 1 } } });
+  expect(added.undoId).not.toBeNull();
 });
 
 it('joins new nodes to the project\'s graph by key, and draws no connection twice', () => {
