@@ -55,7 +55,7 @@ const NOT_BATCH: Partial<Record<ToolName, Record<string, string>>> = {
   update_tag: { scope: 'where one tag may be put' },
   order_settings: { names: 'one ordering of the statuses or tags' },
   tag_items: { add: 'the tags put on each of `ids`', remove: 'the tags taken off each of `ids`' },
-  add_source: { formats: 'format rules turned on with the lines, a few at most' },
+  add_source: { formats: 'format rules turned on with the lines, a few at most', statuses: "a project file's set-up: adding to a project uses only its lines' status names", tags: "a project file's set-up, as statuses", workflows: "a project file's set-up, as statuses" },
   pull_app_defaults: { sections: 'the settings sections pulled, six at most' },
 };
 

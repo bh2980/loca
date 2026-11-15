@@ -9,6 +9,7 @@ import * as s from '../db/schema.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
 import { createProject, createProjectFromFile, fileFormatOffers } from '../services/project-create.ts';
+import { exportProject } from '../services/project-export.ts';
 import { cancelLayout } from '../services/layout.ts';
 import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
@@ -28,6 +29,12 @@ export const projectRoutes = new Hono<Env>()
   .post('/import', validate('query', z.object({ name: z.string().trim().max(200).optional(), formats: z.string().optional() })), validate('json', importFileSchema), (c) => {
     const { name, formats } = c.req.valid('query');
     return c.json(createProjectFromFile(c.var.deps.db, c.req.valid('json'), undefined, c.var.deps.secrets, { name, formats: formats ? formats.split(',').filter(Boolean) : [] }), 201);
+  })
+  /** 프로젝트 파일로 내보내기: the whole project as one standard file that makes it again, saved as `<name>.loca.json`. */
+  .get('/:projectId/export', (c) => {
+    const file = exportProject(c.var.deps.db, c.req.param('projectId'));
+    c.header('content-disposition', `attachment; filename="${encodeURIComponent(`${file.project.name}.loca.json`)}"`);
+    return c.json(file);
   })
   /** How many 에디터 AI completions the project made today (its daily cap counts them; ai_calls, calls topic). */
   .get('/:projectId/editor-calls', (c) => c.json({ today: editorCallsToday(c.var.deps.db, c.req.param('projectId')) }))

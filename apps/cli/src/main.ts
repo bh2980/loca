@@ -403,6 +403,19 @@ projects
     console.log(`프로젝트를 만들었습니다: ${checked.summary.name}  (${summary.projectId})\n  묶음 ${summary.groups} · 대사 ${summary.units} · 그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}\n  이 프로젝트로: LOCA_PROJECT=${summary.projectId}`);
   });
 
+projects
+  .command('export [파일]')
+  .description('프로젝트 전체를 표준 파일(loca/v1) 하나로 내보내기 (앱의 설정 › 프로젝트 › 프로젝트 파일로 내보내기와 같음): 상태·태그·워크플로, 대사와 번역·상태·메모·태그, 대사 그래프, 지식, 용어. loca projects import로 같은 프로젝트를 다시 만듭니다. 이력·실행·AI 기록·채팅·연결과 키는 빠집니다. 파일을 주지 않으면 <이름>.loca.json, - 이면 표준 출력')
+  .action(async (target: string | undefined) => {
+    const file = await unwrap(api().projects[':projectId'].export.$get({ param: { projectId: await projectId() } }));
+    const text = `${JSON.stringify(file, null, 2)}\n`;
+    if (target === '-') return void process.stdout.write(text);
+    const out = target ?? `${file.project.name.replace(/[\\/:*?"<>|]/g, '_')}.loca.json`;
+    writeFileSync(out, text);
+    if (globals().json) return print({ file: out, units: file.units.length });
+    console.log(`내보냈습니다: ${out}\n  대사 ${file.units.length.toLocaleString()} · 묶음 ${file.groups.length.toLocaleString()} · 상태 ${file.statuses?.length ?? 0} · 워크플로 ${file.workflows?.length ?? 0} · 인물 ${file.characters?.length ?? 0} · 용어 ${file.terms?.length ?? 0}`);
+  });
+
 withFilters(program.command('lines').description('대사 찾기. 필터를 조합합니다. 한 번에 --limit(기본 200)개, --all이면 끝까지'))
   .option('--all', '모든 페이지를 읽기')
   .option('--jsonl', '한 줄에 하나씩 JSON으로 출력')

@@ -155,13 +155,22 @@ function insertTags(tx: Tx, projectId: string, defaults: AppDefaults, only?: Set
   return rows.length;
 }
 
+/** A project's own set-up a new project starts with instead of the home's (a project file: its statuses, tags and workflows). */
+export interface SetUp {
+  statuses?: AppDefaults['statuses'];
+  tags?: AppDefaults['tags'];
+  workflows?: SavedWorkflow[];
+}
+
 /**
  * A new project's start from the home: its connections, statuses, tags (and the app's AI 실패 tag),
  * editor AI, chat settings and workflows. `model` fills the templates' AI nodes (empty: validation asks).
+ * `from`: what a project file brings in place of the home's (its workflows then replace the templates too).
  * Runs inside the import's transaction; copy the returned keys once it is in.
  */
-export function seedProject(tx: Tx, projectId: string, model: DraftModelChoice = { connectionId: '', model: '' }): { keys: KeyCopy[] } {
-  const defaults = readAppDefaults(tx);
+export function seedProject(tx: Tx, projectId: string, model: DraftModelChoice = { connectionId: '', model: '' }, from: SetUp = {}): { keys: KeyCopy[] } {
+  const home = readAppDefaults(tx);
+  const defaults: AppDefaults = { ...home, statuses: from.statuses ?? home.statuses, tags: from.tags ?? home.tags, workflows: from.workflows ? { templates: [], saved: from.workflows } : home.workflows };
   const { ids, keys } = copyConnections(tx, null, projectId);
   tx.update(s.projects)
     .set({ editorAi: moveEditorAi(defaults.editorAi, ids), agentSettings: moveAgentSettings(defaults.agentSettings, ids), aiAutoConfirm: defaults.aiAutoConfirm })
@@ -238,7 +247,7 @@ export function pullDefaults(db: Db, projectId: string, sections: AppDefaultSect
 }
 
 /** Ids in a workflow that stand for this project's statuses, tags and connections, as names (savedWorkflowSchema.refs). */
-function workflowRefs(tx: Pick<Db, 'select'>, projectId: string, definition: WorkflowDefinition): Record<string, SavedRef> {
+export function workflowRefs(tx: Pick<Db, 'select'>, projectId: string, definition: WorkflowDefinition): Record<string, SavedRef> {
   const known = new Map<string, SavedRef>([
     ...projectStatuses(tx, projectId).map((status) => [status.id, { kind: 'status', name: status.name, statusKind: status.kind, inReview: status.inReview }] as const),
     ...tx.select({ id: s.tags.id, name: s.tags.name }).from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => [tag.id, { kind: 'tag', name: tag.name }] as const),

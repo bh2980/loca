@@ -131,6 +131,19 @@ export const deleteProject = (projectId: string) => sent(APP_FEED, client.projec
 /** Checks a project file without importing it: what it holds and what is wrong with it. */
 export const validateProjectFile = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
 
+/** 프로젝트 파일로 내보내기: the whole project as one standard file, handed to the browser to save as `<name>.loca.json`. */
+export async function downloadProjectFile(projectId: string) {
+  const response = await client.projects[':projectId'].export.$get({ param: { projectId } });
+  if (!response.ok) await unwrap(Promise.resolve(response));
+  const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1];
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name ? decodeURIComponent(name) : 'project.loca.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
 /** A new, empty project: done once the projects list has it. */
 export const createProject = (project: NewProject) => sent(APP_FEED, client.projects.$post({ json: project }));
 

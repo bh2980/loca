@@ -1,7 +1,7 @@
-import { detectFormatRules, formatRulesSchema, newFormats, type DraftModelChoice, type FormatOffer, type FormatRules, type ImportFile, type NewProject, type NodeType } from '@loca/shared';
+import { detectFormatRules, formatRulesSchema, newFormats, type DraftModelChoice, type ExclusionRules, type FormatOffer, type FormatRules, type ImportFile, type NewProject, type NodeType } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { copyKeys, seedProject, type KeyCopy } from '../domain/app-defaults.ts';
+import { copyKeys, seedProject, type KeyCopy, type SetUp } from '../domain/app-defaults.ts';
 import type { SecretStore } from '../domain/secrets.ts';
 import type { Tx } from './source-mutations.ts';
 import { eq } from 'drizzle-orm';
@@ -11,6 +11,7 @@ import { addSource } from './source-add.ts';
 export interface ProjectExtras {
   nodeTypes?: Record<string, NodeType>;
   formatRules?: FormatRules;
+  exclusionRules?: ExclusionRules;
 }
 
 /**
@@ -18,13 +19,13 @@ export interface ProjectExtras {
  * settings, workflows), inside the caller's transaction. The copied connections' keys are copied by the
  * caller once the transaction is in (copyKeys), since the key store is outside the database.
  */
-export function insertProject(tx: Tx, project: NewProject & ProjectExtras, model: DraftModelChoice = { connectionId: '', model: '' }): { projectId: string; keys: KeyCopy[] } {
+export function insertProject(tx: Tx, project: NewProject & ProjectExtras, model: DraftModelChoice = { connectionId: '', model: '' }, from: SetUp = {}): { projectId: string; keys: KeyCopy[] } {
   const projectId = crypto.randomUUID();
   const { formatRules, nodeTypes, ...facts } = project;
   tx.insert(s.projects)
     .values({ id: projectId, ...facts, nodeTypes: nodeTypes ?? {}, ...(formatRules && { formatRules }) })
     .run();
-  return { projectId, keys: seedProject(tx, projectId, model).keys };
+  return { projectId, keys: seedProject(tx, projectId, model, from).keys };
 }
 
 /** A new, empty project (the app's 새 프로젝트, `loca projects create`): its lines come later, written or imported. */
@@ -60,7 +61,8 @@ export interface FileProjectSummary {
  */
 export function createProjectFromFile(db: Db, file: ImportFile, model: DraftModelChoice = { connectionId: '', model: '' }, secrets?: SecretStore, extra: { formats?: string[]; name?: string } = {}): FileProjectSummary {
   const { formatRules: _own, ...facts } = file.project;
-  const { projectId, keys } = db.transaction((tx) => insertProject(tx, { ...facts, formatRules: startingFormatRules(file) }, model));
+  // A project's own file brings its statuses, tags and workflows: the new project starts with those, not the home's.
+  const { projectId, keys } = db.transaction((tx) => insertProject(tx, { ...facts, formatRules: startingFormatRules(file) }, model, { statuses: file.statuses, tags: file.tags, workflows: file.workflows }));
   copyKeys(db, secrets, keys);
   try {
     const { added } = addSource(db, projectId, { ...file, formats: extra.formats ?? [], update: false, name: extra.name }, 'new');

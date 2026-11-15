@@ -43,6 +43,10 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
   const addedNodes = new Set(diff.graph.nodes.added);
   const held = (file.graph?.nodes ?? []).filter((node) => addedNodes.has(node.key)).flatMap((node) => node.units.filter((key) => !addedUnits.has(key)).map((key) => `${node.key} → ${key}`));
   if (held.length) return { diff, refusal: `새 노드가 프로젝트에 이미 있는 대사를 담고 있습니다: ${issueList(held)}. 새 노드에는 이 파일이 더하는 대사만 넣으세요.` };
+  // A line's status by name is one of the project's.
+  const statusNames = new Set(db.select({ name: s.statuses.name }).from(s.statuses).where(eq(s.statuses.projectId, projectId)).all().map((row) => row.name));
+  const unknownStatus = [...new Set(file.units.filter((unit) => addedUnits.has(unit.key) && unit.status && !statusNames.has(unit.status)).map((unit) => unit.status!))];
+  if (unknownStatus.length) return { diff, refusal: `프로젝트에 없는 상태입니다: ${issueList(unknownStatus)}. 상태 이름을 프로젝트의 것으로 바꾸거나 빼세요.` };
   // Turning a format on is the person's call: asked whenever the new lines use one the rules lack.
   const offered = new Set(diff.formats.map((format) => format.id));
   if (diff.formats.length && !file.formats) return { diff, refusal: `새 대사에 서식 규칙에 없는 서식이 있습니다: ${diff.formats.map((format) => `${format.id} (${format.examples.slice(0, 3).join(' ')})`).join(', ')}. 서식 규칙에 같이 켤지 사람에게 묻고, 켤 것을 formats에 넣으세요 (켜지 않으면 빈 목록).` };
@@ -98,6 +102,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     const picked = templateStatusIds(statuses);
     const startStatus = picked.untranslated ?? statuses[0]!.id;
     const translatedStatus = picked.translated ?? startStatus;
+    const statusByName = new Map(statuses.map((status) => [status.name, status.id]));
     // A line added to a group the project has goes after its lines.
     const nextSort = new Map<string, number>();
     const sortIn = (groupId: string, isNew: boolean, order: number | undefined, index: number) => {
@@ -123,7 +128,9 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
         source: unit.source,
         translation: unit.translation ?? null,
         candidateId,
-        statusId: unit.translation ? translatedStatus : startStatus,
+        statusId: unit.status ? statusByName.get(unit.status)! : unit.translation ? translatedStatus : startStatus,
+        note: unit.note ?? '',
+        translate: unit.translate ?? null,
         meta: unit.meta,
       }).returning({ id: s.units.id }).get();
       record.made('units', row.id);

@@ -1,6 +1,7 @@
 import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
 import { formatRulesSchema } from './format-check.ts';
-import { exclusionReason, type ExclusionReason } from './exclusion.ts';
+import { exclusionReason, exclusionRulesSchema, LINE_TRANSLATE, type ExclusionReason } from './exclusion.ts';
+import { savedWorkflowSchema, templateStatusesSchema, templateTagSchema } from './app-defaults.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS } from './knowledge.ts';
 
@@ -53,6 +54,12 @@ export const importUnitSchema = z.object({
   translation: z.string().optional(),
   /** Labels from the game data (category, voiced, a length limit…): they become the project's tags. */
   tags: z.array(z.string().trim().min(1)).default([]),
+  /** The line's translation status by name (a project's own export); left out, it starts in the initial status (번역됨 with a translation). */
+  status: z.string().trim().min(1).optional(),
+  /** The line's memo (a project's own export). */
+  note: z.string().optional(),
+  /** A person's call on 번역 제외 (a project's own export); left out, the project's rules decide. */
+  translate: z.enum(LINE_TRANSLATE).optional(),
   meta,
 });
 
@@ -180,10 +187,20 @@ const fileShape = z.object({
   terms: z.array(importTermSchema).default([]),
   events: z.array(importEventSchema).default([]),
   speechRules: z.array(importSpeechRuleSchema).default([]),
+  /**
+   * A project's own export (프로젝트 파일로 내보내기) carries its set-up too: the statuses in order, the tags, the workflows
+   * with what their ids stand for (refs, by name). A project made from the file starts with these instead of the 홈 설정's.
+   * Adding such a file to a project that has its own uses only its lines' status names (they must be the project's).
+   */
+  statuses: templateStatusesSchema.optional(),
+  tags: z.array(templateTagSchema).optional(),
+  workflows: z.array(savedWorkflowSchema).optional(),
 });
 const projectFacts = newProjectSchema.extend({
   /** Placeholder / tag families in this game's strings; the extractor knows them best. */
   formatRules: formatRulesSchema.optional(),
+  /** 번역 제외 rules (a project's own export). */
+  exclusionRules: exclusionRulesSchema.optional(),
 });
 type FileBody = z.infer<typeof fileShape>;
 
@@ -246,6 +263,11 @@ function checkFile(file: FileBody, ctx: z.RefinementCtx, closed: boolean) {
   unique(file.groups, ['groups']);
   unique(file.units, ['units']);
   if (file.graph) unique(file.graph.nodes, ['graph', 'nodes']);
+  // A line's status names one of the file's statuses when the file brings them (a new project starts with only those).
+  if (closed && file.statuses) {
+    const statuses = new Set(file.statuses.map((status) => status.name));
+    file.units.forEach((unit, index) => unit.status && !statuses.has(unit.status) && issue(['units', index, 'status'], `없는 상태: ${unit.status}`));
+  }
   if (closed) for (const ref of unresolvedReferences(file)) issue(ref.path, `없는 ${FILE_REFERENCE_LABELS[ref.to]}: ${ref.key}`);
 }
 
