@@ -1,5 +1,5 @@
 import { readFileSync } from 'node:fs';
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, ne } from 'drizzle-orm';
 import { afterEach, beforeEach, expect, it, vi } from 'vitest';
 import { exclusionRulesSchema, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
@@ -30,9 +30,9 @@ function shape(projectId: string) {
     groups: db.select({ key: s.groups.key, title: s.groups.title, kind: s.groups.kind }).from(s.groups).where(eq(s.groups.projectId, projectId)).orderBy(asc(s.groups.sort)).all(),
     nodes: db.select({ key: s.graphNodes.key }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().map((row) => row.key).sort(),
     edges: db.select().from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all().length,
-    characters: db.select({ name: s.characters.name }).from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((row) => row.name).sort(),
+    characters: db.select({ name: s.characters.name, status: s.characters.status }).from(s.characters).where(eq(s.characters.projectId, projectId)).orderBy(asc(s.characters.name)).all(),
     relationships: db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().length,
-    terms: db.select({ source: s.terms.source, target: s.terms.target }).from(s.terms).where(eq(s.terms.projectId, projectId)).orderBy(asc(s.terms.source)).all(),
+    terms: db.select({ source: s.terms.source, target: s.terms.target, status: s.terms.status }).from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all(),
     documents: db.select({ title: s.documents.title }).from(s.documents).where(eq(s.documents.projectId, projectId)).all().map((row) => row.title).sort(),
   };
 }
@@ -50,14 +50,21 @@ it('a project exported to its file and made again from it is the same project: s
   const [first, second] = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).all();
   db.update(s.units).set({ translation: '도착했다.', statusId: review.id, note: '말끝 확인', translate: 'include' }).where(eq(s.units.id, first!.id)).run();
   db.insert(s.unitTags).values({ unitId: second!.id, tagId: tag.id }).run();
+  // Knowledge still to be confirmed stays so, and what was thrown out stays out.
+  db.insert(s.terms).values({ projectId, source: 'Beacon', target: '신호기', status: 'candidate' }).run();
+  db.insert(s.terms).values({ projectId, source: 'Junk', target: '', status: 'rejected' }).run();
+  db.insert(s.characters).values({ projectId, name: 'Stranger', status: 'candidate' }).run();
   db.update(s.projects).set({ exclusionRules: { ...db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.exclusionRules, empty: false } }).where(eq(s.projects.id, projectId)).run();
 
   const file = exportProject(db, projectId);
   // It is a file a new project is made from: everything it points at is in it.
   const parsed = importFileSchema.parse(JSON.parse(JSON.stringify(file)));
+  expect(parsed.terms.map((term) => term.source)).not.toContain('Junk');
   const again = createProjectFromFile(db, parsed).projectId;
 
   expect({ ...shape(again), project: { ...shape(again).project, name: undefined } }).toEqual({ ...shape(projectId), project: { ...shape(projectId).project, name: undefined } });
+  expect(shape(again).terms.find((term) => term.source === 'Beacon')!.status).toBe('candidate');
+  expect(shape(again).characters.find((row) => row.name === 'Stranger')!.status).toBe('candidate');
   expect(shape(again).workflows.find((row) => row.name === 'ZZ 감수로')!.refs).toEqual(expect.arrayContaining(['감수 대기']));
   expect(db.select().from(s.unitTags).innerJoin(s.units, eq(s.units.id, s.unitTags.unitId)).where(eq(s.units.key, second!.key)).all().filter((row) => row.units.projectId === again)).toHaveLength(1);
 });

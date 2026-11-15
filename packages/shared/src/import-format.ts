@@ -29,6 +29,8 @@ export const DOCUMENT_KINDS = ['story', 'world', 'style', 'note'] as const;
 
 const key = z.string().min(1).max(512);
 const meta = z.record(z.string(), z.unknown()).optional();
+/** A knowledge item's or term's standing in a project's own export (후보: not yet used as AI context); left out, confirmed. */
+const standing = z.enum(['candidate', 'confirmed']).optional();
 
 export const importGroupSchema = z.object({
   key,
@@ -108,7 +110,7 @@ export const importCharacterSchema = z.object({
   /** child, teen, young (adult), middle(-aged), old, or unknown. */
   ageBand: z.enum(AGE_BANDS).default('unknown'),
   /** How central the character is to the story. */
-  role: z.enum(CHARACTER_ROLES).default('unknown'),
+  role: z.enum(CHARACTER_ROLES).default('unknown'),  status: standing,
 });
 
 export const importRelationshipSchema = z.object({
@@ -117,7 +119,7 @@ export const importRelationshipSchema = z.object({
   kind: z.string().min(1),
   description: z.string().default(''),
   mutual: z.boolean().default(false),
-  changes: z.array(relationshipChangeSchema).default([]),
+  changes: z.array(relationshipChangeSchema).default([]),  status: standing,
 });
 
 export const importEventSchema = z.object({
@@ -126,7 +128,7 @@ export const importEventSchema = z.object({
   cause: z.string().default(''),
   outcome: z.string().default(''),
   participants: z.array(z.string()).default([]),
-  evidence: z.array(key).default([]),
+  evidence: z.array(key).default([]),  status: standing,
 });
 
 export const importSpeechRuleSchema = z.object({
@@ -136,20 +138,20 @@ export const importSpeechRuleSchema = z.object({
   address: z.string().default(''),
   note: z.string().default(''),
   /** The rule applies from this line on; omitted = from the beginning. */
-  start: key.optional(),
+  start: key.optional(),  status: standing,
 });
 
 export const importDocumentSchema = z.object({
   title: z.string().min(1),
   kind: z.enum(DOCUMENT_KINDS).default('note'),
   body: z.string().default(''),
-  alwaysInclude: z.boolean().default(false),
+  alwaysInclude: z.boolean().default(false),  status: standing,
 });
 
 export const importTermSchema = z.object({
   source: z.string().min(1),
   target: z.string().default(''),
-  note: z.string().default(''),
+  note: z.string().default(''),  status: standing,
 });
 
 /** A new project's own facts: what the app's 새 프로젝트, `loca projects create` and a file's `project` all give. */

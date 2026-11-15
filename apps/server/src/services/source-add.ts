@@ -188,7 +188,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     const newCharacterOf = new Map<string, string>();
     for (const index of fresh.characters) {
       const character = file.characters[index]!;
-      const { id } = tx.insert(s.characters).values({ projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, origin: 'import' }).returning({ id: s.characters.id }).get();
+      const { id } = tx.insert(s.characters).values({ projectId, name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, status: character.status, origin: 'import' }).returning({ id: s.characters.id }).get();
       record.made('characters', id);
       for (const name of [character.name, ...character.aliases]) newCharacterOf.set(name, id);
     }
@@ -196,13 +196,13 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     const idOf = (name: string) => known.characterIdOf.get(name) ?? newCharacterOf.get(name) ?? known.characterIdOf.get(known.person(name)) ?? newCharacterOf.get(known.person(name))!;
     for (const index of fresh.relationships) {
       const rel = file.relationships[index]!;
-      record.made('relationships', tx.insert(s.relationships).values({ projectId, fromId: idOf(rel.from), toId: idOf(rel.to), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, origin: 'import' }).returning({ id: s.relationships.id }).get().id);
+      record.made('relationships', tx.insert(s.relationships).values({ projectId, fromId: idOf(rel.from), toId: idOf(rel.to), kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: rel.status, origin: 'import' }).returning({ id: s.relationships.id }).get().id);
     }
     for (const index of fresh.documents) record.made('documents', tx.insert(s.documents).values({ projectId, ...file.documents[index]!, origin: 'import' }).returning({ id: s.documents.id }).get().id);
     for (const index of fresh.events) record.made('story_events', tx.insert(s.storyEvents).values({ projectId, ...file.events[index]!, origin: 'import' }).returning({ id: s.storyEvents.id }).get().id);
     for (const index of fresh.speechRules) {
       const rule = file.speechRules[index]!;
-      record.made('speech_rules', tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, origin: 'import' }).returning({ id: s.speechRules.id }).get().id);
+      record.made('speech_rules', tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, status: rule.status, origin: 'import' }).returning({ id: s.speechRules.id }).get().id);
     }
     for (const index of fresh.terms) record.made('terms', tx.insert(s.terms).values({ projectId, ...file.terms[index]! }).returning({ id: s.terms.id }).get().id);
 

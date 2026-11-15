@@ -7,6 +7,8 @@ import { found } from '../refusal.ts';
 
 /** Text the file leaves out when it is empty (an optional field of the format). */
 const text = (value: string | null | undefined) => (value ? value : undefined);
+/** A knowledge item's or term's standing as the file writes it: only 후보 is said (confirmed is the default; rejected ones are left out). */
+const candidate = (status: string) => (status === 'candidate' ? ('candidate' as const) : undefined);
 const nodeKind = (kind: string) => ((GRAPH_NODE_KINDS as readonly string[]).includes(kind) ? (kind as (typeof GRAPH_NODE_KINDS)[number]) : 'unknown');
 
 /**
@@ -28,6 +30,7 @@ export function exportProject(db: Db, projectId: string): ImportFileInput {
   const groupKey = new Map(groups.map((group) => [group.id, group.key]));
   const units = db.select().from(s.units).where(eq(s.units.projectId, projectId)).orderBy(asc(s.units.seq)).all();
   const unitKey = new Map(units.map((unit) => [unit.id, unit.key]));
+  const unitKeys = new Set(unitKey.values());
   const unitTags = new Map<string, string[]>();
   for (const row of db.select({ unitId: s.unitTags.unitId, tagId: s.unitTags.tagId }).from(s.unitTags).innerJoin(s.units, eq(s.units.id, s.unitTags.unitId)).where(eq(s.units.projectId, projectId)).all()) {
     unitTags.set(row.unitId, [...(unitTags.get(row.unitId) ?? []), tagName.get(row.tagId)!]);
@@ -67,11 +70,11 @@ export function exportProject(db: Db, projectId: string): ImportFileInput {
       nodes: nodes.map((node) => ({ key: node.key, type: text(node.type), kind: nodeKind(node.kind), label: text(node.label), units: node.unitIds.flatMap((id) => unitKey.get(id) ?? []), group: node.groupId ? groupKey.get(node.groupId) : undefined, meta: node.meta ?? undefined })),
       edges: edges.flatMap((edge) => (nodeKey.has(edge.fromId) && nodeKey.has(edge.toId) ? [{ from: nodeKey.get(edge.fromId)!, to: nodeKey.get(edge.toId)!, kind: text(edge.kind), label: text(edge.label) }] : [])),
     },
-    characters: characters.map((character) => ({ name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role })),
-    relationships: relationships.map((rel) => ({ from: characterName.get(rel.fromId)!, to: characterName.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes })),
-    speechRules: db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => ({ from: rule.fromName, to: rule.toName, level: rule.level, address: rule.address, note: rule.note, start: rule.startKey ?? undefined })),
-    events: db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all().map((event) => ({ title: event.title, summary: event.summary, cause: event.cause, outcome: event.outcome, participants: event.participants, evidence: event.evidence.filter((key) => units.some((unit) => unit.key === key)) })),
-    documents: db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.title)).all().map((doc) => ({ title: doc.title, kind: doc.kind, body: doc.body, alwaysInclude: doc.alwaysInclude })),
-    terms: db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all().map((term) => ({ source: term.source, target: term.target, note: term.note })),
+    characters: characters.map((character) => ({ name: character.name, aliases: character.aliases, profile: character.profile, speech: character.speech, player: character.player, color: character.color, gender: character.gender, ageBand: character.ageBand, role: character.role, status: candidate(character.status) })),
+    relationships: relationships.map((rel) => ({ from: characterName.get(rel.fromId)!, to: characterName.get(rel.toId)!, kind: rel.kind, description: rel.description, mutual: rel.mutual, changes: rel.changes, status: candidate(rel.status) })),
+    speechRules: db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all().map((rule) => ({ from: rule.fromName, to: rule.toName, level: rule.level, address: rule.address, note: rule.note, start: rule.startKey ?? undefined, status: candidate(rule.status) })),
+    events: db.select().from(s.storyEvents).where(and(eq(s.storyEvents.projectId, projectId), ne(s.storyEvents.status, 'rejected'))).all().map((event) => ({ title: event.title, summary: event.summary, cause: event.cause, outcome: event.outcome, participants: event.participants, evidence: event.evidence.filter((key) => unitKeys.has(key)), status: candidate(event.status) })),
+    documents: db.select().from(s.documents).where(and(eq(s.documents.projectId, projectId), ne(s.documents.status, 'rejected'))).orderBy(asc(s.documents.title)).all().map((doc) => ({ title: doc.title, kind: doc.kind, body: doc.body, alwaysInclude: doc.alwaysInclude, status: candidate(doc.status) })),
+    terms: db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all().map((term) => ({ source: term.source, target: term.target, note: term.note, status: candidate(term.status) })),
   };
 }

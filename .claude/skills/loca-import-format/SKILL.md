@@ -46,7 +46,7 @@ loca는 게임 내부 형식을 모릅니다. 게임마다 **변환기**가 추�
 | `speechRules[]` | `from`, `to`, `level`(`hasoseo` 하소서체/`hasipsio` 하십시오체/`hao` 하오체/`hage` 하게체/`haera` 해라체/`haeyo` 해요체/`hae` 해체·반말/`other`), `address`, `note`, `start`(대사 키, 이 줄부터) | 기존 공식 번역에서 확인된 말투만 |
 | `documents[]` | `title`, `kind`(`story`/`world`/`style`/`note`), `body`(마크다운), `alwaysInclude` | `alwaysInclude`(앱의 ‘번역 문맥에 넣기’)를 켜면 ‘작품 노트’ 문맥을 켠 AI 노드의 호출마다 통째로 들어가므로 짧은 핵심 설정만 |
 | `terms[]` | `source`, `target`, `note` | 확정된 공식 번역어만. 모르면 `target`을 비웁니다 |
-| `statuses[]`, `tags[]`, `workflows[]`, 대사의 `status`·`note`·`translate` | 프로젝트가 스스로 내보낸 파일(`loca projects export`)에만 들어갑니다 | 변환기는 쓰지 않습니다. 이 파일로 새 프로젝트를 만들면 홈 설정 대신 이 상태·태그·워크플로로 시작하고, 대사의 상태·메모·번역 제외가 그대로 돌아옵니다 |
+| `statuses[]`, `tags[]`, `workflows[]`, 대사의 `status`·`note`·`translate`, 지식·용어의 `status`(`candidate`) | 프로젝트가 스스로 내보낸 파일(`loca projects export`)에만 들어갑니다 | 변환기는 쓰지 않습니다. 이 파일로 새 프로젝트를 만들면 홈 설정 대신 이 상태·태그·워크플로로 시작하고, 대사의 상태·메모·번역 제외가 그대로 돌아옵니다 |
 
 ## 묶음 나누기
 - 묶음은 **AI가 한 번에 번역하는 단위이자 ‘장면 문맥’**입니다. 대화 하나, 컷신 하나, 문서 하나 정도가 알맞습니다. 장(chapter) 전체를 한 묶음으로 만들지 않습니다. 장은 `section`에 씁니다.
