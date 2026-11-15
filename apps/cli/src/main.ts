@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, sourceFileSchema, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -1193,6 +1193,40 @@ withRunScope(runs.command('start <워크플로>'))
     }
     const outcome = await proposeTool('start_run', { workflowId: workflow.id, ...scope, changeHuman: options.changeHuman || undefined, models: runModels(options.model), limits: capsFrom(options) });
     await followRun(outcome, options, '실행 시작');
+  });
+
+const source = program.command('source').description('있던 프로젝트에 표준 파일(loca/v1)의 원문 더하기: 대사를 번역하다 빠진 UI 스크립트를 넣을 때처럼. 파일은 key로 프로젝트와 맞춰 봅니다');
+
+source
+  .command('diff <파일>')
+  .description('파일을 넣으면 무엇이 바뀌는지 비교만 하기 (아무것도 쓰지 않음): 새로 들어올 것, 원문이 바뀐 것, 같은 것, 파일이 다시 가져온 묶음에서 빠진 대사. 파일은 project를 빼도 되고, 프로젝트에 있는 묶음·대사·노드·인물을 key나 이름으로 가리켜도 됩니다. 어디에도 없는 참조가 있으면 종료 코드 1')
+  .action(async (file: string) => {
+    const parsed = sourceFileSchema.safeParse(readJsonArg(file === '-' ? '-' : `@${file}`));
+    if (!parsed.success) {
+      process.exitCode = 1;
+      const issues = parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+      if (globals().json) return print({ ok: false, issues });
+      return console.log(`형식 오류 ${issues.length}개:\n${issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
+    }
+    const id = await projectId();
+    const diff = await unwrap(api().projects[':projectId'].source.diff.$post({ param: { projectId: id }, json: parsed.data }));
+    if (diff.unresolved.length) process.exitCode = 1;
+    if (globals().json) return print(diff);
+    const examples = (keys: string[]) => (keys.length ? ` (${keys.slice(0, 5).join(', ')}${keys.length > 5 ? ' …' : ''})` : '');
+    const changes = (items: { key: string; fields: string[] }[]) => items.slice(0, 10).map((item) => `\n    ${item.key}: ${item.fields.join(', ')}`).join('') + (items.length > 10 ? `\n    … 외 ${items.length - 10}개` : '');
+    const row = (label: string, keys: { added: string[]; changed: { key: string; fields: string[] }[]; same: number }) =>
+      console.log(`  ${label}  새로 ${keys.added.length.toLocaleString()}${examples(keys.added)} · 바뀜 ${keys.changed.length.toLocaleString()} · 같음 ${keys.same.toLocaleString()}${changes(keys.changed)}`);
+    row('묶음', diff.groups);
+    row('대사', diff.units);
+    if (diff.units.missing.length) console.log(`  파일이 다시 가져온 묶음에서 빠진 대사 ${diff.units.missing.length.toLocaleString()}${examples(diff.units.missing)}`);
+    if (diff.graph.nodes.added.length + diff.graph.nodes.changed.length + diff.graph.nodes.same) row('그래프 노드', diff.graph.nodes);
+    if (diff.graph.edges.added + diff.graph.edges.same) console.log(`  연결  새로 ${diff.graph.edges.added.toLocaleString()} · 같음 ${diff.graph.edges.same.toLocaleString()}`);
+    const knowledge = Object.entries({ 인물: diff.knowledge.characters, 관계: diff.knowledge.relationships, 노트: diff.knowledge.documents, 용어: diff.knowledge.terms, 사건: diff.knowledge.events, 말투: diff.knowledge.speechRules })
+      .filter(([, item]) => item.added + item.existing)
+      .map(([label, item]) => `${label} 새로 ${item.added} · 있음 ${item.existing}`);
+    if (knowledge.length) console.log(`  지식  ${knowledge.join(' · ')}`);
+    for (const warning of diff.warnings) console.log(`  경고  ${warning}`);
+    if (diff.unresolved.length) console.log(`어디에도 없는 참조 ${diff.unresolved.length}개: 이대로는 넣을 수 없습니다\n${diff.unresolved.slice(0, 20).map((item) => `  ${item.path}: ${item.message}`).join('\n')}`);
   });
 
 const graph = program.command('graph').description('대사 그래프 잇기(변경은 제안으로 올라가 앱에서 수락). 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다');

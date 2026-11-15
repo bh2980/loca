@@ -3,7 +3,7 @@ import { readingRouteQuery } from '../services/reading-route-query.ts';
 import { projectReadingRoute } from '../services/reading-route.ts';
 import { and, asc, eq, inArray, ne, notLike, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { createGroupSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, lineFilterSchema, LINE_TRANSLATE, unpagedLineFilterSchema, viewRouteSchema, type NodeType } from '@loca/shared';
+import { createGroupSchema, sourceFileSchema, updateGroupSchema, createUnitSchema, updateUnitSchema, lineFilterSchema, LINE_TRANSLATE, unpagedLineFilterSchema, viewRouteSchema, type NodeType } from '@loca/shared';
 import { createGroup, updateGroup, updateUnit } from '../services/source-mutations.ts';
 import { createLine, deleteGroup, deleteLines, deleteNodes, duplicateNodes, edgeDetail, linkInOrder, linkNodes, unlinkEdges } from '../services/graph-edit.ts';
 import { undoRecorded } from '../services/undo-records.ts';
@@ -23,6 +23,7 @@ import { assistLine } from '../services/editor-assist.ts';
 import { speechRuleIndex } from '../domain/speech.ts';
 import { lineSurroundings } from '../services/line-surroundings.ts';
 import { groupRows } from '../services/group-rows.ts';
+import { diffSource } from '../services/source-diff.ts';
 
 /** A line's text, candidate and status: one save (domain/line-save.ts). */
 const lineSave = z.object({
@@ -74,6 +75,8 @@ function layoutNodeIds(raw: string, section: string): string[] | null {
 }
 
 export const sourceRoutes = new Hono<Env>()
+  /** 원문 비교: what adding a standard file to the project would do, matched by key; nothing is written. */
+  .post('/projects/:projectId/source/diff', validate('json', sourceFileSchema), (c) => c.json(diffSource(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
   .post('/projects/:projectId/groups', validate('json', createGroupSchema), (c) => c.json(createGroup(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))
   .patch('/projects/:projectId/groups/:groupId', validate('json', updateGroupSchema), (c) => c.json(updateGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'), c.req.valid('json'))))
   .delete('/projects/:projectId/groups/:groupId', (c) => c.json(deleteGroup(c.var.deps.db, c.req.param('projectId'), c.req.param('groupId'))))

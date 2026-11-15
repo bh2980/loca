@@ -151,83 +151,113 @@ export const newProjectSchema = z.object({
 });
 export type NewProject = z.infer<typeof newProjectSchema>;
 
-export const importFileSchema = z
-  .object({
-    format: z.literal(IMPORT_FORMAT),
-    project: newProjectSchema.extend({
-      /** Placeholder / tag families in this game's strings; the extractor knows them best. */
-      formatRules: formatRulesSchema.optional(),
-    }),
-    groups: z.array(importGroupSchema).min(1),
-    units: z.array(importUnitSchema).min(1),
-    graph: z
-      .object({
-        nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
-        nodes: z.array(importGraphNodeSchema),
-        edges: z.array(importGraphEdgeSchema),
-      })
-      .optional(),
-    characters: z.array(importCharacterSchema).default([]),
-    relationships: z.array(importRelationshipSchema).default([]),
-    documents: z.array(importDocumentSchema).default([]),
-    terms: z.array(importTermSchema).default([]),
-    events: z.array(importEventSchema).default([]),
-    speechRules: z.array(importSpeechRuleSchema).default([]),
-  })
-  .superRefine((file, ctx) => {
-    const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
-    const unique = (items: { key: string }[], path: string) => {
-      const seen = new Set<string>();
-      items.forEach((item, index) => {
-        if (seen.has(item.key)) issue([path, index, 'key'], `중복된 key: ${item.key}`);
-        seen.add(item.key);
-      });
-      return seen;
-    };
-    // One term per source whatever its case (the glossary is unique that way).
-    const termSources = new Set<string>();
-    file.terms.forEach((term, index) => {
-      const lower = term.source.trim().toLowerCase();
-      if (termSources.has(lower)) issue(['terms', index, 'source'], `중복된 용어: ${term.source}`);
-      termSources.add(lower);
-    });
-    const groups = unique(file.groups, 'groups');
-    const units = unique(file.units, 'units');
-    file.units.forEach((unit, index) => {
-      if (!groups.has(unit.group)) issue(['units', index, 'group'], `없는 group: ${unit.group}`);
-    });
-    if (file.graph) {
-      const nodes = unique(file.graph.nodes, 'graph.nodes');
-      file.graph.nodes.forEach((node, index) =>
-        node.units.forEach((unit) => {
-          if (!units.has(unit)) issue(['graph', 'nodes', index, 'units'], `없는 unit: ${unit}`);
-        }),
-      );
-      file.graph.nodes.forEach((node, index) => {
-        if (node.group && !groups.has(node.group)) issue(['graph', 'nodes', index, 'group'], `없는 group: ${node.group}`);
-      });
-      file.graph.edges.forEach((edge, index) => {
-        if (!nodes.has(edge.from)) issue(['graph', 'edges', index, 'from'], `없는 node: ${edge.from}`);
-        if (!nodes.has(edge.to)) issue(['graph', 'edges', index, 'to'], `없는 node: ${edge.to}`);
-      });
-    }
-    const names = new Set(file.characters.flatMap((c) => [c.name, ...c.aliases]));
-    file.relationships.forEach((rel, index) => {
-      if (!names.has(rel.from)) issue(['relationships', index, 'from'], `없는 인물: ${rel.from}`);
-      if (!names.has(rel.to)) issue(['relationships', index, 'to'], `없는 인물: ${rel.to}`);
-      rel.changes.forEach((change, at) => {
-        if (!units.has(change.at)) issue(['relationships', index, 'changes', at, 'at'], `없는 unit: ${change.at}`);
-      });
-    });
-    file.speechRules.forEach((rule, index) => {
-      if (rule.start && !units.has(rule.start)) issue(['speechRules', index, 'start'], `없는 unit: ${rule.start}`);
-    });
-    file.events.forEach((event, index) =>
-      event.evidence.forEach((ref, at) => {
-        if (!units.has(ref)) issue(['events', index, 'evidence', at], `없는 unit: ${ref}`);
-      }),
-    );
+/** What a file's parts point at by key or name, and what each kind is called in a message. */
+export const FILE_REFERENCE_LABELS = { group: 'group', unit: 'unit', node: 'node', character: '인물' } as const;
+export type FileReferenceKind = keyof typeof FILE_REFERENCE_LABELS;
+export interface FileReference {
+  path: (string | number)[];
+  to: FileReferenceKind;
+  key: string;
+}
+
+const fileShape = z.object({
+  format: z.literal(IMPORT_FORMAT),
+  groups: z.array(importGroupSchema).default([]),
+  units: z.array(importUnitSchema).min(1),
+  graph: z
+    .object({
+      nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
+      nodes: z.array(importGraphNodeSchema),
+      edges: z.array(importGraphEdgeSchema),
+    })
+    .optional(),
+  characters: z.array(importCharacterSchema).default([]),
+  relationships: z.array(importRelationshipSchema).default([]),
+  documents: z.array(importDocumentSchema).default([]),
+  terms: z.array(importTermSchema).default([]),
+  events: z.array(importEventSchema).default([]),
+  speechRules: z.array(importSpeechRuleSchema).default([]),
+});
+const projectFacts = newProjectSchema.extend({
+  /** Placeholder / tag families in this game's strings; the extractor knows them best. */
+  formatRules: formatRulesSchema.optional(),
+});
+type FileBody = z.infer<typeof fileShape>;
+
+/** Every key or name one part of the file gives for another: a line's group, a node's lines, a relationship's people… */
+function fileReferences(file: FileBody): FileReference[] {
+  const refs: FileReference[] = [];
+  const ref = (path: (string | number)[], to: FileReferenceKind, key: string) => refs.push({ path, to, key });
+  file.units.forEach((unit, index) => ref(['units', index, 'group'], 'group', unit.group));
+  file.graph?.nodes.forEach((node, index) => {
+    node.units.forEach((unit) => ref(['graph', 'nodes', index, 'units'], 'unit', unit));
+    if (node.group) ref(['graph', 'nodes', index, 'group'], 'group', node.group);
   });
+  file.graph?.edges.forEach((edge, index) => {
+    ref(['graph', 'edges', index, 'from'], 'node', edge.from);
+    ref(['graph', 'edges', index, 'to'], 'node', edge.to);
+  });
+  file.relationships.forEach((rel, index) => {
+    ref(['relationships', index, 'from'], 'character', rel.from);
+    ref(['relationships', index, 'to'], 'character', rel.to);
+    rel.changes.forEach((change, at) => ref(['relationships', index, 'changes', at, 'at'], 'unit', change.at));
+  });
+  file.speechRules.forEach((rule, index) => rule.start && ref(['speechRules', index, 'start'], 'unit', rule.start));
+  file.events.forEach((event, index) => event.evidence.forEach((key, at) => ref(['events', index, 'evidence', at], 'unit', key)));
+  return refs;
+}
+
+/** The keys and names the file itself has, by kind. */
+function fileKeys(file: FileBody): Record<FileReferenceKind, Set<string>> {
+  return {
+    group: new Set(file.groups.map((group) => group.key)),
+    unit: new Set(file.units.map((unit) => unit.key)),
+    node: new Set((file.graph?.nodes ?? []).map((node) => node.key)),
+    character: new Set(file.characters.flatMap((character) => [character.name, ...character.aliases])),
+  };
+}
+
+/** The references neither the file nor `known` (the project's own keys, when the file adds to one) has. */
+export function unresolvedReferences(file: FileBody, known?: Record<FileReferenceKind, Set<string>>): FileReference[] {
+  const own = fileKeys(file);
+  return fileReferences(file).filter((ref) => !own[ref.to].has(ref.key) && !known?.[ref.to].has(ref.key));
+}
+
+/** Checks that need the whole file: no key twice, one term per source; with `closed`, every reference is in the file. */
+function checkFile(file: FileBody, ctx: z.RefinementCtx, closed: boolean) {
+  const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
+  const unique = (items: { key: string }[], path: string[]) => {
+    const seen = new Set<string>();
+    items.forEach((item, index) => {
+      if (seen.has(item.key)) issue([...path, index, 'key'], `중복된 key: ${item.key}`);
+      seen.add(item.key);
+    });
+  };
+  // One term per source whatever its case (the glossary is unique that way).
+  const termSources = new Set<string>();
+  file.terms.forEach((term, index) => {
+    const lower = term.source.trim().toLowerCase();
+    if (termSources.has(lower)) issue(['terms', index, 'source'], `중복된 용어: ${term.source}`);
+    termSources.add(lower);
+  });
+  unique(file.groups, ['groups']);
+  unique(file.units, ['units']);
+  if (file.graph) unique(file.graph.nodes, ['graph', 'nodes']);
+  if (closed) for (const ref of unresolvedReferences(file)) issue(ref.path, `없는 ${FILE_REFERENCE_LABELS[ref.to]}: ${ref.key}`);
+}
+
+/** A file that makes a new project: its own facts, and everything it points at is in it. */
+export const importFileSchema = fileShape
+  .extend({ project: projectFacts, groups: z.array(importGroupSchema).min(1) })
+  .superRefine((file, ctx) => checkFile(file, ctx, true));
+
+/**
+ * A file added to an existing project (원문 추가, e.g. the UI strings after the dialogue): `project` may be left
+ * out, and its lines, nodes and relationships may point at the project's own groups, lines, nodes and people by
+ * key or name. Those references are checked against the project (diffSource), not here.
+ */
+export const sourceFileSchema = fileShape.extend({ project: projectFacts.optional() }).superRefine((file, ctx) => checkFile(file, ctx, false));
+export type SourceFile = z.infer<typeof sourceFileSchema>;
 
 export type ImportFile = z.infer<typeof importFileSchema>;
 
