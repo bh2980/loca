@@ -155,7 +155,7 @@ export const newProjectSchema = z.object({
 export type NewProject = z.infer<typeof newProjectSchema>;
 
 /** What a file's parts point at by key or name, and what each kind is called in a message. */
-export const FILE_REFERENCE_LABELS = { group: 'group', unit: 'unit', node: 'node', character: '인물' } as const;
+export const FILE_REFERENCE_LABELS = { group: '묶음', unit: '대사', node: '노드', character: '인물' } as const;
 export type FileReferenceKind = keyof typeof FILE_REFERENCE_LABELS;
 export interface FileReference {
   path: (string | number)[];

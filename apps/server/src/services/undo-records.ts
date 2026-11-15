@@ -22,6 +22,8 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * to, and the rest is still worth putting back. `subjects`: run items name these rows without a foreign key.
  */
 const TABLES = {
+  // Only rewritten (a project setting a change turned on with its rows, such as format rules), never removed or made.
+  projects: { key: ['id'] },
   tags: { key: ['id'] },
   groups: { key: ['id'] },
   units: { key: ['id'], subjects: true },

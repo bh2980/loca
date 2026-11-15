@@ -621,7 +621,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     add_source: tool({
       description:
-        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Nothing the project has is changed or deleted: a key both have stays as the project has it, and lines the file leaves out stay. Knowledge items (characters, terms…) in the file are not added. When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId; undoing the change takes all of it back, format rules included.',
+        'Add a standard file (format loca/v1, as `loca format check` describes it) to this project, matched by key: the groups, lines, dialogue-graph nodes and connections the project does not have yet go in (e.g. the UI strings of a game whose dialogue is already here). project and groups may be left out, and the file may point at the project\'s own groups, lines, nodes and characters by key or name. Nothing the project has is changed or deleted: a key both have stays as the project has it, and lines the file leaves out stay. Knowledge items (characters, terms…) in the file are not added. When the new lines use formats (placeholders, tags) the project\'s format rules do not keep, it is refused until formats is given: ask the person whether to turn them on, and send the ones to turn on (their ids from the refusal) or [] for none. Refused when the file points at something neither has, or a new node holds a line the project has. Answers with what was added and undoId: restore_deleted (kind script) takes all of it back, format rules included.',
       inputSchema: addSourceSchema,
       check: (input) => {
         const file = addSourceSchema.safeParse(input);
@@ -631,14 +631,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
         if (!diff.groups.added.length && !diff.units.added.length && !diff.graph.nodes.added.length && !diff.graph.edges.added) return { ok: false, error: '더할 것이 없습니다. 파일의 key가 모두 프로젝트에 있습니다.', empty: true };
         return { ok: true, input, report: diff.warnings.length ? { dropped: [], warnings: [{ key: 'project', issues: diff.warnings }] } : null };
       },
-      undo: {
-        before: () => ({ formatRules: db.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()?.formatRules ?? null }),
-        after: (_db, proposal, before, result) => {
-          if (!isRecord(result) || typeof result.undoId !== 'string') return { none: '바뀐 것이 없어 되돌릴 것이 없습니다' };
-          const formats = Array.isArray(proposal.input.formats) && proposal.input.formats.length > 0;
-          return { calls: [undoCall('restore_deleted', { kind: 'script', id: result.undoId }), ...(formats && isRecord(before.formatRules) ? [undoCall('update_project_settings', { formatRules: before.formatRules })] : [])] };
-        },
-      },
+      undo: undoesRecord(() => 'script'),
       preview: (input, of) => {
         const file = addSourceSchema.safeParse(input);
         if (!file.success) return [remark('파일 형식이 맞지 않습니다.')];

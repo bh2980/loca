@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode, memo, useLayoutEffect, type ComponentProps } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
-import { Download, Play } from 'lucide-react';
+import { Download, FileUp, Play } from 'lucide-react';
+import { Link } from '@tanstack/react-router';
 import { LineDetail } from '@/components/line-detail';
 import { useRevealDock, EditorToolbar, FilterChips, Pager, FilterBar, ActionBar, Button, Box, Text, SearchField, Skeleton, EmptyState, SplitPane } from '@loca/ui';
 import { HeaderActions } from '@/components/page';
@@ -363,6 +364,7 @@ export function LineList({
       )}
     >
       <HeaderActions>
+        <Button variant="ghost" asChild><Link to="/p/$projectId/import" params={{ projectId }}><FileUp /> 원문 넣기</Link></Button>
         {/* Like 실행 beside it: the picked lines when there are any, else what the list shows. */}
         {exportView && <Button variant="outline" onClick={() => exportDialog.open({ view: exportView, unitIds: picked.size ? [...picked] : undefined })}><Download /> {picked.size ? `내보내기 · ${picked.size.toLocaleString()}줄` : '내보내기'}</Button>}
         <RunDialog projectId={projectId} unitIds={picked.size ? [...picked] : undefined} groupIds={picked.size ? undefined : runGroupIds} viewKind={picked.size || runGroupIds ? undefined : runKind}

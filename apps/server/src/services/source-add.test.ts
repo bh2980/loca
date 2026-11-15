@@ -97,6 +97,9 @@ it('asks before turning on a format the new lines use, and turns on what it is t
   const added = addSource(db, projectId, addSourceSchema.parse({ ...file, formats: ['printf', '@변수@'] }));
   expect(added.formats).toEqual(['printf', '@변수@']);
   expect(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.formatRules).toEqual({ presets: ['brace', 'printf'], custom: [{ label: '@변수@', kind: 'placeholder', pattern: '@[A-Za-z_][\\w.]*@' }] });
+  // The undo record holds the rules as they were.
+  undoRecorded(db, projectId, added.undoId!, 'script');
+  expect(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.formatRules).toEqual({ presets: ['brace'], custom: [] });
   // [] adds without turning anything on.
   const projectB = made2();
   db.update(s.projects).set({ formatRules: { presets: ['brace'], custom: [] } }).where(eq(s.projects.id, projectB)).run();

@@ -51,7 +51,7 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
  * stays. A new line without a kind takes its group's, starts in the project's initial status (번역됨 with the translation the
  * file brings, as a candidate), and a new scene line no node of the file holds gets a node of its own with no
  * connection. Knowledge items are not added. The formats named in `formats` are turned on in the project's format
- * rules (the proposal's undo puts the rules back). One transaction and one undo record (kind script).
+ * rules, and the undo record puts them back with the rest. One transaction and one undo record (kind script).
  */
 export function addSource(db: Db, projectId: string, file: AddSourceInput): SourceAdded {
   const { diff, refusal } = sourceRefusal(db, projectId, file);
@@ -160,6 +160,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput): Sour
     }
 
     if (file.formats?.length) {
+      record.rewritten('projects', projectId, ['format_rules']);
       const { formatRules } = tx.select({ formatRules: s.projects.formatRules }).from(s.projects).where(eq(s.projects.id, projectId)).get()!;
       tx.update(s.projects).set({ formatRules: withFormats(formatRules, file.formats) }).where(eq(s.projects.id, projectId)).run();
     }

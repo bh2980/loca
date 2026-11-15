@@ -74,11 +74,18 @@ export function GettingStarted({ projectId }: { projectId: string }) {
       title: '원문 넣기',
       done: lines > 0,
       action: (primary) => (
-        <Button asChild variant={primary ? 'default' : 'outline'}>
-          <Link to="/p/$projectId/script" params={{ projectId }}>
-            대사 화면 열기
-          </Link>
-        </Button>
+        <>
+          <Button asChild variant="ghost">
+            <Link to="/p/$projectId/script" params={{ projectId }}>
+              직접 쓰기
+            </Link>
+          </Button>
+          <Button asChild variant={primary ? 'default' : 'outline'}>
+            <Link to="/p/$projectId/import" params={{ projectId }}>
+              파일에서 넣기
+            </Link>
+          </Button>
+        </>
       ),
     },
     {

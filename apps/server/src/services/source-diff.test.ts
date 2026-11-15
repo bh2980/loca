@@ -72,7 +72,7 @@ it('a file may point at the project\'s own groups, nodes and people; what nothin
   // Anna is Ana: the friendship is there already.
   expect(diff.knowledge.relationships).toEqual({ added: 1, existing: 1 });
   expect(diff.unresolved).toEqual([
-    { path: 'graph.edges.1.to', message: '프로젝트에도 파일에도 없는 node: nowhere' },
+    { path: 'graph.edges.1.to', message: '프로젝트에도 파일에도 없는 노드: nowhere' },
     { path: 'relationships.1.to', message: '프로젝트에도 파일에도 없는 인물: Cleo' },
   ]);
 });
