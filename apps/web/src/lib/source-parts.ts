@@ -1,5 +1,5 @@
 import { useMemo } from 'react';
-import { compileFormatRules, glossaryMatcher } from '@loca/shared';
+import { compileFormatRules, glossaryMatcher, termForms, type TermMode } from '@loca/shared';
 import { numberTokens, tokenUnits, type TokenKind } from '@/lib/tokens';
 import { useTerms } from './terms';
 import { useProject } from './project';
@@ -8,9 +8,20 @@ export interface SourcePart {
   text: string;
   /** A format token (placeholder or tag), kept as is in the translation: its number and whether it opens, closes or stands alone (see lib/tokens). */
   token?: { number: number; kind: TokenKind };
-  /** A confirmed glossary term and its translation. */
-  term?: { source: string; target: string };
+  /** A confirmed glossary term: its main form, what it asks (TERM_MODES), its other allowed forms (후보) and its note (뉘앙스: the sense to carry). */
+  term?: SourceTerm;
 }
+
+/** A glossary term as a source shows it. */
+export interface SourceTerm {
+  source: string;
+  target: string;
+  mode: TermMode;
+  alternatives: string[];
+  note: string;
+}
+/** The confirmed terms a source marks: one to keep (a form) or a sense to carry (뉘앙스). */
+export const markedTerm = (term: { status: string; target: string; mode: TermMode; alternatives: readonly string[] }) => term.status === 'confirmed' && (termForms(term).length > 0 || term.mode === 'guide');
 
 /** Text cut into plain runs and numbered tokens (numbers from `source`). */
 export function splitTokens(text: string, source: string, pattern: RegExp | null): SourcePart[] {
@@ -55,9 +66,9 @@ export function useSourceParts(projectId: string, source: string, kind?: string 
   const confirmedTerms = useMemo(
     () =>
       (terms.data ?? [])
-        .filter((term) => term.status === 'confirmed' && term.target)
+        .filter(markedTerm)
         .sort((a, b) => b.source.length - a.source.length)
-        .map((term) => ({ source: term.source, target: term.target, scope: term.scope, matchCase: term.matchCase })),
+        .map((term) => ({ source: term.source, target: term.target, mode: term.mode, alternatives: term.alternatives, note: term.note, scope: term.scope, matchCase: term.matchCase })),
     [terms.data],
   );
   const matcher = useMemo(() => glossaryMatcher(confirmedTerms), [confirmedTerms]);

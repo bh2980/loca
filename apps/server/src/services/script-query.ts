@@ -1,5 +1,5 @@
 import { and, asc, count, desc, eq, gte, inArray, or, sql } from 'drizzle-orm';
-import { checkFormat, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@loca/shared';
+import { checkFormat, termExpected, termForms, termKept, exclusionRulesSchema, lineChangeEmpty, lineExclusion, lineMarksOf, runNodeName, type BatchChange, type CheckKind, type LineChange, type LineFilter, type LineMark, type ResolvedLineFilter, withSourceWhitespace } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks, inList } from '../db/chunk.ts';
 import * as s from '../db/schema.ts';
@@ -225,7 +225,7 @@ export async function checkScript(db: Db, projectId: string, kind: CheckKind, fi
     if (matcher)
       for (const line of lines)
         for (const term of matcher.find(line.source, line.kind))
-          if (!line.translation!.toLowerCase().includes(term.target.toLowerCase())) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: term.target });
+          if (!termKept(term, line.translation!)) found.push({ key: line.key, group: line.group.title, source: line.source, translation: line.translation, term: term.source, expected: termForms(term).join(' / ') });
     if (kind === 'format')
       for (const line of lines) {
         const issues = checkFormat(line.source, line.translation!, { placeholders: true, tags: true, newlines: true, emptyText: true }, rules);
@@ -418,7 +418,7 @@ export function validateBatch(db: Db, projectId: string, batch: BatchChange): Ba
       if (change.translation !== undefined) {
         const issues = [
           ...checkFormat(unit.source, withSourceWhitespace(unit.source, change.translation), { placeholders: true, tags: true, newlines: true, emptyText: true }, rules).map((issue) => issue.message),
-          ...matcher.find(unit.source, unit.kind).filter((term) => !change.translation!.toLowerCase().includes(term.target.toLowerCase())).map((term) => `용어 "${term.source}" → "${term.target}"가 번역에 없습니다.`),
+          ...matcher.find(unit.source, unit.kind).filter((term) => !termKept(term, change.translation!)).map((term) => `용어 "${term.source}" → ${termExpected(term)}가 번역에 없습니다.`),
         ];
         if (issues.length) report.warnings.push({ key: change.key, issues });
       }

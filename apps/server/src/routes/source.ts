@@ -211,7 +211,9 @@ export const sourceRoutes = new Hono<Env>()
     let base = direction === 'horizontal' && scope === 'dialogue'
       ? db.select({ status: s.graphLayouts.status }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.scope, scope), eq(s.graphLayouts.direction, direction), eq(s.graphLayouts.section, ''))).get()
       : undefined;
-    if (viewId && readView(db, projectId, viewId) && (!layout || (layout.status === 'ready' && layout.version < LAYOUT_VERSION))) {
+    // A view is laid out when it is opened: missing, made the old way, or left pending by a job that is gone (the server
+    // restarted, which recovers only the project's own layouts). A job still running is joined, not started twice.
+    if (viewId && readView(db, projectId, viewId) && (!layout || layout.status === 'pending' || (layout.status === 'ready' && layout.version < LAYOUT_VERSION))) {
       void viewSection(db, projectId, viewId, direction);
       layout = db.select({ status: s.graphLayouts.status, error: s.graphLayouts.error, version: sql<number>`coalesce(json_extract(${s.graphLayouts.data}, '$.version'), 0)` }).from(s.graphLayouts).where(where).get();
     } else if (direction === 'horizontal' && !layout) {

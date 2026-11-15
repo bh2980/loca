@@ -2,7 +2,7 @@ import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, EVENT_LINK_KINDS, GEN
 import { savedPromptsSchema } from './agent.ts';
 import { editorAiSchema } from './editor-ai.ts';
 import { markStylesSchema } from './marks.ts';
-import { formatRulesSchema, termScopeSchema } from './format-check.ts';
+import { formatRulesSchema, TERM_MODES, termScopeSchema } from './format-check.ts';
 import { exclusionReason, exclusionRulesSchema, LINE_TRANSLATE, type ExclusionReason } from './exclusion.ts';
 import { savedRefSchema, savedWorkflowSchema, templateStatusesSchema, templateTagSchema } from './app-defaults.ts';
 import { z } from 'zod';
@@ -197,6 +197,10 @@ export const importTermSchema = z.object({
   source: z.string().min(1),
   target: z.string().default(''),
   note: z.string().default(''),
+  /** fixed (use target), choices (target or one of alternatives, by context), guide (note is the sense to carry; target an example). */
+  mode: z.enum(TERM_MODES).default('fixed'),
+  /** choices: the other allowed Korean forms, after target. */
+  alternatives: z.array(z.string().trim().min(1)).max(20).default([]),
   /** The kinds of line it applies to; left out, every line. */
   scope: termScopeSchema.optional(),
   /** Matched in its exact case only. */

@@ -183,7 +183,11 @@ export function nodeSetLayout(db: Db, projectId: string, key: string, nodeIds: s
   if (running) return running.promise;
   const job: ViewJob = { promise: Promise.resolve(), cancelled: false };
   jobs.set(jobKey, job);
-  job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job, derived).finally(() => {
+  job.promise = computeNodeSetLayout(db, projectId, key, nodeIds, label, direction, job, derived).catch((error: unknown) => {
+    // Anything that went wrong outside the worker ends as a failed layout the page shows, never one left pending.
+    if (job.cancelled || !projectExists(db, projectId)) return;
+    save(db, projectId, 'dialogue', { status: 'failed', error: error instanceof Error ? error.message : String(error) }, key, direction);
+  }).finally(() => {
     if (jobs.get(jobKey) === job) jobs.delete(jobKey);
   });
   return job.promise;

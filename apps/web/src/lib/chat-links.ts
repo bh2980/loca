@@ -38,6 +38,13 @@ export function chipHref(projectId: string, chip: Pick<ChatChip, 'kind' | 'id' |
       return path(projectId, 'script', { statuses: json([chip.id]) });
     case '워크플로':
       return path(projectId, `workflows/${chip.id}`);
+    case '보기':
+      return path(projectId, 'graph', { scope: 'dialogue', section: `view:${chip.id}` });
+    case '경로': {
+      // A route not saved yet: its id is its two ends.
+      const [routeStart, routeEnd] = chip.id.split('>');
+      return routeStart && routeEnd ? path(projectId, 'graph', { scope: 'dialogue', routeStart, routeEnd }) : undefined;
+    }
     case '실행':
     case '실행 기록':
       return path(projectId, `runs/${chip.id}`);

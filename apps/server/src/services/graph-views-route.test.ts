@@ -1,11 +1,14 @@
-import { eq } from 'drizzle-orm';
-import { describe, expect, it } from 'vitest';
+import { and, eq } from 'drizzle-orm';
+import { Hono } from 'hono';
+import { describe, expect, it, vi } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { createProjectFromFile } from './project-create.ts';
 import { agentTools } from './agent-tools.ts';
 import { listViews, readView, routeNodes, saveView, updateView } from './graph-views.ts';
+import { onError, type Env } from '../http.ts';
+import { sourceRoutes } from '../routes/source.ts';
 import { projectReadingRoute } from './reading-route.ts';
 
 // A → a choice of two branches (C1 | C2) → E.
@@ -98,5 +101,29 @@ describe('a route view', () => {
     expect(await tools.update_view.execute({ view: listed.views[0]!.id, add: [], remove: ['E'] })).toMatchObject({ ok: true, label: '본편 길', route: false, nodes: listed.views[0]!.nodes - 1 });
     expect(listViews(db, projectId)[0]!.route).toBeNull();
     expect(id('node.E')).toBeTruthy();
+  });
+
+  it('is laid out when opened even if a layout left it pending (the server restarted mid-job)', async () => {
+    const { db, projectId, id } = setup();
+    const route = { start: id('node.A'), end: id('node.E') };
+    const found = routeNodes(db, projectId, route);
+    if ('error' in found) throw new Error(found.error);
+    const viewId = saveView(db, projectId, found.nodeIds, '길', { origin: 'manual', route });
+    const key = `view:${viewId}`;
+    // What a restart leaves behind: the row says pending, and no job is working on it.
+    db.insert(s.graphLayouts).values({ projectId, scope: 'dialogue', section: key, direction: 'vertical', status: 'pending' }).run();
+    const app = new Hono<Env>().onError(onError).use(async (c, next) => {
+      c.set('deps', { db } as never);
+      await next();
+    }).route('/', sourceRoutes);
+    try {
+      expect(((await (await app.request(`/projects/${projectId}/graph/dialogue?section=${key}`)).json()) as { status: string }).status).toBe('pending');
+      // The open started the job again.
+      const status = () => db.select({ status: s.graphLayouts.status }).from(s.graphLayouts).where(and(eq(s.graphLayouts.projectId, projectId), eq(s.graphLayouts.section, key))).get()?.status;
+      await vi.waitFor(() => expect(status()).toBe('ready'), { timeout: 10_000, interval: 50 });
+      expect(((await (await app.request(`/projects/${projectId}/graph/dialogue?section=${key}`)).json()) as { status: string }).status).toBe('ready');
+    } finally {
+      db.$client.close();
+    }
   });
 });

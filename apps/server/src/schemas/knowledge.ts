@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, ALL_TERM_KINDS, termScopeSchema } from '@loca/shared';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, DOCUMENT_KINDS, GENDERS, KNOWLEDGE_STATUSES, relationshipChangeSchema, SPEECH_LEVELS, ALL_TERM_KINDS, termScopeSchema, TERM_MODES } from '@loca/shared';
 
 // Request bodies for knowledge items, shared by the routes and the agent tools (services must not import routes).
 export const termInput = z.object({
@@ -12,6 +12,10 @@ export const termInput = z.object({
   scope: termScopeSchema.default(ALL_TERM_KINDS),
   /** Match only in this exact case. */
   matchCase: z.boolean().default(false),
+  /** What it asks of a translation: fixed (its target), choices (target or one of alternatives, by context), guide (no set wording: note is the sense to carry, target an example). */
+  mode: z.enum(TERM_MODES).default('fixed'),
+  /** choices: the other Korean forms a translation may use, after target (the usual one). */
+  alternatives: z.array(z.string().trim().min(1)).max(20).default([]),
 });
 /** Editing a draft keeps it a candidate; confirming is a separate, explicit step. */
 const status = z.enum(KNOWLEDGE_STATUSES).default('confirmed');

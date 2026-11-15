@@ -1,5 +1,5 @@
 import { and, eq } from 'drizzle-orm';
-import { glossaryMatcher, termMatcher } from '@loca/shared';
+import { glossaryMatcher, termForms, termMatcher } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { buildGraphOrder } from './graph-order.ts';
@@ -116,10 +116,10 @@ export function knowledgeOf(db: Db, projectId: string) {
         const rows = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all();
         return { rows, matcher: glossaryMatcher(rows) };
       }),
-    /** Confirmed terms that have a translation, with a matcher: what a translation must contain. */
+    /** Confirmed terms a translation must keep (a form to use: 고정 or 후보, not 뉘앙스), with a matcher (termKept says whether a translation does). */
     glossary: () =>
       cachedKnowledge(db, projectId, 'glossary', ['terms'], () => {
-        const rows = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target.trim());
+        const rows = db.select().from(s.terms).where(and(eq(s.terms.projectId, projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => termForms(term).length > 0);
         return { rows, matcher: glossaryMatcher(rows) };
       }),
     /** Confirmed characters with a matcher over names and aliases. */

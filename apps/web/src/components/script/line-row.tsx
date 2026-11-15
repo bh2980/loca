@@ -2,10 +2,11 @@
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { markName, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@loca/shared';
+import { markName, termForms, termKept, termLine, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
+import { KeptSource } from '@/components/editor/kept-source';
 import { insertIntoLine } from '@/components/editor/translation-input';
 import { LineNote } from '@/components/script/line-note';
 import { withoutTokens } from '@/lib/source-parts';
@@ -44,7 +45,8 @@ export function useUsedTerms(projectId: string, line: { source: string; kind?: s
   return useMemo(() => {
     const { placeholder, tag } = compileFormatRules(project.data?.formatRules ?? undefined);
     const plain = [placeholder, tag].reduce((text, pattern) => withoutTokens(text, pattern), line.source);
-    return glossaryMatcher((terms.data ?? []).filter((term) => term.status === 'confirmed' && term.target)).find(plain, line.kind);
+    // A term to keep (a form) or a sense to carry (뉘앙스).
+    return glossaryMatcher((terms.data ?? []).filter((term) => term.status === 'confirmed' && (termForms(term).length > 0 || term.mode === 'guide'))).find(plain, line.kind);
   }, [terms.data, line.source, line.kind, project.data?.formatRules]);
 }
 
@@ -69,9 +71,13 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
       {label}
     </Chip>
   );
-  // A term chip puts its translation at the cursor of the line's editor; it turns to a warning when the draft lacks it.
-  const termChip = (term: { id: string; source: string; target: string }) => {
-    const ok = text ? text.toLowerCase().includes(term.target.toLowerCase()) : null;
+  // A term chip puts its form (후보: the usual one; 뉘앙스: its example) at the cursor of the line's editor; it turns to a
+  // warning when the draft keeps none of its forms. A 뉘앙스 term is never broken: its chip says the sense to carry.
+  const termChip = (term: Parameters<typeof termLine>[0] & { id: string }) => {
+    const guide = term.mode === 'guide';
+    const ok = guide || !text ? null : termKept(term, text);
+    const forms = termForms(term);
+    const put = guide ? term.target.trim() : forms[0];
     return (
       <Chip
         key={term.id}
@@ -79,14 +85,14 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
         variant="card"
         tone={ok === false ? 'warning' : undefined}
         type="button"
-        title={ok === false ? '번역에 없음' : undefined}
-        onClick={() => { if (!insertIntoLine(line.id, term.target)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
+        title={guide ? termLine(term) : ok === false ? '번역에 없음' : forms.length > 1 ? `문맥에 맞게: ${forms.join(' / ')}` : undefined}
+        onClick={() => { if (put && !insertIntoLine(line.id, put)) toast.info('번역 칸이 열려 있지 않습니다.'); }}
       >
         {ok === true && <Icon icon={Check} size="xs" tone="success" />}
         {ok === false && <Icon icon={CircleAlert} size="xs" />}
         <span>{term.source}</span>
-        <Text tone="subtle">→</Text>
-        <Text weight="medium">{term.target}</Text>
+        <Text tone="subtle">{guide ? '·' : '→'}</Text>
+        <Text weight="medium">{guide ? '뉘앙스' : forms.join(' / ')}</Text>
       </Chip>
     );
   };
@@ -341,7 +347,7 @@ export function LineRow({
     </>
   ) : (
     <>
-      {line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <Text tone="subtle" userSelect="none">미번역</Text>}
+      {excluded ? <KeptSource source={line.source} pattern={tokenPattern} /> : line.translation ? <TokenText text={line.translation} source={line.source} pattern={tokenPattern} /> : <Text tone="subtle" userSelect="none">미번역</Text>}
       {review && !!line.lastRun?.issues.length && <ScriptReviewIssue issue={line.lastRun.issues[0]} />}
       {tagRow}
     </>

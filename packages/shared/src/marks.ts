@@ -143,6 +143,18 @@ export function withMainTarget(term: { target: string; targetCandidates: readonl
   return { target, targetCandidates: [...new Set([...(former && former !== target ? [former] : []), ...term.targetCandidates])].filter((form) => form && form !== target) };
 }
 
+/**
+ * A 후보 term's other allowed forms after its main one changes to `next`: one of them made the main swaps places with the
+ * former main (both stay allowed); trimmed, without repeats or the main form itself.
+ */
+export function withMainAlternative(term: { target: string; alternatives: readonly string[] }, next: string): string[] {
+  const target = termText(next);
+  const former = termText(term.target);
+  const others = term.alternatives.map(termText);
+  const swapped = others.includes(target) && former ? [former, ...others] : others;
+  return [...new Set(swapped)].filter((form) => form && form !== target);
+}
+
 /** A term's candidates with `form` offered (an AI's form while the main one stays): unchanged when it is the main one or already there. */
 export function withTargetCandidate(term: { target: string; targetCandidates: readonly string[] }, form: string): string[] {
   const offered = termText(form);

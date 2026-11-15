@@ -6,7 +6,7 @@ import { messageChips, runCardOf, runEndOf, type ChatChip } from '@loca/shared';
 import { CopyButton } from '@/components/copy-button';
 import { AttachChip } from './attach-chip';
 import { RunCardView, RunEndView, type RunCardControls } from './run-card';
-import type { Proposal } from './proposal-card';
+import { undoable, UndoAll, type Proposal } from './proposal-card';
 import { ToolPart } from './tool-part';
 
 const messageText = (message: UIMessage) => message.parts.map((part) => (part.type === 'text' ? part.text : '')).filter(Boolean).join('\n\n');
@@ -45,21 +45,25 @@ export const ChatMessage = memo(function ChatMessage({ message, projectId, sessi
       <DecisionNotice text={message.parts.map((part) => (part.type === 'text' ? part.text : '')).join('')} />
     ) : message.role === 'user' ? (
       <UserMessage actions={<MessageActions text={messageText(message)} chips={messageChips(message)} onReuse={onReuse} />}>
+        <SentChips projectId={projectId} chips={messageChips(message)} />
         {message.parts.map((part, index) => (part.type === 'text' ? <span key={index}>{part.text}</span> : null))}
         <SentImages parts={message.parts} />
-        <SentChips projectId={projectId} chips={messageChips(message)} />
       </UserMessage>
     ) : (
       <AssistantMessage>
         {message.parts.map((part, index) => {
           if (part.type === 'text') return <Markdown key={index}>{part.text}</Markdown>;
           if (part.type === 'data-steer') {
-            const data = (part as { data: { text: string; kind?: string } }).data;
-            return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} text={data.text} />;
+            const data = (part as { data: { text: string; kind?: string; chips?: unknown } }).data;
+            return data.kind === 'decisions' ? <DecisionNotice key={index} text={data.text} /> : <SteerBubble key={index} projectId={projectId} text={data.text} chips={messageChips({ metadata: { chips: data.chips } })} />;
           }
           if (part.type.startsWith('tool-')) return <ToolPart key={index} part={part as never} proposal={proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '')} stale={!latest} onOutput={(toolCallId, output) => onToolOutput(part.type.slice(5), toolCallId, output)} />;
           return null;
         })}
+        {!streaming && <UndoAll proposals={message.parts.flatMap((part) => {
+          const proposal = part.type.startsWith('tool-') ? proposalById.get(((part as { output?: { proposalId?: string } }).output ?? {}).proposalId ?? '') : undefined;
+          return proposal && undoable(proposal) ? [proposal] : [];
+        })} />}
         {!streaming && <MessageActions text={messageText(message)} />}
       </AssistantMessage>
     );
@@ -97,7 +101,7 @@ function MessageActions({ text, chips = [], onReuse }: { text: string; chips?: C
 }
 
 /** A message sent while a reply was running: where the reply took it, or still waiting for its next step. */
-export function SteerBubble({ text, waiting = false, label, onEdit, onCancel }: { text: string; waiting?: boolean; /** What it waits for, when not the running reply. */ label?: string; onEdit?: () => void; onCancel?: () => void }) {
+export function SteerBubble({ projectId, text, chips = [], waiting = false, label, onEdit, onCancel }: { projectId: string; text: string; /** What it pointed at when sent, as a sent message keeps them. */ chips?: ChatChip[]; waiting?: boolean; /** What it waits for, when not the running reply. */ label?: string; onEdit?: () => void; onCancel?: () => void }) {
   return (
     <SteerBubbleView
       label={label ?? (waiting ? '전달 대기 중' : '진행 중에 보냄')}
@@ -117,17 +121,18 @@ export function SteerBubble({ text, waiting = false, label, onEdit, onCancel }: 
         </>
       }
     >
+      <SentChips projectId={projectId} chips={chips} />
       {text}
     </SteerBubbleView>
   );
 }
 
-/** 이 메시지의 문맥: what the person picked with @ and what the page reported when it was sent; each opens its page. */
+/** 이 메시지의 문맥, above its text (what it is about reads first): what the person picked with @ and what the page reported when it was sent; each opens its page. */
 function SentChips({ projectId, chips }: { projectId: string; chips: ChatChip[] }) {
   if (!chips.length) return null;
   const ordered = [...chips.filter((chip) => !chip.screen), ...chips.filter((chip) => chip.screen)];
   return (
-    <Stack direction="row" wrap marginTop="condensed" gap="tight" aria-label="이 메시지의 문맥">
+    <Stack direction="row" wrap marginBottom="condensed" gap="tight" aria-label="이 메시지의 문맥">
       {ordered.map((chip) => <AttachChip key={`${chip.kind}:${chip.id}`} projectId={projectId} chip={chip} />)}
     </Stack>
   );

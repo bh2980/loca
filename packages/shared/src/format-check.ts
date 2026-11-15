@@ -389,6 +389,47 @@ export const termApplies = (term: { scope?: readonly string[] | null }, kind?: s
   !kind || appliesEverywhere(term.scope) || !(TERM_LINE_KINDS as readonly string[]).includes(kind) || term.scope!.includes(kind);
 
 /**
+ * What a term asks of a translation (its 종류): 고정 — its one Korean form; 후보 — one of several, the first the usual
+ * one, picked by context; 뉘앙스 — no set wording, its note says the sense to carry (its form, if any, an example).
+ */
+export const TERM_MODES = ['fixed', 'choices', 'guide'] as const;
+export type TermMode = (typeof TERM_MODES)[number];
+export const TERM_MODE_LABELS: Record<TermMode, string> = { fixed: '고정', choices: '후보', guide: '뉘앙스' };
+
+type TermForms = { target: string; mode?: TermMode | null; alternatives?: readonly string[] | null };
+/** The Korean forms a translation may use for a term: its main form, then (후보) the others it allows. None for 뉘앙스. */
+export function termForms(term: TermForms): string[] {
+  if (term.mode === 'guide') return [];
+  const forms = [term.target, ...(term.mode === 'choices' ? (term.alternatives ?? []) : [])].map((form) => form.trim()).filter(Boolean);
+  return [...new Set(forms)];
+}
+/** Whether a translation keeps a term: it holds one of its forms (any case). A 뉘앙스 term, or one without a form, is never broken. */
+export function termKept(term: TermForms, translation: string): boolean {
+  const forms = termForms(term);
+  const lower = translation.toLowerCase();
+  return !forms.length || forms.some((form) => lower.includes(form.toLowerCase()));
+}
+type TermForModel = TermForms & { source: string; note: string };
+/**
+ * A term as a model is given it, by its 종류: 고정 {source, target, note}; 후보 the same with `alternatives`; 뉘앙스
+ * {source, guide (its note), example (its form, if any)} — no form to copy. The system prompt says how each reads.
+ */
+export function termForModel(term: TermForModel) {
+  if (term.mode === 'guide') return { source: term.source, guide: term.note.trim() || '문맥에 맞게 옮기세요.', ...(term.target.trim() && { example: term.target.trim() }) };
+  const [target = term.target, ...alternatives] = termForms(term);
+  return { source: term.source, target, note: term.note, ...(term.mode === 'choices' && alternatives.length && { alternatives }) };
+}
+/** A term on one line (context lists, the editor's GLOSSARY block): "A → 가", "A → 가 / 나 (문맥에 맞게)", "A: 뉘앙스 — …". */
+export function termLine(term: TermForModel): string {
+  if (term.mode === 'guide') return `${term.source}: 뉘앙스 — ${term.note.trim() || '문맥에 맞게'}${term.target.trim() ? ` (예: ${term.target.trim()})` : ''}`;
+  const forms = termForms(term);
+  return `${term.source} → ${forms.join(' / ') || term.target}${forms.length > 1 ? ' (문맥에 맞게)' : ''}`;
+}
+
+/** How a broken term is told: "중계소" or "중계소 / 릴레이 기지" (후보). */
+export const termExpected = (term: TermForms) => termForms(term).map((form) => `"${form}"`).join(' / ');
+
+/**
  * The glossary's matcher: `termMatcher` on the source (whole word, any case), narrowed by each
  * term's scope (the line's kind) and, for a term with `matchCase`, by its exact case. Usage counts,
  * the glossary check, import warnings and the terms an AI node is given all match this way.

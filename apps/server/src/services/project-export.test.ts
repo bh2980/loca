@@ -93,7 +93,7 @@ it('the file keeps what a person set on knowledge and the project: styles, term 
   const people = db.insert(s.tags).values({ projectId, name: '주요', color: '#112233', scope: ['people', 'terms'] }).returning().get();
   const hero = db.insert(s.characters).values({ projectId, name: 'Hero', style: { length: 'concise', force: 'strong' }, origin: 'ai', statusBy: 'ai', reviewNote: '근거 부족' }).returning().get();
   db.insert(s.knowledgeTags).values({ kind: 'characters', itemId: hero.id, tagId: people.id }).run();
-  const term = db.insert(s.terms).values({ projectId, source: 'Help', target: '도움말', scope: ['ui'], matchCase: true, targetCandidates: ['도움'] }).returning().get();
+  const term = db.insert(s.terms).values({ projectId, source: 'Help', target: '도움말', scope: ['ui'], matchCase: true, mode: 'choices', alternatives: ['헬프'], targetCandidates: ['도움'] }).returning().get();
   db.insert(s.knowledgeTags).values({ kind: 'terms', itemId: term.id, tagId: people.id }).run();
   const [cause, effect] = ['정전', '대피'].map((title) => db.insert(s.storyEvents).values({ projectId, title }).returning().get());
   db.insert(s.eventLinks).values({ projectId, fromId: cause!.id, toId: effect!.id, kind: 'added' }).run();
@@ -114,7 +114,7 @@ it('the file keeps what a person set on knowledge and the project: styles, term 
   const madeHero = db.select().from(s.characters).where(and(eq(s.characters.projectId, again), eq(s.characters.name, 'Hero'))).get()!;
   expect(madeHero).toMatchObject({ style: { length: 'concise', force: 'strong' }, origin: 'ai', statusBy: 'ai', reviewNote: '근거 부족' });
   const madeTerm = db.select().from(s.terms).where(and(eq(s.terms.projectId, again), eq(s.terms.source, 'Help'))).get()!;
-  expect(madeTerm).toMatchObject({ scope: ['ui'], matchCase: true, targetCandidates: ['도움'] });
+  expect(madeTerm).toMatchObject({ scope: ['ui'], matchCase: true, mode: 'choices', alternatives: ['헬프'], targetCandidates: ['도움'] });
   const madeTag = db.select().from(s.tags).where(and(eq(s.tags.projectId, again), eq(s.tags.name, '주요'))).get()!;
   expect(madeTag.scope).toEqual(['terms', 'people']);
   const tagged = db.select().from(s.knowledgeTags).where(eq(s.knowledgeTags.tagId, madeTag.id)).all();

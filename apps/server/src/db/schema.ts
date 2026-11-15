@@ -1,7 +1,7 @@
 import { sql, type SQL } from 'drizzle-orm';
 import { customType, index, integer, primaryKey, real, sqliteTable, text, uniqueIndex, type SQLiteColumn } from 'drizzle-orm/sqlite-core';
-import type { AppDefaults, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
-import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope } from '@loca/shared';
+import type { AppDefaults, QueuedSteer, RunCardPlan, RunLimits, RunScope } from '@loca/shared';
+import { AGE_BANDS, CONNECTION_KINDS, CHARACTER_ROLES, GENDERS, KNOWLEDGE_TAG_KINDS, type TagScope, KNOWLEDGE_ORIGINS, KNOWLEDGE_STATUSES, EVENT_LINK_KINDS, GRAPH_ORIGINS, LISTENER_ORIGINS, SPEECH_LEVELS, STATUS_BY, type AgentSettings, type MarkStyles, PERMISSION_MODES, type CharacterStyle, type EditorAi, type ExclusionRules, type ModelLimits, LINE_TRANSLATE, type ContextItem, type FormatRules, type ItemErrorKind, type NodeType, type RelationshipChange, type WorkflowDefinition, workflowDefinitionSchema, SUBJECTS, type Subject, ALL_TERM_KINDS, type TermScope, TERM_MODES } from '@loca/shared';
 
 const id = () => text('id').primaryKey().$defaultFn(() => crypto.randomUUID());
 const createdAt = () => integer('created_at', { mode: 'timestamp_ms' }).notNull().$defaultFn(() => new Date());
@@ -421,6 +421,10 @@ export const terms = sqliteTable(
     matchCase: integer('match_case', { mode: 'boolean' }).notNull().default(false),
     /** Other Korean forms it has had or been offered (a former main, an AI's form), newest first; `target` is the one used. */
     targetCandidates: json<string[]>('target_candidates').notNull().default(sql`'[]'`),
+    /** What it asks of a translation (TERM_MODES): 고정 — `target`; 후보 — `target` or one of `alternatives`; 뉘앙스 — the sense in `note`. */
+    mode: text('mode', { enum: TERM_MODES }).notNull().default('fixed'),
+    /** 후보: the other Korean forms a translation may use, in order after `target` (the usual one). */
+    alternatives: json<string[]>('alternatives').notNull().default(sql`'[]'`),
     updatedAt: updatedAt(),
   },
   // One term per source, whatever its case.
@@ -894,7 +898,7 @@ export const chatSessions = sqliteTable('chat_sessions', {
   /** How the agent's changes are decided (#45): ask = a card each, auto = checked ones apply at once, bypass = all apply. */
   permissionMode: text('permission_mode', { enum: PERMISSION_MODES }).notNull().default('ask'),
   /** Messages sent while a turn was running that no turn has taken yet (#44); kept here so a restart does not lose them. */
-  pendingSteers: json<string[]>('pending_steers').notNull().default(sql`'[]'`),
+  pendingSteers: json<QueuedSteer[]>('pending_steers').notNull().default(sql`'[]'`),
   createdAt: createdAt(),
   updatedAt: updatedAt(),
 });

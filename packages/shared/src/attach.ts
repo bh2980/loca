@@ -78,6 +78,13 @@ export const chatChipSchema = z.object({
 });
 export type ChatChip = z.infer<typeof chatChipSchema>;
 
+/**
+ * A message sent while a reply is running (steering), waiting for the turn to take it: its text, what it pointed at
+ * (chips, as a sent message keeps them) and the screen it was sent from as the model reads it (`view`).
+ */
+export const queuedSteerSchema = z.object({ text: z.string(), chips: z.array(chatChipSchema).max(40).default([]), view: z.string().nullable().default(null) });
+export type QueuedSteer = z.infer<typeof queuedSteerSchema>;
+
 /** The chips a stored message carries (none for older messages or anything malformed). */
 export function messageChips(message: { metadata?: unknown }): ChatChip[] {
   const raw = (message.metadata as { chips?: unknown } | undefined)?.chips;

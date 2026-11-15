@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
+import { checkFormat, termKept, lineExclusion, type LineTranslate, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
@@ -56,7 +56,7 @@ export function TranslationEditor({
   compact,
 }: {
   projectId: string;
-  unit: { id: string; source: string; kind?: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human' };
+  unit: { id: string; source: string; kind?: string; translation: string | null; statusId: string; statusBy?: 'ai' | 'human'; translate?: LineTranslate | null };
   statuses: Status[];
   onDone?: (moved: boolean) => void;
   onEscape?: () => void;
@@ -73,13 +73,15 @@ export function TranslationEditor({
   const dirty = draft !== saved;
   // Settling a collision gives the box its focus back, so ⌘S works without another click.
   const [refocus, setRefocus] = useState(0);
-  const next = nextStatus(statuses, unit.statusId);
+  const project = useProject(projectId);
+  // 번역 제외: no translation is due, so its next is the next line, not the next status (a status would ask for a translation).
+  const excluded = project.data ? lineExclusion(unit, project.data.formatRules ?? undefined, project.data.exclusionRules, project.data.sourceLanguage) !== null : false;
+  const next = excluded ? undefined : nextStatus(statuses, unit.statusId);
   const line = useSourceParts(projectId, unit.source, unit.kind);
   // The line's detail carries its AI 제안 (list rows do not).
   const detail = useLineDetail(projectId, unit.id);
   const suggestions = useSuggestions(unit.id, [saved, draft], !compact);
   // The AI continuation: asked once when the line opens empty, or with ⌥/.
-  const project = useProject(projectId);
   const editorAi = project.data?.editorAi;
   // Each button has its own model (설정 › 에디터); the continuation only when it is on with a model.
   // AI 번역 and 다듬기 share one model.
@@ -250,7 +252,11 @@ export function TranslationEditor({
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <Inline wrap gap="condensed" paddingTop="tight">
-        {dirty && <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote>}
+        {/* Throwing the unsaved edit away sits beside the note that says there is one, not in the ⋯ menu. */}
+        {dirty && <Inline as="span" gap="tight">
+          <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote>
+          <Button variant="ghost" size="inline" tone="muted" disabled={save.isPending} onClick={() => clearDraft()}><Undo2 /> 되돌리기</Button>
+        </Inline>}
         {save.isPending && <Text variant="caption" tone="muted" aria-live="polite">저장 중…</Text>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <Inline as="span" gap="tight" variant="caption" tone="muted">
@@ -278,7 +284,6 @@ export function TranslationEditor({
             <DropdownMenuContent align="end" width="fit">
               {dirty && <>
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorSave'))}</Text></DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && <DropdownMenuSeparator />}
               <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorCopySource'))}</Text></DropdownMenuItem>
@@ -421,8 +426,7 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   const unit = useQuery(lineSurroundings(unitId));
   if (!draft.trim()) return null;
   // Terms and speech are shown by their rule under the source too; here they count toward the one verdict.
-  const lower = draft.toLowerCase();
-  const unusedTerms = terms.filter((term) => !lower.includes(term.target.toLowerCase()));
+  const unusedTerms = terms.filter((term) => !termKept(term, draft));
   const speech = unit.data?.speech;
   const guessed = speechLevelOf(draft.trim());
   const speechOff = !!speech && speech.level !== 'other' && !!guessed && guessed !== speech.level;

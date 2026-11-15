@@ -49,9 +49,18 @@ export function DockProvider({
   const active = entries.reduce<Entry | undefined>((best, item) => !best || item.depth >= best.depth ? item : best, undefined)?.id;
   const hasContent = Boolean(active);
   useEffect(() => { onContentChange?.(hasContent); }, [hasContent, onContentChange]);
+  // An explicit 상세 열기 usually comes before its pane is drawn (the click sets the URL that mounts it): the
+  // request waits a moment for the pane and shows it then, over an open chat too (a new selection does not).
+  const wanted = useRef(0);
   const revealDock = useCallback(() => {
     if (hasContent) onActivate?.();
+    wanted.current = Date.now();
   }, [hasContent, onActivate]);
+  useEffect(() => {
+    if (!active || !wanted.current) return;
+    if (Date.now() - wanted.current < 2000) onActivate?.();
+    wanted.current = 0;
+  }, [active, onActivate]);
   const autoActivate = onAutoActivate ?? onActivate;
   const context = useMemo(() => ({ target, setTarget, headerTarget, setHeaderTarget, register, active, hasContent, activate: onActivate, autoActivate, revealDock }), [target, headerTarget, register, active, hasContent, onActivate, autoActivate, revealDock]);
   return <DockContext.Provider value={context}>{children}</DockContext.Provider>;

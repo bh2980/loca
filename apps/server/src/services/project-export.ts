@@ -105,6 +105,8 @@ export function exportProject(db: Db, projectId: string): ImportFileInput {
       source: term.source,
       target: term.target,
       note: term.note,
+      mode: term.mode === 'fixed' ? undefined : term.mode,
+      alternatives: term.alternatives.length ? term.alternatives : undefined,
       scope: appliesEverywhere(term.scope) ? undefined : term.scope,
       matchCase: term.matchCase || undefined,
       targetCandidates: term.targetCandidates.length ? term.targetCandidates : undefined,

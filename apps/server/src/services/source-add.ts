@@ -1,5 +1,5 @@
 import { eq, sql } from 'drizzle-orm';
-import { knowledgeKindScope, TAG_SCOPE_LABELS, templateStatusIds, unitKindOf, withFormats, type AddSourceInput, type KnowledgeTagKind } from '@loca/shared';
+import { knowledgeKindScope, TAG_SCOPE_LABELS, templateStatusIds, unitKindOf, withFormats, withMainAlternative, type AddSourceInput, type KnowledgeTagKind } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
@@ -250,7 +250,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     }
     for (const index of fresh.terms) {
       const term = file.terms[index]!;
-      const { id } = tx.insert(s.terms).values({ projectId, source: term.source, target: term.target, note: term.note, status: term.status, origin: term.origin ?? 'import', statusBy: term.statusBy, scope: term.scope, matchCase: term.matchCase, targetCandidates: term.targetCandidates }).returning({ id: s.terms.id }).get();
+      const { id } = tx.insert(s.terms).values({ projectId, source: term.source, target: term.target, note: term.note, mode: term.mode, alternatives: withMainAlternative(term, term.target), status: term.status, origin: term.origin ?? 'import', statusBy: term.statusBy, scope: term.scope, matchCase: term.matchCase, targetCandidates: term.targetCandidates }).returning({ id: s.terms.id }).get();
       record.made('terms', id);
       tagged.push({ kind: 'terms', id, tags: term.tags });
     }

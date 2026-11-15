@@ -1,6 +1,6 @@
-/** Removes the first message equal to `text` (the same text may be queued twice). */
-export function removeOnce(list: string[], text: string): string[] {
-  const at = list.indexOf(text);
+/** Removes the first message whose text is `text` (the same text may be queued twice). */
+export function removeOnce<T extends { text: string }>(list: T[], text: string): T[] {
+  const at = list.findIndex((item) => item.text === text);
   return at < 0 ? list : list.filter((_, i) => i !== at);
 }
 

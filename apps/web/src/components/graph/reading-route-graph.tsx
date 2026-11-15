@@ -5,6 +5,7 @@ import { q } from '@/lib/queries';
 import { useQuery } from '@tanstack/react-query';
 import { GRAPH_SHOW_ITEMS, shownText, useGraphShow, type GraphShow } from '@/lib/graph-show';
 import { useLines } from '@/lib/units';
+import { useLineExcluded } from '@/lib/project';
 import { readingStageLayout } from './reading-stage-layout';
 import { GraphCanvas, type GraphCanvasHandle, type NodeInfo } from './graph-canvas';
 import { useStoredViewport, viewportScope } from '@/lib/viewport';
@@ -37,9 +38,12 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
     [show, stages, sourceNodes],
   );
   const lines = useLines(projectId, shownLines).byId;
+  const excluded = useLineExcluded(projectId);
 
   const routeNodes = useMemo(() => {
     const translationOf = (node: { unitId?: string | null }) => (shownLines && node.unitId ? lines.get(node.unitId)?.translation?.trim().slice(0, 120) || null : null);
+    // A 번역 제외 line goes out as its source (a stage of several only when every line of it does).
+    const keptOf = (node: { unitId?: string | null }) => Boolean(shownLines && node.unitId && lines.get(node.unitId) && excluded(lines.get(node.unitId)!));
     return stages.flatMap((stage): RouteNode[] => {
       const sources = stage.nodeIds.flatMap((id) => {
         const node = sourceNodes.get(id);
@@ -68,11 +72,11 @@ export function ReadingRouteGraph({ projectId, stages, routeKey, direction, onDi
           key: stage.parallel ? stage.id : source.key,
           title: stage.parallel ? `함께 실행${count ? ` · ${count}줄` : ''}` : count > 0 ? `${speaker}${count > 1 ? ` · ${count}줄` : ''}` : (source.label ?? source.key),
           // A line card shows what 원문·번역·둘 다 says; a card without lines keeps its label.
-          ...(count > 0 ? shownText(show, body, translation) : { body }),
+          ...(count > 0 ? shownText(show, body, translation, sources.every(keptOf)) : { body }),
         },
       }];
     });
-  }, [sourceNodes, stages, show, shownLines, lines]);
+  }, [sourceNodes, stages, show, shownLines, lines, excluded]);
 
   const { nodes, edges } = useMemo(() => readingStageLayout(routeNodes.map((node) => node.id), direction), [routeNodes, direction]);
   const info = useMemo(() => new Map(routeNodes.map((node) => [node.id, node.info])), [routeNodes]);

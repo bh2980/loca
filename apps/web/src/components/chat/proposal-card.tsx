@@ -1,13 +1,13 @@
 import { useMutation } from '@tanstack/react-query';
 import { Link } from '@tanstack/react-router';
-import { Check, ChevronDown, ChevronUp, X } from 'lucide-react';
+import { Check, X } from 'lucide-react';
 import { useState } from 'react';
 import { toast } from 'sonner';
-import { Box, Button, Inline, Input, Spinner, Stack, Text, ToolCard, ToolCardHeader } from '@loca/ui';
+import { Box, Button, Inline, Input, Spinner, Text, ToolCard, ToolCardHeader } from '@loca/ui';
 import { acceptedLabel, toolClass } from '@loca/shared';
 import { detailsSummary } from '@/lib/proposal-summary';
 import { decideProposal, type Proposal, undoProposals } from '@/lib/proposals';
-import { ChangePreview, LABEL } from './change-preview';
+import { ChangePeek, ChangePreview, LABEL, peekOf } from './change-preview';
 
 export type { Proposal };
 
@@ -32,10 +32,19 @@ function useUndo(projectId: string, sessionId: string | null) {
   });
 }
 
-/** A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that. */
+/** An accepted change that can still be put back. */
+export const undoable = (proposal: Proposal) => proposal.status === 'accepted' && !proposal.undoneAt && Boolean(proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0);
+
+/**
+ * A change an agent proposed (a CLI chat or the loca CLI). Accepting runs it now; nothing changes before that.
+ * One header line carries everything to decide with: a chevron and the title open the details, the status and the card's
+ * buttons (수락·거절, or 되돌리기) sit at its right. Folded, the card still shows its first rows (peekOf), and a change whose
+ * rows are all of it has nothing to open.
+ */
 export function ProposalCard({ proposal }: { proposal: Proposal }) {
   const undo = useUndo(proposal.projectId, proposal.sessionId);
-  const [open, setOpen] = useState(proposal.status === 'pending');
+  const pending = proposal.status === 'pending';
+  const [open, setOpen] = useState(pending);
   // Rejecting asks (optionally) why, so the agent can try differently instead of guessing.
   const [rejecting, setRejecting] = useState(false);
   const [reason, setReason] = useState('');
@@ -49,6 +58,35 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
   // A run this proposal started or went on with.
   const runId = proposal.status === 'accepted' ? (proposal.result as { runId?: string } | null)?.runId : undefined;
   const kind = toolClass(proposal.tool, proposal.input as Record<string, unknown>);
+  const peek = peekOf(proposal.details, pending);
+  const expandable = !peek.complete;
+  const shown = open && expandable;
+  // How it was decided says more on hover; the line keeps the short word.
+  const decidedBy = proposal.decidedBy && proposal.decidedBy !== 'person' ? DECIDED_BY[proposal.decidedBy] : null;
+  const status = proposal.undoneAt ? (
+    <Text tone="muted">되돌림</Text>
+  ) : !pending && (
+    <Text tone={proposal.status === 'accepted' ? 'success' : proposal.status === 'failed' ? 'danger' : 'muted'} title={decidedBy ? `${decidedBy} ${proposal.status === 'failed' ? '적용하려 했지만 실패' : acceptedLabel(proposal.tool).short}` : undefined}>
+      {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && decidedBy ? '적용하려 했지만 실패' : STATUS[proposal.status as keyof typeof STATUS]}
+      {failure && ` · ${failure}`}
+      {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
+      {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
+    </Text>
+  );
+  const actions = pending ? (
+    !rejecting && <>
+      <Button variant="outline" disabled={decide.isPending} onClick={() => setRejecting(true)}>
+        <X /> 거절
+      </Button>
+      <Button disabled={decide.isPending} onClick={() => decide.mutate('accept')}>
+        <Check /> 수락
+      </Button>
+    </>
+  ) : undoable(proposal) && (
+    <Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending && <Spinner />} 되돌리기</Button>
+  );
+  const review = pending && proposal.review;
+  const body = peek.shown.length > 0 || shown || runId || proposal.report || review;
   return (
     <ToolCard>
       <ToolCardHeader
@@ -56,33 +94,19 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
         tone={kind === 'read' ? undefined : kind}
         summary={detailsSummary(proposal.details)}
         suffix={proposal.source === 'cli' && <Text weight="normal" tone="muted">· CLI</Text>}
+        open={shown}
+        onOpenChange={setOpen}
+        expandable={expandable}
+        actions={actions}
       >
-        {proposal.undoneAt ? <Text marginLeft="auto" tone="muted">되돌림</Text> : proposal.status !== 'pending' && (
-          <Text tone={proposal.status === 'accepted' ? 'success' : proposal.status === 'failed' ? 'danger' : 'muted'}>
-            {proposal.decidedBy && proposal.decidedBy !== 'person' && `${DECIDED_BY[proposal.decidedBy]} `}
-            {proposal.status === 'accepted' ? acceptedLabel(proposal.tool).short : proposal.status === 'failed' && proposal.decidedBy && proposal.decidedBy !== 'person' ? '적용하려 했지만 실패' : STATUS[proposal.status]}
-            {failure && ` · ${failure}`}
-            {proposal.status === 'rejected' && proposal.reason && ` · ${proposal.reason}`}
-            {skipped > 0 && ` · ${skipped.toLocaleString()}개는 건너뜀`}
-          </Text>
-        )}
         {decide.isPending && <Spinner size="xs" />}
-        {/* A decided card is its header: the summary says what it changed, the details open on request. */}
-        {proposal.status !== 'pending' && (
-          <Button variant="ghost" size="icon-xs" aria-label={open ? '접기' : '자세히'} aria-expanded={open} onClick={() => setOpen(!open)}>{open ? <ChevronUp /> : <ChevronDown />}</Button>
-        )}
+        {status}
       </ToolCardHeader>
-      {(open || runId || proposal.report) && <Box paddingX="normal" paddingY="condensed" variant="body">
-        {open && <ChangePreview details={proposal.details} pending={proposal.status === 'pending'} />}
-        {runId && <Text as="p" marginTop="condensed" variant="caption"><Text asChild underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId: proposal.projectId, runId }}>실행 보기</Link></Text></Text>}
-        {proposal.report && <ProposalReport report={proposal.report} />}
-        {open && proposal.status === 'pending' && proposal.review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
-      </Box>}
-      {proposal.status === 'pending' && rejecting && (
+      {pending && rejecting && (
         <Inline
           as="form"
           gap="condensed"
-          border="top"
+          border={shown ? undefined : 'top'}
           paddingX="normal"
           paddingY="condensed"
           onSubmit={(event) => {
@@ -99,20 +123,26 @@ export function ProposalCard({ proposal }: { proposal: Proposal }) {
           </Button>
         </Inline>
       )}
-      {proposal.status === 'pending' && !rejecting && (
-        <Stack direction="row" justify="end" gap="condensed" border="top" paddingX="normal" paddingY="condensed">
-          <Button variant="outline" disabled={decide.isPending} onClick={() => setRejecting(true)}>
-            <X /> 거절
-          </Button>
-          <Button disabled={decide.isPending} onClick={() => decide.mutate('accept')}>
-            <Check /> 수락
-          </Button>
-        </Stack>
-      )}
-      {proposal.status === 'accepted' && proposal.undo && 'calls' in proposal.undo && proposal.undo.calls > 0 && !proposal.undoneAt && (
-        <Stack direction="row" justify="end" border="top" paddingX="normal" paddingY="condensed"><Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate([proposal.id])}>{undo.isPending ? <Spinner /> : null} 되돌리기</Button></Stack>
-      )}
+      {body && <Box paddingX="normal" paddingY="condensed" variant="body" border={shown && !(pending && rejecting) ? undefined : 'top'} tone={proposal.undoneAt ? 'muted' : undefined}>
+        {shown ? <ChangePreview details={proposal.details} pending={pending} /> : <ChangePeek peek={peek} />}
+        {runId && <Text as="p" marginTop="condensed" variant="caption"><Text asChild underline="offset"><Link to="/p/$projectId/runs/$runId" params={{ projectId: proposal.projectId, runId }}>실행 보기</Link></Text></Text>}
+        {proposal.report && <ProposalReport report={proposal.report} />}
+        {review && <Text as="p" marginTop="condensed" border="top" paddingTop="condensed" tone="muted">자동 검토가 넘김: {proposal.review}</Text>}
+      </Box>}
     </ToolCard>
+  );
+}
+
+/** Above a reply's cards when it made several changes that can still be put back: all of them at once. */
+export function UndoAll({ proposals }: { proposals: Proposal[] }) {
+  const first = proposals[0];
+  const undo = useUndo(first?.projectId ?? '', first?.sessionId ?? null);
+  if (proposals.length < 2 || !first) return null;
+  return (
+    <Inline gap="condensed" justify="end" variant="caption" tone="muted">
+      변경 {proposals.length}개
+      <Button variant="outline" disabled={undo.isPending} onClick={() => undo.mutate(proposals.map((proposal) => proposal.id))}>{undo.isPending && <Spinner />} 모두 되돌리기</Button>
+    </Inline>
   );
 }
 

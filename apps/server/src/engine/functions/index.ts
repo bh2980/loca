@@ -1,7 +1,7 @@
 import type { z } from 'zod';
 import { eq } from 'drizzle-orm';
 import { get } from 'es-toolkit/compat';
-import { checkFormat, type FunctionConfig, type FunctionName, type FunctionParams, type httpParams, type JsonField } from '@loca/shared';
+import { checkFormat, termExpected, termKept, type FunctionConfig, type FunctionName, type FunctionParams, type httpParams, type JsonField } from '@loca/shared';
 import type { Db } from '../../db/index.ts';
 import * as s from '../../db/schema.ts';
 import { connectionKey } from '../../domain/app-defaults.ts';
@@ -141,8 +141,8 @@ export const FUNCTION_IMPLEMENTATIONS: { [F in FunctionName]: { instant: Instant
       const issues = knowledgeOf(tx as unknown as Db, input.projectId)
         .glossary()
         .matcher.find(sourceOf(input), byInput(input, { lines: ({ unit }) => unit.kind, terms: () => undefined }))
-        .filter((term) => !text.toLowerCase().includes(term.target.toLowerCase()))
-        .map((term) => `용어 "${term.source}"은(는) "${term.target}"(으)로 옮겨야 합니다.`);
+        .filter((term) => !termKept(term, text))
+        .map((term) => `용어 "${term.source}"은(는) ${termExpected(term)}(으)로 옮겨야 합니다.`);
       return { port: issues.length ? 'fail' : 'pass', issues, output: { text, passed: !issues.length, issues, kind: 'term' } };
     },
   },

@@ -102,3 +102,12 @@ export function lineExclusion(line: { source: string; translate?: LineTranslate 
   if (line.translate === 'include') return null;
   return exclusionReason(line.source, format, rules, sourceLanguage);
 }
+
+/**
+ * What a line puts in the game: its translation, or, for a 번역 제외 line, its source as it is (`kept`). Lists, graph
+ * cards, an AI node's preceding lines and the result file all read a line this way; the line's own translation stays
+ * empty (nothing is copied, so a source edited later goes out as it now is).
+ */
+export function shippedText(line: { source: string; translation: string | null }, excluded: boolean): { text: string | null; kept: boolean } {
+  return excluded ? { text: line.source, kept: true } : { text: line.translation, kept: false };
+}

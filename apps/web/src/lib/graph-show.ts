@@ -9,9 +9,13 @@ export const GRAPH_SHOW_ITEMS: { value: GraphShow; label: string }[] = [
   { value: 'both', label: '둘 다' },
 ];
 
-/** A line card's text by what is shown: the source, the translation alone, or the source over the translation (the main graph and the route view alike). */
-export function shownText(show: GraphShow, text: string, translation?: string | null): { body: string; bodyStrong?: boolean; second?: string; missing?: 'body' | 'second' } {
+/**
+ * A line card's text by what is shown: the source, the translation alone, or the source over the translation (the main
+ * graph and the route view alike). A 번역 제외 line (`kept`) goes out as its source: said so, not as a missing translation.
+ */
+export function shownText(show: GraphShow, text: string, translation?: string | null, kept = false): { body: string; bodyStrong?: boolean; second?: string; missing?: 'body' | 'second'; kept?: 'body' | 'second' } {
   if (show === 'source') return { body: text };
+  if (kept) return show === 'translation' ? { body: `원문 그대로 · ${text}`, kept: 'body' } : { body: text, second: '원문 그대로', kept: 'second' };
   if (show === 'translation') return translation ? { body: translation, bodyStrong: true } : { body: '번역 없음', missing: 'body' };
   return { body: text, second: translation ?? '번역 없음', ...(!translation && { missing: 'second' as const }) };
 }

@@ -41,6 +41,8 @@ const ATTACH_HOW: Record<string, string> = {
   '실행 기록': 'read_run(runId)',
   '고른 대사': 'detail의 unitIds를 read_line(unitId)로 하나씩 읽거나, 많으면 find_lines(ids: unitIds)로 읽습니다',
   '대사 필터': 'detail은 대사 필터입니다. find_lines에 그대로 넣어 해당 대사를 읽습니다(offset/limit로 나눠 읽기)',
+  보기: 'find_lines(view: id)로 보기의 대사를 읽습니다. detail에 route가 있으면 경로로 만든 보기이고, find_reading_route(start, end)로 읽는 순서를 볼 수 있습니다',
+  경로: '저장하지 않은 경로입니다. detail의 start·end(노드 id)를 find_reading_route에 넣어 대사를 읽는 순서대로 봅니다',
 };
 
 export const describeView = (view: z.infer<typeof viewSchema>) => {
@@ -221,10 +223,12 @@ export const chatRoutes = new Hono<Env>()
   })
   // A message sent while the reply is running (#44): the turn takes it at its next step. Refused
   // (409) when no turn can take it any more; the browser then sends it as a new message.
-  .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000) })), (c) => {
+  // It goes with the screen it was sent from and what it pointed at, as a sent message does.
+  .post('/chat/:sessionId/steer', validate('json', z.object({ text: z.string().trim().min(1).max(20_000), view: viewSchema.optional(), chips: z.array(chatChipSchema).max(40).default([]) })), (c) => {
     const sessionId = c.req.param('sessionId');
     if (!steerable(c.var.deps.db, sessionId)) return c.json({ queued: false }, 409);
-    enqueueSteer(c.var.deps.db, sessionId, c.req.valid('json').text);
+    const { text, view, chips } = c.req.valid('json');
+    enqueueSteer(c.var.deps.db, sessionId, { text, chips, view: view ? describeView(view) : null });
     return c.json({ queued: true });
   })
   // Takes a queued message back before the turn has taken it: `removed` false means it was delivered already.

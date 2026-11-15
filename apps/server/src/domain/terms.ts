@@ -1,6 +1,6 @@
 import { and, asc, eq, inArray, ne, sql } from 'drizzle-orm';
 import { z } from 'zod';
-import { aiStatus, appliesEverywhere, duplicateTargets, termMarksOf, termMatches, termText, TERM_MARK_IDS, withMainTarget, withTargetCandidate, type AutoMark, type TermScope } from '@loca/shared';
+import { aiStatus, appliesEverywhere, duplicateTargets, termMarksOf, termMatches, termText, TERM_MARK_IDS, withMainAlternative, withMainTarget, withTargetCandidate, type AutoMark, type TermMode, type TermScope } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { fillTermUsage } from './term-usage.ts';
@@ -22,6 +22,8 @@ export interface TermSave {
   status?: 'candidate' | 'confirmed' | 'rejected';
   scope?: TermScope;
   matchCase?: boolean;
+  mode?: TermMode;
+  alternatives?: string[];
 }
 
 /**
@@ -37,7 +39,12 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   if (options.id && !mine) return { ok: false as const, reason: 'missing' as const, error: '용어를 찾을 수 없습니다.' };
   const same = source ? termBySource(tx, projectId, source) : undefined;
   if (same && same.id !== mine?.id && same.status !== 'rejected') return { ok: false as const, reason: 'duplicate' as const, error: `이미 있는 용어입니다: ${same.source}${same.target ? ` → ${same.target}` : ''}` };
-  const values = { ...term, ...(source !== undefined && { source }), ...(term.target !== undefined && { target: termText(term.target) }) };
+  const values = {
+    ...term,
+    ...(source !== undefined && { source }),
+    ...(term.target !== undefined && { target: termText(term.target) }),
+    ...(term.alternatives !== undefined && { alternatives: withMainAlternative({ target: term.target ?? '', alternatives: term.alternatives }, term.target ?? '') }),
+  };
   if (!mine) {
     // Revive a rejected term of the same source instead of adding a second.
     if (same) {
@@ -49,9 +56,19 @@ export function saveTerm(tx: Tx, projectId: string, term: TermSave, options: { i
   if (same && same.id !== mine.id) tx.delete(s.terms).where(eq(s.terms.id, same.id)).run();
   // A new source, scope or case rule matches other lines: counted again.
   const changesSource = (source !== undefined && source !== mine.source) || (term.scope !== undefined && JSON.stringify(term.scope) !== JSON.stringify(mine.scope)) || (term.matchCase !== undefined && term.matchCase !== mine.matchCase);
-  // A new main form keeps the former one among the candidates (the pane's 메인으로 sends a candidate here).
-  const forms = term.target !== undefined && term.target.trim() !== mine.target.trim() ? withMainTarget(mine, term.target) : {};
-  const row = tx.update(s.terms).set({ ...values, ...forms, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
+  // A new main form keeps the former one among the candidates (the pane's 메인으로 sends a candidate here); a 후보 term's
+  // allowed form made the main swaps places with the former main instead, both still allowed.
+  const mode = term.mode ?? mine.mode;
+  const alternatives = term.alternatives ?? mine.alternatives;
+  const changesMain = term.target !== undefined && term.target.trim() !== mine.target.trim();
+  const swaps = changesMain && mode === 'choices' && alternatives.map((form) => form.trim()).includes(term.target!.trim());
+  const forms = swaps
+    ? { alternatives: withMainAlternative({ target: mine.target, alternatives }, term.target!) }
+    : { ...(changesMain && withMainTarget(mine, term.target!)), ...(term.alternatives !== undefined && { alternatives: withMainAlternative({ target: term.target ?? mine.target, alternatives: term.alternatives }, term.target ?? mine.target) }) };
+  // A form now allowed (후보) is no longer only offered.
+  const allowed = 'alternatives' in forms && forms.alternatives ? forms.alternatives : undefined;
+  const offered = allowed ? { targetCandidates: ('targetCandidates' in forms && forms.targetCandidates ? forms.targetCandidates : mine.targetCandidates).filter((form) => !allowed.includes(form)) } : {};
+  const row = tx.update(s.terms).set({ ...values, ...forms, ...offered, ...(changesSource && { lines: null }), ...bySaver(tx, s.terms, projectId, mine.id, values, saver) }).where(eq(s.terms.id, mine.id)).returning().get();
   return { ok: true as const, row };
 }
 
@@ -194,6 +211,6 @@ export function listTerms(db: Db, projectId: string, input: KnowledgeFilterInput
   const page = input.limit === undefined ? matched.slice(offset) : matched.slice(offset, offset + input.limit);
   return {
     total: matched.length,
-    terms: page.map(({ id, source, target, targetCandidates, scope, matchCase, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, target, ...(targetCandidates.length && { targetCandidates }), ...(!appliesEverywhere(scope) && { scope }), ...(matchCase && { matchCase }), note, status, statusBy, lines, examples, marks, tags })),
+    terms: page.map(({ id, source, mode, target, alternatives, targetCandidates, scope, matchCase, note, status, statusBy, lines, examples, marks, tags }) => ({ id, source, mode, target, ...(alternatives.length && { alternatives }), ...(targetCandidates.length && { targetCandidates }), ...(!appliesEverywhere(scope) && { scope }), ...(matchCase && { matchCase }), note, status, statusBy, lines, examples, marks, tags })),
   };
 }

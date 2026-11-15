@@ -23,10 +23,17 @@ interface FakeSession {
   system: string;
   servers: acp.McpServer[];
   model: string;
+  level?: string;
   abort?: AbortController;
 }
 
 const MODELS = ['fake', 'fake-2', 'fake/fake'];
+/** As agy's ACP server: the level option is the model's own, and fake-2 names it differently (agy's Claude models: thought_level). */
+const levelId = (model: string) => (model === 'fake-2' ? 'thought_level' : 'thinking_level');
+const optionsFor = (model: string, level = 'high') => [
+  { id: 'model', name: 'Model', type: 'select' as const, currentValue: model, options: MODELS.map((value) => ({ value, name: value })) },
+  { id: levelId(model), name: 'Thinking', category: 'thought_level', type: 'select' as const, currentValue: level, options: ['low', 'medium', 'high'].map((value) => ({ value, name: value })) },
+];
 const sleep = (ms: number, signal?: AbortSignal) =>
   new Promise<void>((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -63,7 +70,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
         needLogin();
         const sessionId = randomUUID();
         sessions.set(sessionId, { system: params.systemPrompt?.content.map((block) => (block.type === 'text' ? block.text : '')).join('') ?? '', servers: params.mcpServers, model: MODELS[0]! });
-        return { sessionId, configOptions: [{ id: 'model', name: 'Model', type: 'select', currentValue: MODELS[0]!, options: MODELS.map((value) => ({ value, name: value })) }] };
+        return { sessionId, configOptions: optionsFor(MODELS[0]!) };
       },
       resumeSession: async (params) => {
         needLogin();
@@ -76,8 +83,11 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
       },
       setSessionConfigOption: async (params) => {
         const session = sessions.get(params.sessionId);
-        if (session && params.configId === 'model') session.model = String(params.value);
-        return { configOptions: [] };
+        if (!session) return { configOptions: [] };
+        if (params.configId === 'model') session.model = String(params.value);
+        else if (params.configId === levelId(session.model)) session.level = String(params.value);
+        else if (params.configId !== 'mode') throw new acp.RequestError(-32602, `Thinking level '${String(params.value)}' is not offered for model '${session.model}'.`);
+        return { configOptions: optionsFor(session.model, session.level) };
       },
       authenticate: async (params) => {
         if (env.FAKE_ACP_AUTH_FAIL) throw new acp.RequestError(-32603, env.FAKE_ACP_AUTH_FAIL);
@@ -122,7 +132,7 @@ export function fakeAgent(stream: acp.Stream, env: Record<string, string | undef
             });
             answers.push(response.outcome.outcome === 'selected' ? response.outcome.optionId : 'cancelled');
           }
-          const reply = `가짜 ACP 에이전트(${session.model}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${images ? ` (이미지 ${images}장)` : ''}${answers.length ? `\n\n권한: ${answers.join(',')}` : ''}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
+          const reply = `가짜 ACP 에이전트(${session.model}${session.level ? ` ${session.level}` : ''}${loggedInWith ? `, 로그인 ${loggedInWith}` : ''})의 답입니다. 받은 메시지: ${text.slice(-120)}${images ? ` (이미지 ${images}장)` : ''}${answers.length ? `\n\n권한: ${answers.join(',')}` : ''}${found ? `\n\n도구 결과 일부: ${found}` : ''}`;
           for (const piece of reply.match(/.{1,40}/gs) ?? []) {
             if (abort.signal.aborted) return { stopReason: 'cancelled' };
             await say(piece);

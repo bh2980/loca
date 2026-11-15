@@ -1,11 +1,12 @@
-import { and, desc, eq, inArray, lt } from 'drizzle-orm';
-import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
+import { and, desc, eq, inArray, lt, sql, type SQL } from 'drizzle-orm';
+import { changeState, CONTEXT_PRIORITY, contextTokens, estimateTokens, isSpecialListener, listenerLabel, mentions, personNote, styleInstruction, talkingPairs, termMatcher, shippedText, termForModel, termLine, type AgeBand, type PairLine, type TalkingPair, type ContextConfig, type ContextItem, type ContextItemKind, type Gender, type RelationshipChange } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import { inChunks } from '../db/chunk.ts';
 import { documents as documentsTable, graphEdges, graphNodes, groups, runItems, units } from '../db/schema.ts';
 import { describeRule, knownListener, speechRuleIndex } from '../domain/speech.ts';
 import { cachedKnowledge, graphOrder, knowledgeOf, scriptOrder } from '../domain/knowledge-cache.ts';
 import { deriveSceneEdges } from '../domain/scene-graph.ts';
+import { excludedSql } from '../domain/line-marks.ts';
 
 
 export interface PrecedingLine {
@@ -62,7 +63,8 @@ export interface BatchContext {
     relationships: { from: string; to: string; kind: string; description: string; mutual: boolean; changes?: RelationshipChange[] }[];
     documents: { kind: string; title: string; body: string }[];
   };
-  terms: { source: string; target: string; note: string }[];
+  /** The glossary terms the lines use, as termForModel gives them (고정 / 후보 / 뉘앙스). */
+  terms: ReturnType<typeof termForModel>[];
   /** A request reading earlier results instead of lines: the confirmed speech rules among the people those results name. */
   speechRules: { from: string; to: string; level: string; address?: string; note?: string; startKey?: string }[];
   /** Per unit id, only for lines whose preceding lines are not already in the batch or shown for an earlier line. */
@@ -226,7 +228,7 @@ type ShownLine = { key: string; speaker: string | null; source: string; translat
 export function precedingLines(db: Db, projectId: string, unitIds: string[], limit: number) {
   const index = graphIndex(db, projectId);
   const wanted = new Map<string, PrecedingIds>();
-  const own = new Map(unitIds.length ? inChunksSelect(db, unitIds).map((row) => [row.id, row]) : []);
+  const own = new Map(unitIds.length ? inChunksSelect(db, unitIds, excludedSql(projectId)).map((row) => [row.id, row]) : []);
   for (const unitId of unitIds) {
     const fromGraph = index.precedingUnitIds(unitId, limit);
     const unit = own.get(unitId);
@@ -241,8 +243,9 @@ export function precedingLines(db: Db, projectId: string, unitIds: string[], lim
     );
   }
   const all = [...new Set([...wanted.values()].flatMap((ids) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
-  const rows = new Map(all.length ? inChunksSelect(db, all).map((row) => [row.id, row]) : []);
-  const lineOf = (ids: string[]): ShownLine[] => ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : [])).map(({ key, speaker, source, translation }) => ({ key, speaker, source, translation })).reverse();
+  const rows = new Map(all.length ? inChunksSelect(db, all, excludedSql(projectId)).map((row) => [row.id, row]) : []);
+  // A 번역 제외 line reads as what goes into the game: its source (shippedText).
+  const lineOf = (ids: string[]): ShownLine[] => ids.flatMap((id) => (rows.has(id) ? [rows.get(id)!] : [])).map((row) => ({ key: row.key, speaker: row.speaker, source: row.source, translation: shippedText(row, Boolean(row.excluded)).text })).reverse();
   return new Map(
     [...wanted].map(([unitId, ids]) => [
       unitId,
@@ -251,8 +254,8 @@ export function precedingLines(db: Db, projectId: string, unitIds: string[], lim
   );
 }
 
-const inChunksSelect = (db: Db, ids: string[]) =>
-  inChunks(ids, (slice) => db.select({ id: units.id, key: units.key, groupId: units.groupId, sort: units.sort, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, slice)).all());
+const inChunksSelect = (db: Db, ids: string[], excluded: SQL) =>
+  inChunks(ids, (slice) => db.select({ id: units.id, key: units.key, groupId: units.groupId, sort: units.sort, speaker: units.speaker, source: units.source, translation: units.translation, excluded: sql<number>`${excluded}` }).from(units).where(inArray(units.id, slice)).all());
 
 /** A candidate piece of context and how to keep it if it fits. */
 interface Candidate {
@@ -286,9 +289,12 @@ export function buildContext(
   if (config.glossary) {
     // Each line's terms by its kind (a UI-only term is not given for dialogue); a text from parts has no kind.
     const { matcher } = knowledge.terms();
-    const used = [...new Set(parts !== undefined || !batch.length ? matcher.find(text) : batch.flatMap((unit) => matcher.find(`${unit.speaker ?? ''}\n${unit.source}`, unit.kind)))].map(({ source, target, note }) => ({ source, target, note }));
+    const used = [...new Set(parts !== undefined || !batch.length ? matcher.find(text) : batch.flatMap((unit) => matcher.find(`${unit.speaker ?? ''}\n${unit.source}`, unit.kind)))];
     const reason = '원문에 나오는 확정 용어';
-    for (const term of used) candidates.term.push({ item: { kind: 'term', label: `${term.source} → ${term.target}`, reason }, payload: term, keep: () => result.terms.push(term) });
+    for (const term of used) {
+      const given = termForModel(term);
+      candidates.term.push({ item: { kind: 'term', label: termLine(term), reason }, payload: given, keep: () => result.terms.push(given) });
+    }
   }
 
   if (config.precedingLines > 0) {
@@ -316,7 +322,7 @@ export function buildContext(
     const all = [...new Set([...wanted.values()].flatMap(({ ids }) => [...ids.lines, ...ids.branches.flatMap((branch) => branch.units)]))];
     const rows = new Map(
       all.length
-        ? db.select({ id: units.id, key: units.key, speaker: units.speaker, source: units.source, translation: units.translation }).from(units).where(inArray(units.id, all)).all().map((row) => [row.id, row])
+        ? db.select({ id: units.id, key: units.key, speaker: units.speaker, source: units.source, translation: units.translation, excluded: sql<number>`${excludedSql(projectId)}` }).from(units).where(inArray(units.id, all)).all().map((row) => [row.id, row])
         : [],
     );
     // Oldest first; lines in the batch are visible in order, and a line shown once is not repeated.
@@ -324,7 +330,8 @@ export function buildContext(
       ids
         .map((id) => rows.get(id))
         .filter((row) => row !== undefined && !batchKeys.has(row.key) && !shown.has(row.key))
-        .map((row) => ({ key: row!.key, speaker: row!.speaker, source: row!.source, ...(config.precedingTranslations && { translation: row!.translation }) }))
+        // A 번역 제외 line reads as what goes into the game: its source (shippedText).
+        .map((row) => ({ key: row!.key, speaker: row!.speaker, source: row!.source, ...(config.precedingTranslations && { translation: shippedText(row!, Boolean(row!.excluded)).text }) }))
         .reverse();
     for (const unit of batch) {
       const { ids, fromGraph } = wanted.get(unit.id)!;

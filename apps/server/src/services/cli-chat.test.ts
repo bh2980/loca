@@ -126,9 +126,13 @@ describe('CLI chat over ACP', () => {
     setAgentStarter(inProcessStarter({ FAKE_ACP_CHAT_TOOLS: '[]', FAKE_ACP_CHUNK_MS: '30' }));
     const { db, chat } = setup();
     const response = await respond(db, chat, '첫 질문');
-    enqueueSteer(db, chat.id, '이것도 봐줘');
+    enqueueSteer(db, chat.id, { text: '이것도 봐줘', chips: [{ kind: '대사', id: 'u1', label: 'MIRA: Hi' }], view: '화면: 대사 u1' });
     const body = await response.text();
     expect(body).toContain('"type":"data-steer"');
+    // The agent reads the screen it was sent from (the fake answers with the end of what it got); the reply keeps the chip.
+    const said = body.split('\n').filter((line) => line.includes('"text-delta"')).map((line) => (JSON.parse(line.slice('data: '.length)) as { delta: string }).delta).join('');
+    expect(said).toContain('이것도 봐줘\n\n화면: 대사 u1');
+    expect(body).toContain('"chips":[{"kind":"대사","id":"u1"');
     expect(body.match(/"type":"start-step"/g)).toHaveLength(2);
   });
 

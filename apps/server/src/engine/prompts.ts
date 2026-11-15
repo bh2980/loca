@@ -172,6 +172,7 @@ export function buildPrompt(
     node.config.instructions.trim(),
     formatSentences(node, choiceOptions),
     'Story notes, character profiles and preceding lines are context only.',
+    context.terms.length ? glossarySentence(context.terms) : '',
     hasAiNotes(context) ? '"aiNotes" are AI inferences nobody has verified: unverified guesses, not facts. Use one only when the lines themselves agree with it, and never let it override the lines, the glossary or a speech rule.' : '',
     Object.values(context.speech).some((entry) => entry.rule)
       ? 'A line\'s "speechRule" is the confirmed Korean speech level and form of address for its speaker toward its "listener": follow it unless the line plainly addresses someone else or is a quote. When it lists several forms of address, use whichever fits the line (or none where Korean would drop it).'
@@ -240,4 +241,15 @@ export function buildPrompt(
   if (!node.config.input.lines) return { system, prompt: JSON.stringify({ ...projectParts(context), previous: lines.flatMap((line) => (line.previous === undefined ? [] : [line.previous])) }) };
   const input = { ...projectParts(context), voices: Object.keys(context.voices).length ? context.voices : undefined, people: Object.keys(context.people).length ? context.people : undefined, previousScenes: context.previousScenes.length ? context.previousScenes : undefined, scenes };
   return { system, prompt: JSON.stringify(input) };
+}
+
+/** How the glossary reads, for the kinds of term the request has: a set form, a choice of forms, or a sense to carry. */
+function glossarySentence(terms: BatchContext['terms']) {
+  const has = (test: (term: BatchContext['terms'][number]) => boolean) => terms.some(test);
+  return [
+    'Glossary: when a line uses a term in that sense,',
+    has((term) => 'target' in term && !('alternatives' in term)) ? 'a term with "target" alone is fixed: use exactly that form;' : '',
+    has((term) => 'alternatives' in term) ? 'a term with "alternatives" allows "target" (the usual one) or one of them: use whichever fits the line;' : '',
+    has((term) => 'guide' in term) ? 'a term with "guide" has no set wording: carry the sense the guide describes in words that fit the line ("example", when given, is one way to say it, not a form to copy).' : '',
+  ].filter(Boolean).join(' ');
 }

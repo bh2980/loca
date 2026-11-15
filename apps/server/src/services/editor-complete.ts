@@ -1,6 +1,6 @@
 import { and, desc, eq, gte, lt, sql } from 'drizzle-orm';
 import * as ai from '@loca/ai';
-import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABELS, listenerLabel } from '@loca/shared';
+import { compileFormatRules, editorAiSchema, glossaryMatcher, SPEECH_LEVEL_LABELS, termForms, termLine, listenerLabel } from '@loca/shared';
 import type { Db } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { logged } from '../domain/ai-calls.ts';
@@ -58,9 +58,15 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
   const tokens = [compiled.placeholder, compiled.tag].flatMap((pattern) => (pattern ? (unit.source.match(pattern) ?? []) : []));
   const plain = [compiled.placeholder, compiled.tag].reduce((text, pattern) => (pattern ? text.replace(pattern, ' ') : text), unit.source);
   const terms = settings.glossary
-    ? glossaryMatcher(db.select({ source: s.terms.source, target: s.terms.target, scope: s.terms.scope, matchCase: s.terms.matchCase }).from(s.terms).where(and(eq(s.terms.projectId, unit.projectId), eq(s.terms.status, 'confirmed'))).all().filter((term) => term.target))
-        .find(plain, unit.kind)
-        .map(({ source, target }) => ({ source, target }))
+    ? glossaryMatcher(
+        db
+          .select({ source: s.terms.source, target: s.terms.target, note: s.terms.note, mode: s.terms.mode, alternatives: s.terms.alternatives, scope: s.terms.scope, matchCase: s.terms.matchCase })
+          .from(s.terms)
+          .where(and(eq(s.terms.projectId, unit.projectId), eq(s.terms.status, 'confirmed')))
+          .all()
+          // A term to keep (a form) or a sense to carry (뉘앙스, its note).
+          .filter((term) => termForms(term).length || (term.mode === 'guide' && term.note.trim())),
+      ).find(plain, unit.kind)
     : [];
 
   const who = [unit.speaker ?? '(narration)', settings.speech && unit.listener && `→ ${listenerLabel(unit.listener)}`, rule && `(speech level: ${SPEECH_LEVEL_LABELS[rule.rule.level]}${rule.rule.address ? `, addresses them as "${rule.rule.address}"` : ''})`].filter(Boolean).join(' ');
@@ -69,7 +75,7 @@ export async function completeLine(db: Db, secrets: SecretStore, unitId: string,
     `speaker: ${who}`,
     `source: ${unit.source}`,
     ...(before.length ? ['', 'PREVIOUS LINES', ...before.map((line) => `- ${line.speaker ?? '(narration)'}: ${line.source}${line.translation ? ` / 번역: ${line.translation}` : ''}`)] : []),
-    ...(terms.length ? ['', 'GLOSSARY', ...terms.map((term) => `- ${term.source} → ${term.target}`)] : []),
+    ...(terms.length ? ['', 'GLOSSARY', ...terms.map((term) => `- ${termLine(term)}`)] : []),
     ...(tokens.length ? ['', `FORMAT TOKENS (copy exactly): ${tokens.join(' ')}`] : []),
     '',
     prefix ? `Started by the translator:\n<started>${prefix}</started>` : 'The translator has not started this line.',
