@@ -1,7 +1,8 @@
 import { queryOptions } from '@tanstack/react-query';
+import { useLiveQuery } from '@tanstack/react-db';
 import type { AddSourceInput, SourceFile } from '@loca/shared';
 import { client, unwrap } from './api';
-import { sent } from './collections';
+import { liveRows, projectCollection, sent } from './collections';
 import { queryClient } from './query-client';
 import { ownFamily, ownKey } from './query-keys';
 import { undoChange } from './undo';
@@ -13,6 +14,11 @@ import { undoChange } from './undo';
  */
 export const sourceDiff = (projectId: string, fileId: string, file: SourceFile) =>
   queryOptions({ ...ownKey('source-diff', projectId, fileId), queryFn: () => unwrap(client.projects[':projectId'].source.diff.$post({ param: { projectId }, json: file })) });
+
+/** The project's 원문 넣기 log, newest first (a collection the row feed keeps current). */
+export function useSourceImports(projectId: string) {
+  return liveRows(useLiveQuery((query) => query.from({ entry: projectCollection('sourceImports', projectId) }).orderBy(({ entry }) => entry.createdAt, 'desc')), true);
+}
 
 const compareAgain = () => queryClient.invalidateQueries({ queryKey: ownFamily('source-diff') });
 

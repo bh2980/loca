@@ -108,6 +108,8 @@ function prune(tx: Tx, projectId: string) {
   tx.delete(s.undoRecords).where(and(eq(s.undoRecords.projectId, projectId), lt(s.undoRecords.createdAt, new Date(Date.now() - KEEP_MS)))).run();
   const newest = tx.select({ id: s.undoRecords.id }).from(s.undoRecords).where(eq(s.undoRecords.projectId, projectId)).orderBy(desc(s.undoRecords.createdAt)).limit(KEEP_MAX + 1).all();
   if (newest.length > KEEP_MAX) tx.delete(s.undoRecords).where(and(eq(s.undoRecords.projectId, projectId), notInArray(s.undoRecords.id, newest.slice(0, KEEP_MAX).map((row) => row.id)))).run();
+  // A 원문 넣기 whose record went with them can no longer be taken back.
+  tx.run(sql`update ${s.sourceImports} set undo_id = null where project_id = ${projectId} and undo_id is not null and undo_id not in (select id from ${s.undoRecords})`);
 }
 
 const GONE = '되돌릴 수 없습니다. 이미 되돌렸거나 보관 기간(30일)이 지났습니다.';
@@ -163,6 +165,8 @@ export function undoRecorded(db: Db, projectId: string, id: string, kind?: strin
         }
       }
       tx.delete(s.undoRecords).where(eq(s.undoRecords.id, id)).run();
+      // A 원문 넣기 taken back says so in its log line.
+      tx.update(s.sourceImports).set({ undoId: null, undoneAt: new Date() }).where(eq(s.sourceImports.undoId, id)).run();
       if (structural) {
         refreshNodeGroups(tx, projectId);
         resequence(tx, projectId);

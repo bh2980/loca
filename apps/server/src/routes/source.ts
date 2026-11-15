@@ -25,6 +25,7 @@ import { lineSurroundings } from '../services/line-surroundings.ts';
 import { groupRows } from '../services/group-rows.ts';
 import { diffSource } from '../services/source-diff.ts';
 import { addSource } from '../services/source-add.ts';
+import { sourceImportRows } from '../services/source-imports.ts';
 
 /** A line's text, candidate and status: one save (domain/line-save.ts). */
 const lineSave = z.object({
@@ -78,6 +79,8 @@ function layoutNodeIds(raw: string, section: string): string[] | null {
 export const sourceRoutes = new Hono<Env>()
   /** 원문 비교: what adding a standard file to the project would do, matched by key; nothing is written. */
   .post('/projects/:projectId/source/diff', validate('json', sourceFileSchema), (c) => c.json(diffSource(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
+  /** The 원문 넣기 log, newest first (the CLI's `source log`; the app reads it as the sourceImports collection). */
+  .get('/projects/:projectId/source/imports', (c) => c.json(sourceImportRows(c.var.deps.db, c.req.param('projectId'))))
   /** The app's 원문 넣기: a person adds the file's new keys directly (the terminal and the chat go through add_source); undone by its token (POST /undo). */
   .post('/projects/:projectId/source/add', validate('json', addSourceSchema), (c) => c.json(addSource(c.var.deps.db, c.req.param('projectId'), c.req.valid('json'))))
   .post('/projects/:projectId/groups', validate('json', createGroupSchema), (c) => c.json(createGroup(c.var.deps.db, c.req.param('projectId'), c.req.valid('json')), 201))

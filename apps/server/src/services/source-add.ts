@@ -61,7 +61,11 @@ export function sourceRefusal(db: Db, projectId: string, file: AddSourceInput): 
  * as a new project's would, matched as diffSource matches them; the ones it has stay as they are. The formats named in `formats` are turned on in the project's format
  * rules, and the undo record puts them back with the rest. One transaction and one undo record (kind script).
  */
-export function addSource(db: Db, projectId: string, file: AddSourceInput, by: Saver = PERSON): SourceAdded {
+/**
+ * `via`: who added it, for the 원문 넣기 log (a person on the page, or an accepted add_source); `by`: who a restarted
+ * line's status is set by.
+ */
+export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 'app' | 'proposal' = 'app', by: Saver = PERSON): SourceAdded {
   const { diff, refusal } = sourceRefusal(db, projectId, file);
   if (refusal) throw new Refusal('invalid', refusal);
   const changedUnits = file.update ? new Set(diff.units.changed.map((item) => item.key)) : new Set<string>();
@@ -266,7 +270,23 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, by: S
     refreshNodeGroups(tx, projectId);
     resequence(tx, projectId);
     invalidate(tx, projectId);
-    return record.save('script');
+    const token = record.save('script');
+    // The log line: only a file that changed something, with what takes it back.
+    if (token) {
+      tx.insert(s.sourceImports).values({
+        projectId,
+        name: file.name ?? null,
+        via,
+        undoId: token,
+        summary: {
+          added: { groups: groups.length, units: units.length, graphNodes: nodes.length + loose, graphEdges: edges },
+          knowledge: { characters: fresh.characters.length, relationships: fresh.relationships.length, documents: fresh.documents.length, terms: fresh.terms.length, events: fresh.events.length, speechRules: fresh.speechRules.length },
+          updated: { units: updated.units, groups: updated.groups, graphNodes: updated.graphNodes, restarted: updated.restarted },
+          formats: file.formats ?? [],
+        },
+      }).run();
+    }
+    return token;
   });
   if (undoId) changed(db, projectId);
   const kinds = Object.keys(diff.knowledge) as (keyof SourceDiff['knowledge'])[];

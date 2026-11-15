@@ -14,6 +14,7 @@ import { listenerRows, projectListRows, projectRows, speakerRows } from './servi
 import { readAppDefaults } from './domain/app-defaults.ts';
 import { connectionRows } from './services/connection-rows.ts';
 import { listViews } from './services/graph-views.ts';
+import { sourceImportRows } from './services/source-imports.ts';
 import { aiCallRows } from './services/ai-call-rows.ts';
 import { chatSessionRows } from './services/chat-session-rows.ts';
 import { lineExtras } from './services/line-extras.ts';
@@ -89,6 +90,7 @@ export const READERS = {
   statusCounts: statusCountRows,
   tagCounts: tagCountRows,
   graphViews: (db, projectId, ids) => listViews(db, projectId, ids),
+  sourceImports: sourceImportRows,
   chatSessions: (db, projectId, ids) => chatSessionRows(db, projectId, ids),
   // Held collections (HELD_COLLECTIONS): events name their rows by id and the browser reads the ones it shows, so these read only by id.
   units: (db, projectId, ids) => unitRowsByIds(db, projectId, ids ?? []),

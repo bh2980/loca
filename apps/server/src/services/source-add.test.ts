@@ -220,3 +220,22 @@ it('brings the node types the project lacks with the nodes, and keeps its own', 
   undoRecorded(db, projectId, added.undoId!, 'script');
   expect(types()).toEqual({ Talk: { kind: 'script', label: '대화', description: '' } });
 });
+
+it('keeps a log line of each file that changed something: taken back it says so, past its keeping it can no longer be', () => {
+  const projectId = made();
+  const log = () => db.select().from(s.sourceImports).where(eq(s.sourceImports.projectId, projectId)).all().sort((a, b) => +a.createdAt - +b.createdAt);
+  const first = addSource(db, projectId, addSourceSchema.parse({ format: 'loca/v1', name: 'ui.json', groups: [{ key: 'menu', kind: 'ui', title: 'Menu' }], units: [{ key: 'menu.start', group: 'menu', source: 'Start' }], terms: [{ source: 'Relay', target: '중계소' }] }), 'proposal');
+  expect(log()).toMatchObject([{ name: 'ui.json', via: 'proposal', undoId: first.undoId, undoneAt: null, summary: { added: { groups: 1, units: 1 }, knowledge: { terms: 1 } } }]);
+  // Nothing new: no line.
+  addSource(db, projectId, addSourceSchema.parse(dialogue));
+  expect(log()).toHaveLength(1);
+
+  undoRecorded(db, projectId, first.undoId!, 'script');
+  expect(log()[0]).toMatchObject({ undoId: null, undoneAt: expect.any(Date) });
+
+  const second = addSource(db, projectId, addSourceSchema.parse({ format: 'loca/v1', units: [{ key: 'intro.7', group: 'intro', source: 'Seven.' }] }));
+  // Its record past the 30 days it is kept: the next change prunes it, and the line can no longer be taken back.
+  db.update(s.undoRecords).set({ createdAt: new Date(Date.now() - 31 * 24 * 60 * 60 * 1000) }).where(eq(s.undoRecords.id, second.undoId!)).run();
+  addSource(db, projectId, addSourceSchema.parse({ format: 'loca/v1', units: [{ key: 'intro.8', group: 'intro', source: 'Eight.' }] }));
+  expect(log().map((row) => [row.undoId === null, row.undoneAt === null])).toEqual([[true, false], [true, true], [false, true]]);
+});

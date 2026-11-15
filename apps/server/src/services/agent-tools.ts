@@ -664,7 +664,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
           note,
         ];
       },
-      execute: (file) => ({ ok: true, ...addSource(db, projectId, file, saver) }),
+      execute: (file) => ({ ok: true, ...addSource(db, projectId, file, 'proposal', saver) }),
     }),
     save_document: tool({
       description: 'Create a note (자료 › 노트: story / world / style / note), or update it when id is given. alwaysInclude (shown as 번역 문맥에 넣기) puts its full text into the prompts of AI nodes that have the 노트 context on.',

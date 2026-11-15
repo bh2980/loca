@@ -1266,7 +1266,7 @@ source
         return console.log(['새 대사에 서식 규칙에 없는 서식이 있습니다.', ...formatQuestion(diff.formats)].join('\n'));
       }
     }
-    const outcome = await proposeTool('add_source', { ...parsed.data, formats, update: options.update === true } as ToolInputs['add_source']);
+    const outcome = await proposeTool('add_source', { ...parsed.data, formats, update: options.update === true, name: file === '-' ? undefined : path.basename(file) } as ToolInputs['add_source']);
     printOutcome(outcome, '원문 더하기');
     const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[]; updated?: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] } } | null) : null;
     if (!added?.added) return;
@@ -1283,6 +1283,23 @@ source
     if (added.knowledge?.kept) console.log(`  그대로 둠  프로젝트에 이미 있는 지식 ${added.knowledge.kept}개`);
     if (added.formats?.length) console.log(`  서식 규칙에 켬  ${added.formats.join(', ')}`);
     console.log(`  되돌리기: loca proposals undo ${outcome.proposalId}`);
+  });
+
+source
+  .command('log')
+  .description('원문 넣기 기록: 언제 어떤 파일이 무엇을 더하고 바꿨는지, 되돌릴 수 있는지. 터미널이 올린 것은 loca proposals undo로, 앱에서 넣은 것은 앱의 원문 넣기 화면에서 되돌립니다')
+  .action(async () => {
+    const rows = await unwrap(api().projects[':projectId'].source.imports.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return printList(rows.length, rows);
+    if (!rows.length) return console.log('원문 넣기 기록이 없습니다.');
+    const labels: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' };
+    for (const row of rows) {
+      const { added, knowledge, updated } = row.summary;
+      const knew = Object.entries(knowledge).filter(([, n]) => n).map(([kind, n]) => `${labels[kind] ?? kind} ${n}`);
+      const parts = [`묶음 ${added.groups} · 대사 ${added.units} · 노드 ${added.graphNodes} · 연결 ${added.graphEdges}`, knew.length && `지식 ${knew.join(' · ')}`, updated.units + updated.groups + updated.graphNodes && `바꿈 대사 ${updated.units} · 묶음 ${updated.groups} · 노드 ${updated.graphNodes}`, row.summary.formats.length && `서식 ${row.summary.formats.join(', ')}`].filter(Boolean);
+      const state = row.undoneAt ? '되돌림' : row.undoId ? '되돌릴 수 있음' : '되돌릴 수 없음 (보관 기간 30일 지남)';
+      console.log(`${new Date(row.createdAt).toLocaleString()}  ${row.name ?? '(이름 없음)'}  ${row.via === 'app' ? '앱' : '제안'}  [${state}]\n  ${parts.join(' · ')}`);
+    }
   });
 
 const graph = program.command('graph').description('대사 그래프 잇기(변경은 제안으로 올라가 앱에서 수락). 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다');

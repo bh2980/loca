@@ -5,8 +5,9 @@ import { toast } from 'sonner';
 import { CircleAlert } from 'lucide-react';
 import { sourceFileSchema, type SourceFile } from '@loca/shared';
 import { Page } from '@/components/page';
-import { Box, Button, Checkbox, FileDropZone, Heading, Icon, Inline, KeyValue, KeyValueRow, Notice, NoticeDescription, PageBody, ScopeRow, Section, Spinner, Text } from '@loca/ui';
-import { addSourceFile, sourceDiff, undoSourceFile } from '@/lib/source-import';
+import { type ColumnDef, DataTable, Box, Button, Checkbox, FileDropZone, Heading, Icon, Inline, KeyValue, KeyValueRow, Notice, NoticeDescription, PageBody, ScopeRow, Section, Spinner, Text } from '@loca/ui';
+import { addSourceFile, sourceDiff, undoSourceFile, useSourceImports } from '@/lib/source-import';
+import type { FeedRow } from '@/lib/collections';
 
 export const Route = createFileRoute('/p/$projectId/import')({
   component: ImportSource,
@@ -39,7 +40,7 @@ function ImportSource() {
   const formats = (diff.data?.formats ?? []).filter((format) => !declined.has(format.id)).map((format) => format.id);
 
   const add = useMutation({
-    mutationFn: () => addSourceFile(projectId, { ...file!, formats, update }),
+    mutationFn: () => addSourceFile(projectId, { ...file!, formats, update, name: picked?.name }),
     onSuccess: (result) => setAdded(result),
     onError: (error) => toast.error(error.message),
   });
@@ -212,8 +213,44 @@ function ImportSource() {
               )}
             </Section>
           )}
+
+          <ImportLog projectId={projectId} undoing={undo.isPending} onUndo={(token) => undo.mutate(token)} />
         </Box>
       </PageBody>
     </Page>
+  );
+}
+
+type ImportEntry = FeedRow['sourceImports'];
+
+/** What one 원문 넣기 brought, in a line. */
+function entrySummary({ summary }: ImportEntry) {
+  const knowledge = Object.entries(KNOWLEDGE_LABELS).flatMap(([kind, label]) => { const n = summary.knowledge[kind as keyof typeof KNOWLEDGE_LABELS]; return n ? [`${label} ${n.toLocaleString()}`] : []; });
+  const { added, updated } = summary;
+  return [
+    (added.groups || added.units || added.graphNodes || added.graphEdges) && `묶음 ${added.groups.toLocaleString()} · 대사 ${added.units.toLocaleString()} · 노드 ${added.graphNodes.toLocaleString()} · 연결 ${added.graphEdges.toLocaleString()}`,
+    knowledge.length && `지식 ${knowledge.join(' · ')}`,
+    (updated.units || updated.groups || updated.graphNodes) && `바꿈 대사 ${updated.units.toLocaleString()} · 묶음 ${updated.groups} · 노드 ${updated.graphNodes}${updated.restarted ? ` (다시 번역 ${updated.restarted.toLocaleString()})` : ''}`,
+    summary.formats.length && `서식 ${summary.formats.join(', ')}`,
+  ].filter(Boolean).join(' · ');
+}
+
+/** 가져온 기록: each file that added to or changed the project, with 되돌리기 while its undo record is kept (30 days). */
+function ImportLog({ projectId, undoing, onUndo }: { projectId: string; undoing: boolean; onUndo: (token: string) => void }) {
+  const entries = useSourceImports(projectId);
+  const columns: ColumnDef<ImportEntry, unknown>[] = [
+    { id: 'at', header: '언제', meta: { width: 128, tone: 'muted', tabular: true }, cell: ({ row }) => new Date(row.original.createdAt).toLocaleString(undefined, { dateStyle: 'short', timeStyle: 'short' }) },
+    { id: 'name', header: '파일', meta: { width: 140, hideable: false }, cell: ({ row }) => row.original.name ?? '(이름 없음)' },
+    { id: 'via', header: '경로', meta: { width: 56, tone: 'muted' }, cell: ({ row }) => (row.original.via === 'app' ? '앱' : '제안') },
+    { id: 'summary', header: '내용', meta: { wrap: true }, cell: ({ row }) => entrySummary(row.original) },
+    {
+      id: 'undo', header: '', meta: { width: 104, dense: true, resizable: false },
+      cell: ({ row }) => (row.original.undoneAt ? <Text tone="muted">되돌림</Text> : row.original.undoId ? <Button variant="ghost" disabled={undoing} onClick={() => onUndo(row.original.undoId!)}>되돌리기</Button> : <Text tone="muted">되돌릴 수 없음</Text>),
+    },
+  ];
+  return (
+    <Section variant="page" title="가져온 기록" description="이 프로젝트에 원문을 넣은 기록입니다. 되돌리기는 넣은 뒤 30일 동안 할 수 있고, 그때 더하고 바꾼 것을 한 번에 되돌립니다.">
+      <DataTable id="source-imports" compact columns={columns} rows={entries.data} rowId={(row) => row.id} loading={entries.isLoading} empty="아직 원문을 넣은 기록이 없습니다." />
+    </Section>
   );
 }

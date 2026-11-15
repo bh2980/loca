@@ -271,6 +271,8 @@ export const addSourceSchema = fileShape
     formats: z.array(z.string().min(1)).max(50).optional(),
     /** Also change what the project has otherwise under the same key (a patched source, a renamed group); left out, it stays. */
     update: z.boolean().default(false),
+    /** The file's name, for the 원문 넣기 log. */
+    name: z.string().trim().max(200).optional(),
   })
   .superRefine((file, ctx) => checkFile(file, ctx, false));
 export type SourceFile = z.infer<typeof sourceFileSchema>;
