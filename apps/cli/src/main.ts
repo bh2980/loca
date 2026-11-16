@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, sourceFileSchema, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, TERM_MODE_LABELS, termScopeLabel, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, sourceFileSchema, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, TERM_MODE_LABELS, termScopeLabel, speechSpectrumLabel, type SpeechSpectrum, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -791,7 +791,7 @@ program
       : kind === 'characters' ? `${row.name}${row.aliases?.length ? ` (${row.aliases.join(', ')})` : ''}${row.player ? ' 플레이어' : ''}${personLabel(row) ? ` · ${personLabel(row)}` : ''}`
       : kind === 'relationships' ? `${row.from} ${row.mutual ? '↔' : '→'} ${row.to}: ${row.kind}${(row.changes ?? []).map((change: { at: string; kind: string }) => ` ▸ ${change.kind} (${change.at}부터)`).join('')}`
       : kind === 'events' ? `${row.title}${row.summary ? ` — ${short(row.summary, 60)}` : ''}`
-      : `${row.from} → ${row.to}  ${row.level}${row.startKey ? ` (${row.startKey}부터)` : ''}${row.address ? `  호칭 ${row.address}` : ''}`;
+      : `${row.from} → ${row.to}  ${speechSpectrumLabel(row as SpeechSpectrum)}${row.startKey ? ` (${row.startKey}부터)` : ''}${row.address ? `  호칭 ${row.address}` : ''}${row.examples?.length ? `  예: ${row.examples.map((line: string) => `"${short(line, 30)}"`).join(' / ')}` : ''}`;
     for (const row of rows) console.log(`${name(row)}  [${KNOWLEDGE_STATUS_LABELS[row.status as KnowledgeStatus]}]  ${withMarks('', row.marks, row.tags)}  (${row.id})`);
   });
 

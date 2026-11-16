@@ -107,10 +107,25 @@ export function speechRuleIndex(db: Db, projectId: string) {
 }
 
 /** How a rule reads in a prompt or a check. */
-/** "하게체, 호칭 "행크 경위님" 또는 "경위님"": the level and every form of address (kept comma-separated). */
-export const describeRule = (rule: Rule) => {
+/**
+ * "하게체, 호칭 "행크 경위님" 또는 "경위님"": the level and every form of address (kept comma-separated). A rule with a
+ * spectrum reads as conditions, not equal choices (a model left to pick drifts to 해요체): "기본 하게체. 편할 때 해체,
+ * 급할 때 해라체. 쓰지 않음: 해요체. 호칭 … 예: "…"".
+ */
+export const describeRule = (rule: Pick<Rule, 'level' | 'address' | 'sometimes' | 'never' | 'examples'>) => {
   const forms = rule.address.split(',').map((form) => form.trim()).filter(Boolean);
-  return [SPEECH_LEVEL_LABELS[rule.level], forms.length && `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}`].filter(Boolean).join(', ');
+  const address = forms.length ? `호칭 ${forms.map((form) => `"${form}"`).join(' 또는 ')}` : '';
+  const sometimes = rule.sometimes ?? [];
+  const never = rule.never ?? [];
+  const examples = (rule.examples ?? []).map((line) => line.trim()).filter(Boolean).slice(0, 3);
+  if (!sometimes.length && !never.length && !examples.length) return [SPEECH_LEVEL_LABELS[rule.level], address].filter(Boolean).join(', ');
+  return [
+    `기본 ${SPEECH_LEVEL_LABELS[rule.level]}`,
+    sometimes.length && `${sometimes.map((entry) => `${entry.when ? `${entry.when} ` : '가끔 '}${SPEECH_LEVEL_LABELS[entry.level]}`).join(', ')} (그 밖에는 기본)`,
+    never.length && `쓰지 않음: ${never.map((level) => SPEECH_LEVEL_LABELS[level]).join(', ')}`,
+    address,
+    examples.length && `예: ${examples.map((line) => `"${line}"`).join(' / ')}`,
+  ].filter(Boolean).join('. ');
 };
 
 /** The lines a rule governs now: its speaker → listener pair, within its stretch. For "affected lines → re-run". */

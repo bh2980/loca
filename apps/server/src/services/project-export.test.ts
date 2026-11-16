@@ -34,6 +34,7 @@ function shape(projectId: string) {
     relationships: db.select().from(s.relationships).where(eq(s.relationships.projectId, projectId)).all().length,
     terms: db.select({ source: s.terms.source, target: s.terms.target, status: s.terms.status }).from(s.terms).where(and(eq(s.terms.projectId, projectId), ne(s.terms.status, 'rejected'))).orderBy(asc(s.terms.source)).all(),
     documents: db.select({ title: s.documents.title }).from(s.documents).where(eq(s.documents.projectId, projectId)).all().map((row) => row.title).sort(),
+    speechRules: db.select({ from: s.speechRules.fromName, to: s.speechRules.toName, level: s.speechRules.level, sometimes: s.speechRules.sometimes, never: s.speechRules.never, examples: s.speechRules.examples }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).orderBy(asc(s.speechRules.fromName), asc(s.speechRules.toName)).all(),
   };
 }
 
@@ -54,6 +55,8 @@ it('a project exported to its file and made again from it is the same project: s
   db.insert(s.terms).values({ projectId, source: 'Beacon', target: '신호기', status: 'candidate' }).run();
   db.insert(s.terms).values({ projectId, source: 'Junk', target: '', status: 'rejected' }).run();
   db.insert(s.characters).values({ projectId, name: 'Stranger', status: 'candidate' }).run();
+  // A speech that is a spectrum: usual, sometimes (when), never and examples.
+  db.insert(s.speechRules).values({ projectId, fromName: 'Stranger', toName: 'Ana', level: 'hage', sometimes: [{ level: 'haera', when: '급할 때' }], never: ['haeyo'], examples: ['자네, 여기 있었나.'] }).run();
   db.update(s.projects).set({ exclusionRules: { ...db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.exclusionRules, empty: false } }).where(eq(s.projects.id, projectId)).run();
 
   const file = exportProject(db, projectId);
@@ -65,6 +68,7 @@ it('a project exported to its file and made again from it is the same project: s
   expect({ ...shape(again), project: { ...shape(again).project, name: undefined } }).toEqual({ ...shape(projectId), project: { ...shape(projectId).project, name: undefined } });
   expect(shape(again).terms.find((term) => term.source === 'Beacon')!.status).toBe('candidate');
   expect(shape(again).characters.find((row) => row.name === 'Stranger')!.status).toBe('candidate');
+  expect(shape(again).speechRules.find((rule) => rule.from === 'Stranger')).toEqual({ from: 'Stranger', to: 'Ana', level: 'hage', sometimes: [{ level: 'haera', when: '급할 때' }], never: ['haeyo'], examples: ['자네, 여기 있었나.'] });
   expect(shape(again).workflows.find((row) => row.name === 'ZZ 감수로')!.refs).toEqual(expect.arrayContaining(['감수 대기']));
   expect(db.select().from(s.unitTags).innerJoin(s.units, eq(s.units.id, s.unitTags.unitId)).where(eq(s.units.key, second!.key)).all().filter((row) => row.units.projectId === again)).toHaveLength(1);
 });

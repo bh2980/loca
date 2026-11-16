@@ -2,7 +2,7 @@
 import { useMemo, useState, type ComponentProps, type ReactNode, type RefObject } from 'react';
 import { Check, CircleAlert, Ellipsis, PanelRight } from 'lucide-react';
 import { toast } from 'sonner';
-import { markName, termForms, termKept, termLine, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@loca/shared';
+import { markName, termForms, termKept, termLine, speechFit, speechSpectrumLabel, SPEECH_FIT_LABELS, compileFormatRules, isUnknownListener, lineExclusion, listenerLabel, needsListener, SPECIAL_LISTENERS, type FormatRules, type LineMark, type ListenerOrigin, glossaryMatcher, SPEECH_LEVEL_LABELS, speechLevelOf } from '@loca/shared';
 import { MarkChip } from '@/components/status';
 import { TranslationEditor } from '@/components/translation-editor';
 import { LineSourceText, MarkedSourceText, TokenText } from '@/components/editor/source-text';
@@ -101,16 +101,18 @@ export function LineHints({ projectId, line, part }: { projectId: string; line: 
   const result = line.lastRun?.issues.slice(0, 1).map((issue) => hint('run', false, issue)) ?? [];
   const items = [...(part !== 'result' ? context : []), ...(part !== 'context' ? result : [])];
   // The speech rule for this speaker → listener, written out under the source (it used to hide in a chip's tooltip).
-  const ruleState = guessed === speech?.level ? 'kept' : guessed ? 'broken' : 'plain';
+  // Where the draft falls in the rule's spectrum: usual or sometimes is fine, a level ruled out is wrong, an unlisted one
+  // is only worth a look.
+  const fit = speech ? speechFit(speech, guessed) : null;
   const rule = part !== 'result' && speech && (
-    <Stack key="speech" as="p" direction="row" align="start" gap="tight" variant="caption" tone={ruleState === 'broken' ? 'warning' : 'muted'}>
-      {ruleState === 'kept' && <Icon icon={Check} size="xs" marginTop="hair" shrink={false} tone="success" />}
-      {ruleState === 'broken' && <Icon icon={CircleAlert} size="xs" marginTop="hair" shrink={false} />}
+    <Stack key="speech" as="p" direction="row" align="start" gap="tight" variant="caption" tone={fit === 'never' ? 'warning' : 'muted'}>
+      {(fit === 'usual' || fit === 'sometimes') && <Icon icon={Check} size="xs" marginTop="hair" shrink={false} tone="success" />}
+      {fit === 'never' && <Icon icon={CircleAlert} size="xs" marginTop="hair" shrink={false} />}
       <span>
         말투 → {listenerLabel(speech.listener)}
-        {speech.level !== 'other' && ` · ${SPEECH_LEVEL_LABELS[speech.level]}`}
-        {guessed && guessed !== speech.level && ` (지금 ${SPEECH_LEVEL_LABELS[guessed]})`}
-        {speech.rule && speech.rule !== SPEECH_LEVEL_LABELS[speech.level] && ` · ${speech.rule}`}
+        {speech.level !== 'other' && ` · ${speechSpectrumLabel(speech)}`}
+        {speech.address && ` · 호칭 ${speech.address}`}
+        {guessed && fit !== 'usual' && ` (지금 ${SPEECH_LEVEL_LABELS[guessed]}${fit ? ` · ${SPEECH_FIT_LABELS[fit]}` : ''})`}
       </span>
     </Stack>
   );

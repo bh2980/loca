@@ -405,7 +405,7 @@ export function aiSaveUnresolvedPairs(tx: Tx, write: AiWrite, items: AiUnresolve
   return { ...rest, ...(notPerson && { notPerson }) };
 }
 
-export interface AiSpeechRuleItem { fromName: string; toName: string; level: string; address?: string; note?: string; startKey?: string | null; evidence?: string[] }
+export interface AiSpeechRuleItem { fromName: string; toName: string; level: string; sometimes?: { level?: string; when?: string }[]; never?: string[]; address?: string; examples?: string[]; note?: string; startKey?: string | null; evidence?: string[] }
 /**
  * Speech rules. A new one (a pair or a stretch with no rule yet) is used at once under auto-confirm;
  * doubts only mark it 확인 권장 (rules of the main pairs, evidence lines of someone else's speech). A
@@ -449,7 +449,15 @@ export function aiSaveSpeechRules(tx: Tx, write: AiWrite, items: AiSpeechRuleIte
       main.has(`${person(from)}|${person(to)}`) && '대사가 많은 주요 쌍',
     ].filter(Boolean) as string[];
     if (reasons.length) counts.forReview++;
-    const row = tx.insert(s.speechRules).values({ projectId: write.projectId, fromName: from, toName: to, level, address, note: r.note ?? '', startKey: start, evidence, ...draft(write) }).returning().get();
+    // The spectrum: levels it names that are not real levels (or repeat the usual one) are left out.
+    const known = (value: unknown) => SPEECH_LEVELS.find((candidate) => candidate === value);
+    const sometimes = (Array.isArray(r.sometimes) ? r.sometimes : []).flatMap((entry) => {
+      const shifted = known(entry?.level);
+      return shifted && shifted !== level ? [{ level: shifted, when: typeof entry.when === 'string' ? entry.when.trim().slice(0, 200) : '' }] : [];
+    });
+    const never = [...new Set(strings(r.never).map(known).filter((value): value is (typeof SPEECH_LEVELS)[number] => Boolean(value) && value !== level && !sometimes.some((entry) => entry.level === value)))];
+    const examples = strings(r.examples).map((line) => line.trim()).filter(Boolean).slice(0, 3);
+    const row = tx.insert(s.speechRules).values({ projectId: write.projectId, fromName: from, toName: to, level, sometimes, never, address, examples, note: r.note ?? '', startKey: start, evidence, ...draft(write) }).returning().get();
     if (reasons.length) markForReview(tx, write.projectId, 'speechRules', row.id, reasons);
     counts.added++;
   }

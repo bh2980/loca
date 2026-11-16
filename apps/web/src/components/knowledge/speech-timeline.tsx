@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Check, Plus } from 'lucide-react';
-import { listenerLabel, markName, SPEECH_LEVEL_LABELS, type SpeechLevel } from '@loca/shared';
+import { listenerLabel, markName, speechSpectrumLabel, type SpeechLevel, type SpeechSometimes } from '@loca/shared';
 import { Box, Button, Chip, Field, Inline, InspectorList, InspectorResult, Input, ListRow, Section, Text, Timeline, TimelineFields, TimelineNote, TimelinePoint, TimelineQuotes, TimelineStart } from '@loca/ui';
 import { DraftEditor, FieldInput } from '@/components/knowledge/editor';
 import { placeOf, quoteLabel } from '@/components/knowledge/evidence';
@@ -20,11 +20,12 @@ const addressText = (address: string) => splitList(address).map((form) => `“${
 /** What a point changed from the stretch before it: the changed fields only (말투, 호칭), else the speech it keeps. */
 function changedFields(rule: SpeechRuleRow, before: SpeechRuleRow | undefined) {
   const items: { label: string; before?: string; after: string }[] = [];
-  if (!before || before.level !== rule.level) items.push({ label: '말투', before: before && SPEECH_LEVEL_LABELS[before.level], after: SPEECH_LEVEL_LABELS[rule.level] });
+  // The whole spectrum (usual, sometimes, never) is the speech: a change in any part of it shows.
+  if (!before || speechSpectrumLabel(before) !== speechSpectrumLabel(rule)) items.push({ label: '말투', before: before && speechSpectrumLabel(before), after: speechSpectrumLabel(rule) });
   if (!before || before.address !== rule.address) {
     if (rule.address || before?.address) items.push({ label: '호칭', before: before?.address ? addressText(before.address) : undefined, after: rule.address ? addressText(rule.address) : '없음' });
   }
-  return items.length ? items : [{ label: '말투', after: `${SPEECH_LEVEL_LABELS[rule.level]} 그대로` }];
+  return items.length ? items : [{ label: '말투', after: `${speechSpectrumLabel(rule)} 그대로` }];
 }
 
 /** How many lines a rule applies to, from the query its 적용 대사 list reads. */
@@ -114,7 +115,7 @@ export function SpeechTimeline({ projectId, from, to, rules, startOf, spec, poin
             ) : (
               <>
                 <Inline as="p" gap="condensed" wrap>
-                  <Text weight="medium">{SPEECH_LEVEL_LABELS[base.level]}</Text>
+                  <Text weight="medium">{speechSpectrumLabel(base)}</Text>
                   {base.address && <Text tone="muted">호칭 {addressText(base.address)}</Text>}
                 </Inline>
                 {base.note && <TimelineNote>{base.note}</TimelineNote>}
@@ -220,15 +221,18 @@ function AddChange({ projectId, from, to, rules, spec, characters, addRule, onDo
   };
   const before = previous(picked);
   const [form, setForm] = useState<{ level: SpeechLevel; address: string; note: string }>({ level: before?.level ?? 'haeyo', address: before?.address ?? '', note: '' });
+  const [kept, setKept] = useState<{ sometimes: SpeechSometimes[]; never: SpeechLevel[]; examples: string[] }>({ sometimes: before?.sometimes ?? [], never: before?.never ?? [], examples: before?.examples ?? [] });
   const taken = new Set(rules.map((rule) => rule.startKey ?? ''));
   const shown = (lines ?? []).filter((line) => !search || line.source.toLowerCase().includes(search.toLowerCase()) || line.key.includes(search) || (line.translation ?? '').includes(search));
   const pick = (key: string) => {
     setPicked(key);
     const stretch = previous(key);
     setForm((value) => ({ ...value, level: stretch?.level ?? value.level, address: stretch?.address ?? value.address }));
+    // The rest of the speech goes on as it was, to change after if the new stretch differs.
+    setKept({ sometimes: stretch?.sometimes ?? [], never: stretch?.never ?? [], examples: stretch?.examples ?? [] });
   };
   const add = useMutation({
-    mutationFn: () => addRule({ fromName: from, toName: to, level: form.level, address: form.address, note: form.note, startKey: picked! }),
+    mutationFn: () => addRule({ fromName: from, toName: to, level: form.level, ...kept, address: form.address, note: form.note, startKey: picked! }),
     onSuccess: onDone,
     onError: fail,
   });
@@ -258,7 +262,7 @@ function AddChange({ projectId, from, to, rules, spec, characters, addRule, onDo
           ))}
         </InspectorList>
       )}
-      <Field label="말투" description={before ? `직전: ${SPEECH_LEVEL_LABELS[before.level]}` : undefined}>
+      <Field label="주로 쓰는 말투" description={before ? `직전: ${speechSpectrumLabel(before)}` : undefined}>
         <FieldInput field={fieldOf('level')} value={form.level} characters={characters} onChange={(value) => setForm((old) => ({ ...old, level: value as SpeechLevel }))} />
       </Field>
       <Field label="호칭" description={before ? `직전: ${before.address ? addressText(before.address) : '없음'}` : undefined}>

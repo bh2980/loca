@@ -399,12 +399,12 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     list_speech_rules: tool({
       description:
-        'Korean speech rules per speaker → listener direction: level (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), form of address, and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (ai, noEvidence) and tags; filter with status / marks / unreviewed / tags.',
+        'Korean speech rules per speaker → listener direction. Speech is a spectrum: level is the usual one (hasoseo 하소서체, hasipsio 하십시오체, hao 하오체, hage 하게체, haera 해라체, haeyo 해요체, hae 해체/반말, other), sometimes the levels used in some situations ({level, when}), never the levels ruled out; then form of address, examples (Korean lines in the voice) and startKey (the rule applies from that line on; null = from the beginning; several rules for a pair are stretches in script order). Only confirmed rules reach translation prompts. Each rule has status, statusBy, marks (ai, noEvidence) and tags; filter with status / marks / unreviewed / tags.',
       inputSchema: z.object({ speaker: z.string().optional(), listener: z.string().optional(), ...knowledgeFilterInput }),
       execute: ({ speaker, listener, ...filter }) =>
         annotateKnowledge(db, projectId, 'speechRules', db.select().from(s.speechRules).where(and(eq(s.speechRules.projectId, projectId), ne(s.speechRules.status, 'rejected'))).all(), filter)
           .filter((rule) => (!speaker || rule.fromName.toLowerCase() === speaker.toLowerCase()) && (!listener || rule.toName.toLowerCase() === listener.toLowerCase()))
-          .map(({ id, fromName, toName, level, address, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, address, note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
+          .map(({ id, fromName, toName, level, sometimes, never, address, examples, note, startKey, status, origin, statusBy, evidence, marks, tags }) => ({ id, from: fromName, to: toName, level, ...(sometimes.length && { sometimes }), ...(never.length && { never }), address, ...(examples.length && { examples }), note, startKey, status, statusBy, source: sourceOf({ origin }), evidence, marks, tags })),
     }),
     list_events: tool({
       description: 'Stored story events: summary, cause, outcome, participants and the lines that show them, with status, statusBy, source, marks (ai, noEvidence) and tags, and next: the events it leads to in the 사건 흐름 (source "graph" = derived from the dialogue graph, "added" = drawn by hand or by link_events). Filter with ids / status / marks / unreviewed / tags.',
@@ -587,7 +587,7 @@ export function agentTools(db: Db, projectId: string, author: { model: string | 
     }),
     save_speech_rule: tool({
       description:
-        'Create a Korean speech rule for one speaker → listener direction (call list_speech_rules first), or update it when id is given. A new stretch for a pair that changes (falling out, reconciliation) is a new rule with startKey = the first line of the stretch. Use names as stored (character name or alias).',
+        'Create a Korean speech rule for one speaker → listener direction (call list_speech_rules first), or update it when id is given. level is the usual level; a shift for a situation (anger, urgency, relaxed moments) goes in sometimes as {level, when} ("급할 때"), not a new rule; never lists levels ruled out toward this listener (a translation in one is wrong; one in no listed level is only worth a look); examples are up to five short Korean lines in the voice. A lasting change for a pair (falling out, reconciliation) is a new rule with startKey = the first line of the stretch. Use names as stored (character name or alias).',
       inputSchema: upsert(speechRuleInput),
       check: needsRow(db, projectId, s.speechRules, 'id', '말투 규칙'),
       undo: knowledgeUndo('speechRules'),

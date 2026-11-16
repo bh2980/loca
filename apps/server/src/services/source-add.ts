@@ -244,7 +244,7 @@ export function addSource(db: Db, projectId: string, file: AddSourceInput, via: 
     }
     for (const index of fresh.speechRules) {
       const rule = file.speechRules[index]!;
-      const { id } = tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, address: rule.address, note: rule.note, startKey: rule.start ?? null, ...standing(rule) }).returning({ id: s.speechRules.id }).get();
+      const { id } = tx.insert(s.speechRules).values({ projectId, fromName: rule.from, toName: rule.to, level: rule.level, sometimes: rule.sometimes, never: rule.never, address: rule.address, examples: rule.examples, note: rule.note, startKey: rule.start ?? null, ...standing(rule) }).returning({ id: s.speechRules.id }).get();
       record.made('speech_rules', id);
       tagged.push({ kind: 'speechRules', id, tags: rule.tags });
     }

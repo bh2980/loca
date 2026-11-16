@@ -38,7 +38,10 @@ export function lineSurroundings(db: Db, projectId: string | undefined, unitIds:
     };
     const nodes = db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(sql`exists (select 1 from json_each(${s.graphNodes.unitIds}) where value = ${unitId})`).all();
     const resolved = rulesOf(unit.projectId).resolve([unit]).get(unit.key);
-    const speech = resolved ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others } : null;
+    // The rule's spectrum (usual, sometimes, never) comes along so a screen can tell where a translation falls (speechFit).
+    const speech = resolved
+      ? { listener: resolved.listener, ruleId: resolved.rule.id, rule: describeRule(resolved.rule), level: resolved.rule.level, sometimes: resolved.rule.sometimes, never: resolved.rule.never, address: resolved.rule.address, byOrder: resolved.byOrder, routeDependent: !!resolved.routeDependent, others: !!resolved.others }
+      : null;
     const distance = new Map<string, number>();
     for (const other of sceneOf(unit.groupId)) {
       for (const name of [other.speaker, other.origin === 'human' ? other.listener : null]) {

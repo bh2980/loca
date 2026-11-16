@@ -3,7 +3,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowDown, Check, CircleAlert, ClipboardPaste, Languages, MoreHorizontal, Save, Sparkles, Undo2, WandSparkles } from 'lucide-react';
 import { toast } from 'sonner';
-import { checkFormat, termKept, lineExclusion, type LineTranslate, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
+import { checkFormat, speechFit, termKept, lineExclusion, type LineTranslate, listenerLabel, SPEECH_LEVEL_LABELS, speechLevelOf, type FormatIssue, type FormatRules, withSourceWhitespace } from '@loca/shared';
 import { TokenChip, TokenText } from '@/components/editor/source-text';
 import { AiSuggestion } from '@/components/ai-suggestion';
 import { focusEndOfLine, insertUnitIntoLine, proposeInLine, replaceLineText, TranslationInput } from '@/components/editor/translation-input';
@@ -429,7 +429,8 @@ function DraftChecks({ unitId, source, draft, units, terms, tags, rules, targetL
   const unusedTerms = terms.filter((term) => !termKept(term, draft));
   const speech = unit.data?.speech;
   const guessed = speechLevelOf(draft.trim());
-  const speechOff = !!speech && speech.level !== 'other' && !!guessed && guessed !== speech.level;
+  // Only a level the rule rules out counts against the line; an unlisted one is shown as worth a look, not wrong.
+  const speechOff = !!speech && speechFit(speech, guessed) === 'never';
   const missing = units.filter((unit) => tags.placed.includes(unit.number) || tags.left.includes(unit.number));
   // Missing tokens are shown as chips; the tag/placeholder sentence is only needed when nothing is missing (an extra or broken token).
   const issues = checkFormat(source, withSourceWhitespace(source, draft), editorChecks(targetLanguage), rules).filter((issue) => issue.code !== 'empty' && !(missing.length && (issue.code === 'tag' || issue.code === 'placeholder')));

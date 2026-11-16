@@ -6,7 +6,7 @@ import { createFileRoute } from '@tanstack/react-router';
 import { useMutation } from '@tanstack/react-query';
 import { ArrowLeftRight, GanttChart, Network, Plus, Table2, Users } from 'lucide-react';
 import { toast } from 'sonner';
-import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, styleNames, isSettled, aiDecided, listenerLabel, SPEECH_LEVEL_LABELS, type TagScope, personLabel, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@loca/shared';
+import { CHARACTER_ROLE_LABELS, OTHERS_LISTENER, styleNames, isSettled, aiDecided, listenerLabel, speechSpectrumLabel, type TagScope, personLabel, buildPairs, knowledgeMatches, pairKey, pairMatches, pairSummary, type KnowledgeFilter } from '@loca/shared';
 import { EmptyState, Inline, TagMenu, Box, Text, FilterChips, FilterBar, ViewSwitch, Chip, Button, DataTable, type ColumnDef, ContextMenuItem, ContextMenuSeparator, useRevealDock, Skeleton, SplitPane, ConfirmDialog } from '@loca/ui';
 import { HeaderActions, HeaderViews, Page } from '@/components/page';
 import { RelationshipGraph } from '@/components/relationship-graph';
@@ -180,7 +180,7 @@ function Knowledge() {
       rows: sortedRules,
       columns: [
         { head: '화자 → 청자', cell: (row) => `${row.fromName} → ${listenerLabel(row.toName)}`, weight: 'medium', width: 240 },
-        { head: '말투', cell: (row) => SPEECH_LEVEL_LABELS[row.level], width: 96 },
+        { head: '말투', cell: (row) => <Text lines={1} title={speechSpectrumLabel(row)}>{speechSpectrumLabel(row)}</Text>, width: 200 },
         { head: '호칭', cell: (row) => row.address || '—', width: 120 },
         { head: '시작', cell: (row) => (row.startKey ? <Text mono variant="caption">{row.startKey}</Text> : '처음부터'), width: 120 },
         { head: '이유', cell: (row) => <Text lines={1} tone="muted">{row.note}</Text> },
@@ -188,8 +188,11 @@ function Knowledge() {
       fields: [
         { name: 'fromName', label: '화자', description: '인물 이름이나 별칭', type: 'text' },
         { name: 'toName', label: '청자', description: '여럿: group · 불특정 다수: public · 혼잣말: self · 내레이션: narration · 플레이어: player · 그 밖의 인물: others', type: 'text' },
-        { name: 'level', label: '말투', type: 'level' },
+        { name: 'level', label: '주로 쓰는 말투', type: 'level' },
+        { name: 'sometimes', label: '가끔 쓰는 말투', description: '상황에 따라 바꿔 쓰는 말투와 그때 (예: 해라체 · 급하거나 명령할 때)', type: 'sometimes' },
+        { name: 'never', label: '쓰지 않는 말투', description: '이 말투로 번역하면 말투 어긋남입니다. 목록에 없는 말투는 확인 권장으로만 표시합니다.', type: 'levels' },
         { name: 'address', label: '호칭', type: 'chips', suggestions: (rules.data ?? []).flatMap((rule) => splitList(rule.address)) },
+        { name: 'examples', label: '예문', description: '이 말투로 옮긴 한국어 대사 두세 줄. AI가 말투를 따라 하는 데 가장 효과적입니다.', type: 'sentences' },
         { name: 'startKey', label: '시작 대사', type: 'key' },
         { name: 'note', label: '메모', type: 'long' },
       ],

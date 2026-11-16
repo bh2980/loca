@@ -42,10 +42,14 @@ loca call save_relationship @"$W/rel.json"       # {"from":"Alice","to":"Bob","k
 ```
 
 ## 말투 규칙
-한국어 말투는 프로필이 아니라 **화자 → 청자 방향마다 규칙 하나**로 냅니다. 말투가 바뀌는 지점(다툼·화해·승진)이 있으면 그 대사 키를 `startKey`로 한 규칙을 더 둡니다. 비꼬는 한두 줄은 구간이 아닙니다.
-`level`: `hasoseo`(하소서체) `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
+한국어 말투는 프로필이 아니라 **화자 → 청자 방향마다 규칙 하나**로 냅니다. 사람의 말투는 스펙트럼이라 규칙도 그렇게 씁니다:
+- `level`: 주로 쓰는 말투. `hasoseo`(하소서체) `hasipsio`(하십시오체) `hao`(하오체) `hage`(하게체) `haera`(해라체) `haeyo`(해요체) `hae`(해체·반말) `other`.
+- `sometimes`: 상황에 따라 바꿔 쓰는 말투 `[{"level":"haera","when":"급하거나 명령할 때"}]`. 화났을 때·급할 때·편할 때처럼 장면의 분위기로 바뀌는 건 구간이 아니라 여기에 둡니다.
+- `never`: 이 상대에게 쓰지 않는 말투 `["haeyo"]`. 이 말투로 번역되면 말투 어긋남이고, 어느 칸에도 없는 말투는 확인 권장으로만 표시됩니다.
+- `examples`: 이 말투로 옮긴 한국어 대사 두세 줄. AI가 말투를 따라 하는 데 가장 효과적입니다.
+- 말투가 계속 바뀌는 지점(다툼·화해·승진)이 있으면 그 대사 키를 `startKey`로 한 규칙을 더 둡니다.
 ```
-loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","address":"밥 씨","note":"직장 선배","startKey":null}
+loca call save_speech_rule @"$W/rule.json"       # {"fromName":"Alice","toName":"Bob","level":"haeyo","sometimes":[{"level":"hae","when":"흥분했을 때"}],"never":["haera"],"address":"밥 씨","examples":["밥 씨, 회의 자료 보셨어요?"],"note":"직장 선배","startKey":null}
 ```
 규칙을 고친 뒤 기존 번역을 맞추려면, 그 쌍의 대사를 번역 워크플로(기본 "번역")로 다시 돌리도록 제안합니다(`loca runs start <워크플로> -s Alice --listener Bob`). 말투가 규칙과 맞는지는 워크플로의 말투 판정(AI 선택 노드 + 조건 노드)이 봅니다. 어미 정규식 점검은 없습니다. 프로젝트의 워크플로는 `loca workflows list`로 확인하고, 필요하면 `loca-workflows`로 만듭니다.
 

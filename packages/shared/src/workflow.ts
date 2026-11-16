@@ -695,6 +695,8 @@ export interface ConditionData {
     marks: string[];
     /** The speech level (SPEECH_LEVEL_LABELS, e.g. 해요체) of the confirmed rule for this line's speaker → listener; null without one. An AI choice from 말투 등급 compares with it. */
     speechLevel: string | null;
+    /** The levels the line's speech rule allows (usual and sometimes), by label; empty without a rule. */
+    speechLevels: string[];
   };
   /** The term (runs on terms): its status, who decided it, whether it has a Korean form, lines it appears in, marks (termMarksOf), tags. */
   term?: { status: string; statusBy: string; hasTarget: boolean; lines: number | null; marks: string[]; tagIds: string[] };

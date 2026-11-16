@@ -932,6 +932,13 @@
       "when": 1794775636491,
       "tag": "0132_source_imports",
       "breakpoints": true
+    },
+    {
+      "idx": 133,
+      "version": "6",
+      "when": 1794796811723,
+      "tag": "0133_speech_spectrum",
+      "breakpoints": true
     }
   ]
 }

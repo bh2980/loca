@@ -71,7 +71,7 @@ it('adds the knowledge the project lacks, joined to its people by any name, and 
     units: [{ key: 'intro.3', group: 'intro', speaker: 'Cleo', source: 'Hey.' }],
     characters: [{ name: 'Ana', profile: '파일의 옛 프로필' }, { name: 'Cleo', aliases: ['C'] }],
     relationships: [{ from: 'C', to: 'Anna', kind: 'rival' }, { from: 'Ana', to: 'Ben', kind: 'friend' }],
-    speechRules: [{ from: 'Cleo', to: 'Ana', level: 'hae' }],
+    speechRules: [{ from: 'Cleo', to: 'Ana', level: 'hae', sometimes: [{ level: 'haeyo', when: '화났을 때' }], never: ['hasipsio'], examples: ['야, 나 왔어.'] }],
     terms: [{ source: 'monaco', target: '모나코!' }, { source: 'Relay', target: '중계소' }],
     documents: [{ title: 'World', body: '…' }],
   });
@@ -80,6 +80,7 @@ it('adds the knowledge the project lacks, joined to its people by any name, and 
   expect(added.knowledge).toEqual({ added: { characters: 1, relationships: 2, documents: 1, terms: 1, events: 0, speechRules: 1 }, kept: 2 });
   const people = new Map(db.select().from(s.characters).where(eq(s.characters.projectId, projectId)).all().map((row) => [row.id, row]));
   expect([...people.values()].find((row) => row.name === 'Ana')!.profile).toBe('앱에서 고친 프로필');
+  expect(db.select({ sometimes: s.speechRules.sometimes, never: s.speechRules.never, examples: s.speechRules.examples }).from(s.speechRules).where(eq(s.speechRules.projectId, projectId)).get()).toEqual({ sometimes: [{ level: 'haeyo', when: '화났을 때' }], never: ['hasipsio'], examples: ['야, 나 왔어.'] });
   // C is Cleo (the file's alias), Anna is Ana (the project's): the rivalry joins them.
   const rivalry = db.select().from(s.relationships).where(eq(s.relationships.kind, 'rival')).get()!;
   expect([people.get(rivalry.fromId)!.name, people.get(rivalry.toId)!.name]).toEqual(['Cleo', 'Ana']);

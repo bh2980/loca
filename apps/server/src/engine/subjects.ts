@@ -2,6 +2,7 @@ import { and, asc, count, desc, eq, inArray, isNull, lte, or, sql, type SQL } fr
 import { alias } from 'drizzle-orm/sqlite-core';
 import {
   SPEECH_LEVEL_LABELS,
+  allowedLevels,
   contextFor,
   decidedBy,
   estimateTokens,
@@ -315,6 +316,8 @@ const lines: SubjectAdapter = {
         tagIds: input.tagIds,
         marks: lineMarksOf({ suggested }),
         speechLevel: rule ? SPEECH_LEVEL_LABELS[rule.level] : null,
+        // The levels the rule allows (its usual one and those used sometimes): what a judged level must be one of.
+        speechLevels: rule ? allowedLevels(rule).map((level) => SPEECH_LEVEL_LABELS[level]) : [],
       },
     };
   },
