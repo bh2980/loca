@@ -5,7 +5,7 @@ import { batchChangeSchema, importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { applyBatch, validateBatch } from '../services/script-query.ts';
 import { attachUnitTags } from '../domain/tag-scope.ts';
 import { saveTerm } from '../domain/terms.ts';
@@ -26,7 +26,7 @@ function setup() {
         { key: 'n', group: 'g', kind: 'document', source: 'Rain falls.' },
       ],
     });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const unit = (key: string) => db.select().from(s.units).where(and(eq(s.units.projectId, projectId), eq(s.units.key, key))).get()!;
     const status = db.select().from(s.statuses).where(eq(s.statuses.projectId, projectId)).get()!;
     const tag = (name: string, scope: ('lines' | 'terms')[] = ['lines']) => db.insert(s.tags).values({ projectId, name, color: '#112233', scope }).returning().get();
@@ -54,6 +54,25 @@ describe('writes stay inside the project', () => {
     expect(response.status).toBe(200);
     const result = await response.json() as { proposalId: string };
     expect(db.select().from(s.proposals).where(eq(s.proposals.id, result.proposalId)).get()).toMatchObject({ sessionId: null, status: 'pending' });
+  });
+
+  it('원문 넣기 adds into its own project by key, and only its own project takes it back', async () => {
+    const { db, mine, other, send } = setup();
+    const lines = (projectId: string) => db.select({ key: s.units.key }).from(s.units).where(eq(s.units.projectId, projectId)).all().map((row) => row.key).sort();
+    // Both projects have a group g: the line goes into the one of the project it is sent to.
+    const response = await send('POST', `/projects/${mine.projectId}/source/add`, { format: 'loca/v1', units: [{ key: 'b', group: 'g', speaker: 'Bob', source: 'Hi' }], formats: [] });
+    expect(response.status).toBe(200);
+    const { undoId } = await response.json() as { undoId: string };
+    expect(lines(mine.projectId)).toEqual(['a', 'b', 'n']);
+    expect(lines(other.projectId)).toEqual(['a', 'n']);
+    expect(mine.unit('b').groupId).toBe(mine.unit('a').groupId);
+    // Another project's undo cannot take it back; its own can.
+    expect((await send('POST', `/projects/${other.projectId}/undo`, { token: undoId })).status).toBe(400);
+    expect((await send('POST', `/projects/${mine.projectId}/undo`, { token: undoId })).status).toBe(200);
+    expect(lines(mine.projectId)).toEqual(['a', 'n']);
+    // A file pointing at what this project lacks is refused whole.
+    expect((await send('POST', `/projects/${mine.projectId}/source/add`, { format: 'loca/v1', units: [{ key: 'c', group: 'nowhere', source: 'X' }], formats: [] })).status).toBe(400);
+    expect(lines(mine.projectId)).toEqual(['a', 'n']);
   });
 
   it('a bulk patch refuses another project\'s status, tags and lines, and changes nothing', async () => {

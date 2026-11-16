@@ -1,6 +1,10 @@
-import { AGE_BANDS, CHARACTER_ROLES, GENDERS } from './knowledge.ts';
-import { formatRulesSchema, TERM_MODES } from './format-check.ts';
-import { exclusionReason, type ExclusionReason } from './exclusion.ts';
+import { AGE_BANDS, CHARACTER_ROLES, characterStyleSchema, EVENT_LINK_KINDS, GENDERS, KNOWLEDGE_ORIGINS, LISTENER_ORIGINS, STATUS_BY } from './knowledge.ts';
+import { savedPromptsSchema } from './agent.ts';
+import { editorAiSchema } from './editor-ai.ts';
+import { markStylesSchema } from './marks.ts';
+import { formatRulesSchema, TERM_MODES, termScopeSchema } from './format-check.ts';
+import { exclusionReason, exclusionRulesSchema, LINE_TRANSLATE, type ExclusionReason } from './exclusion.ts';
+import { savedRefSchema, savedWorkflowSchema, templateStatusesSchema, templateTagSchema } from './app-defaults.ts';
 import { z } from 'zod';
 import { relationshipChangeSchema, SPEECH_LEVELS, speechSometimesSchema } from './knowledge.ts';
 
@@ -16,6 +20,8 @@ export const GROUP_KINDS = ['scene', 'document', 'ui'] as const;
 export const GROUP_KIND_LABELS = { scene: '장면', document: '문서', ui: 'UI' } as const;
 export const SOURCE_GROUP_LABELS = { scene: '장면', ui: 'UI 묶음', document: '문서 묶음' } as const;
 export const UNIT_KINDS = ['dialogue', 'document', 'ui'] as const;
+/** The kind of a line of a group of this kind that does not say its own. */
+export const unitKindOf = (kind: (typeof GROUP_KINDS)[number]): (typeof UNIT_KINDS)[number] => (kind === 'scene' ? 'dialogue' : kind);
 /** script: lines; choice: an option the player picks (its text is a line too); the rest carry no text. */
 export const GRAPH_NODE_KINDS = ['script', 'choice', 'condition', 'wait', 'event', 'state', 'connector', 'unknown'] as const;
 /** Content nodes carry text to translate; control nodes (branches, waits, events…) shape the flow. */
@@ -26,6 +32,23 @@ export const DOCUMENT_KINDS = ['story', 'world', 'style', 'note'] as const;
 
 const key = z.string().min(1).max(512);
 const meta = z.record(z.string(), z.unknown()).optional();
+/** A knowledge item's or term's standing in a project's own export (후보: not yet used as AI context); left out, confirmed. */
+const standing = z.enum(['candidate', 'confirmed']).optional();
+/**
+ * What a project's own export says of a knowledge item or term besides its words: where it came from (left out, the
+ * file), who put it in its standing, and the project's tags on it by name (a tag the project lacks is made; one whose
+ * places leave the item out is not put on).
+ */
+const provenance = {
+  origin: z.enum(KNOWLEDGE_ORIGINS).optional(),
+  statusBy: z.enum(STATUS_BY).optional(),
+  tags: z.array(z.string().trim().min(1)).optional(),
+};
+/** A knowledge item's lines it was drawn from and why the analysis wants a person to look at it (확인 권장). */
+const grounds = {
+  evidence: z.array(key).default([]),
+  reviewNote: z.string().optional(),
+};
 
 export const importGroupSchema = z.object({
   key,
@@ -42,14 +65,24 @@ export const importUnitSchema = z.object({
   key,
   group: key,
   order: z.number().int().optional(),
-  kind: z.enum(UNIT_KINDS).default('dialogue'),
+  /** Left out, its group's (scene → dialogue, document, ui); given, as given (a scene's narration may be a document). */
+  kind: z.enum(UNIT_KINDS).optional(),
   speaker: z.string().optional(),
   /** Who the line is addressed to (a character name), when the game data knows it. */
   listener: z.string().optional(),
+  /** Who decided the listener (a project's own export): the game data (left out), the AI with its confidence, or a person. */
+  listenerOrigin: z.enum(LISTENER_ORIGINS).optional(),
+  listenerConfidence: z.number().min(0).max(1).optional(),
   source: z.string(),
   translation: z.string().optional(),
   /** Labels from the game data (category, voiced, a length limit…): they become the project's tags. */
   tags: z.array(z.string().trim().min(1)).default([]),
+  /** The line's translation status by name (a project's own export); left out, it starts in the initial status (번역됨 with a translation). */
+  status: z.string().trim().min(1).optional(),
+  /** The line's memo (a project's own export). */
+  note: z.string().optional(),
+  /** A person's call on 번역 제외 (a project's own export); left out, the project's rules decide. */
+  translate: z.enum(LINE_TRANSLATE).optional(),
   meta,
 });
 
@@ -99,6 +132,11 @@ export const importCharacterSchema = z.object({
   ageBand: z.enum(AGE_BANDS).default('unknown'),
   /** How central the character is to the story. */
   role: z.enum(CHARACTER_ROLES).default('unknown'),
+  /** The Korean written style a person chose for the character's lines (a project's own export). */
+  style: characterStyleSchema.optional(),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importRelationshipSchema = z.object({
@@ -108,6 +146,9 @@ export const importRelationshipSchema = z.object({
   description: z.string().default(''),
   mutual: z.boolean().default(false),
   changes: z.array(relationshipChangeSchema).default([]),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importEventSchema = z.object({
@@ -116,7 +157,17 @@ export const importEventSchema = z.object({
   cause: z.string().default(''),
   outcome: z.string().default(''),
   participants: z.array(z.string()).default([]),
-  evidence: z.array(key).default([]),
+  status: standing,
+  ...provenance,
+  ...grounds,
+});
+
+/** A line of the 사건 흐름 a person drew (added) or took away (hidden) between two events, by their titles (a project's own export). */
+export const importEventLinkSchema = z.object({
+  from: z.string().min(1),
+  to: z.string().min(1),
+  kind: z.enum(EVENT_LINK_KINDS),
+  origin: z.enum(KNOWLEDGE_ORIGINS).optional(),
 });
 
 export const importSpeechRuleSchema = z.object({
@@ -134,6 +185,9 @@ export const importSpeechRuleSchema = z.object({
   note: z.string().default(''),
   /** The rule applies from this line on; omitted = from the beginning. */
   start: key.optional(),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importDocumentSchema = z.object({
@@ -141,6 +195,9 @@ export const importDocumentSchema = z.object({
   kind: z.enum(DOCUMENT_KINDS).default('note'),
   body: z.string().default(''),
   alwaysInclude: z.boolean().default(false),
+  status: standing,
+  ...provenance,
+  ...grounds,
 });
 
 export const importTermSchema = z.object({
@@ -151,91 +208,189 @@ export const importTermSchema = z.object({
   mode: z.enum(TERM_MODES).default('fixed'),
   /** choices: the other allowed Korean forms, after target. */
   alternatives: z.array(z.string().trim().min(1)).max(20).default([]),
+  /** The kinds of line it applies to; left out, every line. */
+  scope: termScopeSchema.optional(),
+  /** Matched in its exact case only. */
+  matchCase: z.boolean().optional(),
+  /** Other Korean forms it has had or been offered, newest first. */
+  targetCandidates: z.array(z.string()).optional(),
+  status: standing,
+  ...provenance,
 });
 
-export const importFileSchema = z
-  .object({
-    format: z.literal(IMPORT_FORMAT),
-    project: z.object({
-      name: z.string().min(1),
-      description: z.string().default(''),
-      sourceLanguage: z.string().min(2).default('en'),
-      targetLanguage: z.string().min(2).default('ko'),
-      /** Placeholder / tag families in this game's strings; the extractor knows them best. */
-      formatRules: formatRulesSchema.optional(),
-    }),
-    groups: z.array(importGroupSchema).min(1),
-    units: z.array(importUnitSchema).min(1),
-    graph: z
-      .object({
-        nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
-        nodes: z.array(importGraphNodeSchema),
-        edges: z.array(importGraphEdgeSchema),
-      })
-      .optional(),
-    characters: z.array(importCharacterSchema).default([]),
-    relationships: z.array(importRelationshipSchema).default([]),
-    documents: z.array(importDocumentSchema).default([]),
-    terms: z.array(importTermSchema).default([]),
-    events: z.array(importEventSchema).default([]),
-    speechRules: z.array(importSpeechRuleSchema).default([]),
-  })
-  .superRefine((file, ctx) => {
-    const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
-    const unique = (items: { key: string }[], path: string) => {
-      const seen = new Set<string>();
-      items.forEach((item, index) => {
-        if (seen.has(item.key)) issue([path, index, 'key'], `중복된 key: ${item.key}`);
-        seen.add(item.key);
-      });
-      return seen;
-    };
-    // One term per source whatever its case (the glossary is unique that way).
-    const termSources = new Set<string>();
-    file.terms.forEach((term, index) => {
-      const lower = term.source.trim().toLowerCase();
-      if (termSources.has(lower)) issue(['terms', index, 'source'], `중복된 용어: ${term.source}`);
-      termSources.add(lower);
-    });
-    const groups = unique(file.groups, 'groups');
-    const units = unique(file.units, 'units');
-    file.units.forEach((unit, index) => {
-      if (!groups.has(unit.group)) issue(['units', index, 'group'], `없는 group: ${unit.group}`);
-    });
-    if (file.graph) {
-      const nodes = unique(file.graph.nodes, 'graph.nodes');
-      file.graph.nodes.forEach((node, index) =>
-        node.units.forEach((unit) => {
-          if (!units.has(unit)) issue(['graph', 'nodes', index, 'units'], `없는 unit: ${unit}`);
-        }),
-      );
-      file.graph.nodes.forEach((node, index) => {
-        if (node.group && !groups.has(node.group)) issue(['graph', 'nodes', index, 'group'], `없는 group: ${node.group}`);
-      });
-      file.graph.edges.forEach((edge, index) => {
-        if (!nodes.has(edge.from)) issue(['graph', 'edges', index, 'from'], `없는 node: ${edge.from}`);
-        if (!nodes.has(edge.to)) issue(['graph', 'edges', index, 'to'], `없는 node: ${edge.to}`);
-      });
-    }
-    const names = new Set(file.characters.flatMap((c) => [c.name, ...c.aliases]));
-    file.relationships.forEach((rel, index) => {
-      if (!names.has(rel.from)) issue(['relationships', index, 'from'], `없는 인물: ${rel.from}`);
-      if (!names.has(rel.to)) issue(['relationships', index, 'to'], `없는 인물: ${rel.to}`);
-      rel.changes.forEach((change, at) => {
-        if (!units.has(change.at)) issue(['relationships', index, 'changes', at, 'at'], `없는 unit: ${change.at}`);
-      });
-    });
-    file.speechRules.forEach((rule, index) => {
-      if (rule.start && !units.has(rule.start)) issue(['speechRules', index, 'start'], `없는 unit: ${rule.start}`);
-    });
-    file.events.forEach((event, index) =>
-      event.evidence.forEach((ref, at) => {
-        if (!units.has(ref)) issue(['events', index, 'evidence', at], `없는 unit: ${ref}`);
-      }),
-    );
+/** A new project's own facts: what the app's 새 프로젝트, `loca projects create` and a file's `project` all give. */
+export const newProjectSchema = z.object({
+  name: z.string().trim().min(1),
+  description: z.string().default(''),
+  sourceLanguage: z.string().trim().min(2).default('en'),
+  targetLanguage: z.string().trim().min(2).default('ko'),
+});
+export type NewProject = z.infer<typeof newProjectSchema>;
+
+/** What a file's parts point at by key or name, and what each kind is called in a message. */
+export const FILE_REFERENCE_LABELS = { group: '묶음', unit: '대사', node: '노드', character: '인물', event: '사건' } as const;
+export type FileReferenceKind = keyof typeof FILE_REFERENCE_LABELS;
+export interface FileReference {
+  path: (string | number)[];
+  to: FileReferenceKind;
+  key: string;
+}
+
+const fileShape = z.object({
+  format: z.literal(IMPORT_FORMAT),
+  groups: z.array(importGroupSchema).default([]),
+  units: z.array(importUnitSchema).min(1),
+  graph: z
+    .object({
+      nodeTypes: z.record(z.string(), nodeTypeSchema).default({}),
+      nodes: z.array(importGraphNodeSchema),
+      edges: z.array(importGraphEdgeSchema),
+    })
+    .optional(),
+  characters: z.array(importCharacterSchema).default([]),
+  relationships: z.array(importRelationshipSchema).default([]),
+  documents: z.array(importDocumentSchema).default([]),
+  terms: z.array(importTermSchema).default([]),
+  events: z.array(importEventSchema).default([]),
+  speechRules: z.array(importSpeechRuleSchema).default([]),
+  eventLinks: z.array(importEventLinkSchema).default([]),
+  /**
+   * A project's own export (프로젝트 파일로 내보내기) carries its set-up too: the statuses in order, the tags, the workflows
+   * with what their ids stand for (refs, by name). A project made from the file starts with these instead of the 홈 설정's.
+   * Adding such a file to a project that has its own uses only its lines' status names (they must be the project's).
+   */
+  statuses: templateStatusesSchema.optional(),
+  tags: z.array(templateTagSchema).optional(),
+  workflows: z.array(savedWorkflowSchema).optional(),
+  /**
+   * A project's own settings (its export): AI 결과 바로 확정, the editor's AI (its connections in `refs`, by name, found
+   * again as a workflow's are), the automatic tags' names and colours, the saved instructions. A project made from the
+   * file starts with them; adding the file to a project leaves the project's as they are. Not the chat's permissions.
+   */
+  settings: z
+    .object({
+      aiAutoConfirm: z.boolean().optional(),
+      editorAi: editorAiSchema.optional(),
+      markStyles: markStylesSchema.optional(),
+      prompts: savedPromptsSchema.optional(),
+      refs: z.record(z.string(), savedRefSchema).default({}),
+    })
+    .optional(),
+});
+const projectFacts = newProjectSchema.extend({
+  /** Placeholder / tag families in this game's strings; the extractor knows them best. */
+  formatRules: formatRulesSchema.optional(),
+  /** 번역 제외 rules (a project's own export). */
+  exclusionRules: exclusionRulesSchema.optional(),
+});
+type FileBody = z.infer<typeof fileShape>;
+
+/** Every key or name one part of the file gives for another: a line's group, a node's lines, a relationship's people… */
+function fileReferences(file: FileBody): FileReference[] {
+  const refs: FileReference[] = [];
+  const ref = (path: (string | number)[], to: FileReferenceKind, key: string) => refs.push({ path, to, key });
+  file.units.forEach((unit, index) => ref(['units', index, 'group'], 'group', unit.group));
+  file.graph?.nodes.forEach((node, index) => {
+    node.units.forEach((unit) => ref(['graph', 'nodes', index, 'units'], 'unit', unit));
+    if (node.group) ref(['graph', 'nodes', index, 'group'], 'group', node.group);
   });
+  file.graph?.edges.forEach((edge, index) => {
+    ref(['graph', 'edges', index, 'from'], 'node', edge.from);
+    ref(['graph', 'edges', index, 'to'], 'node', edge.to);
+  });
+  file.relationships.forEach((rel, index) => {
+    ref(['relationships', index, 'from'], 'character', rel.from);
+    ref(['relationships', index, 'to'], 'character', rel.to);
+    rel.changes.forEach((change, at) => ref(['relationships', index, 'changes', at, 'at'], 'unit', change.at));
+  });
+  file.speechRules.forEach((rule, index) => rule.start && ref(['speechRules', index, 'start'], 'unit', rule.start));
+  for (const kind of ['characters', 'relationships', 'events', 'speechRules', 'documents'] as const) {
+    file[kind].forEach((item, index) => item.evidence.forEach((key, at) => ref([kind, index, 'evidence', at], 'unit', key)));
+  }
+  file.eventLinks.forEach((link, index) => {
+    ref(['eventLinks', index, 'from'], 'event', link.from);
+    ref(['eventLinks', index, 'to'], 'event', link.to);
+  });
+  return refs;
+}
+
+/** The keys and names the file itself has, by kind. */
+function fileKeys(file: FileBody): Record<FileReferenceKind, Set<string>> {
+  return {
+    group: new Set(file.groups.map((group) => group.key)),
+    unit: new Set(file.units.map((unit) => unit.key)),
+    node: new Set((file.graph?.nodes ?? []).map((node) => node.key)),
+    character: new Set(file.characters.flatMap((character) => [character.name, ...character.aliases])),
+    event: new Set(file.events.map((event) => event.title)),
+  };
+}
+
+/** The references neither the file nor `known` (the project's own keys, when the file adds to one) has. */
+export function unresolvedReferences(file: FileBody, known?: Record<FileReferenceKind, Set<string>>): FileReference[] {
+  const own = fileKeys(file);
+  return fileReferences(file).filter((ref) => !own[ref.to].has(ref.key) && !known?.[ref.to].has(ref.key));
+}
+
+/** Checks that need the whole file: no key twice, one term per source; with `closed`, every reference is in the file. */
+function checkFile(file: FileBody, ctx: z.RefinementCtx, closed: boolean) {
+  const issue = (path: (string | number)[], message: string) => ctx.addIssue({ code: 'custom', path, message });
+  const unique = (items: { key: string }[], path: string[]) => {
+    const seen = new Set<string>();
+    items.forEach((item, index) => {
+      if (seen.has(item.key)) issue([...path, index, 'key'], `중복된 key: ${item.key}`);
+      seen.add(item.key);
+    });
+  };
+  // One term per source whatever its case (the glossary is unique that way).
+  const termSources = new Set<string>();
+  file.terms.forEach((term, index) => {
+    const lower = term.source.trim().toLowerCase();
+    if (termSources.has(lower)) issue(['terms', index, 'source'], `중복된 용어: ${term.source}`);
+    termSources.add(lower);
+  });
+  unique(file.groups, ['groups']);
+  unique(file.units, ['units']);
+  if (file.graph) unique(file.graph.nodes, ['graph', 'nodes']);
+  // A line's status names one of the file's statuses when the file brings them (a new project starts with only those).
+  if (closed && file.statuses) {
+    const statuses = new Set(file.statuses.map((status) => status.name));
+    file.units.forEach((unit, index) => unit.status && !statuses.has(unit.status) && issue(['units', index, 'status'], `없는 상태: ${unit.status}`));
+  }
+  if (closed) for (const ref of unresolvedReferences(file)) issue(ref.path, `없는 ${FILE_REFERENCE_LABELS[ref.to]}: ${ref.key}`);
+}
+
+/** A file that makes a new project: its own facts, and everything it points at is in it. */
+export const importFileSchema = fileShape
+  .extend({ project: projectFacts, groups: z.array(importGroupSchema).min(1) })
+  .superRefine((file, ctx) => checkFile(file, ctx, true));
+
+/**
+ * A file added to an existing project (원문 추가, e.g. the UI strings after the dialogue): `project` may be left
+ * out, and its lines, nodes and relationships may point at the project's own groups, lines, nodes and people by
+ * key or name. Those references are checked against the project (diffSource), not here.
+ */
+export const sourceFileSchema = fileShape.extend({ project: projectFacts.optional() }).superRefine((file, ctx) => checkFile(file, ctx, false));
+/**
+ * add_source's input: a file to add, and the formats its new lines use that the project's rules lack to turn on with
+ * it (FormatOffer ids from the diff; [] to add without them). Left out while there are such formats, the add is
+ * refused until someone decides. `update`: the keys the project has that the file gives otherwise are changed too.
+ */
+export const addSourceSchema = fileShape
+  .extend({
+    project: projectFacts.optional(),
+    formats: z.array(z.string().min(1)).max(50).optional(),
+    /** Also change what the project has otherwise under the same key (a patched source, a renamed group); left out, it stays. */
+    update: z.boolean().default(false),
+    /** The file's name, for the 원문 넣기 log. */
+    name: z.string().trim().max(200).optional(),
+  })
+  .superRefine((file, ctx) => checkFile(file, ctx, false));
+export type SourceFile = z.infer<typeof sourceFileSchema>;
+export type AddSourceInput = z.infer<typeof addSourceSchema>;
 
 export type ImportFile = z.infer<typeof importFileSchema>;
+/** A project file's own settings (a project's export), as a project made from it starts with them. */
+export type ProjectFileSettings = NonNullable<ImportFile['settings']>;
 
 /** The standard file as JSON Schema, for converter authors (`loca format schema`). Cross-reference checks are not expressible there. */
 export const importFileJsonSchema = () => z.toJSONSchema(importFileSchema, { io: 'input', unrepresentable: 'any' });
@@ -257,6 +412,7 @@ export function summarizeImport(file: ImportFile) {
     graphNodes: file.graph?.nodes.length ?? 0,
     graphEdges: file.graph?.edges.length ?? 0,
     characters: file.characters.length,
+    relationships: file.relationships.length,
     documents: file.documents.length,
     terms: file.terms.length,
     events: file.events.length,
@@ -273,8 +429,9 @@ export function importWarnings(file: ImportFile): { message: string; examples: s
   const warnings: { message: string; examples: string[] }[] = [];
   if (file.graph) {
     const placed = new Set(file.graph.nodes.flatMap((node) => node.units));
-    const loose = file.units.filter((unit) => unit.kind === 'dialogue' && !placed.has(unit.key));
-    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 대사(kind dialogue) ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
+    const scenes = new Set(file.groups.filter((group) => group.kind === 'scene').map((group) => group.key));
+    const loose = file.units.filter((unit) => scenes.has(unit.group) && !placed.has(unit.key));
+    if (loose.length) warnings.push({ message: `그래프 노드에 들어가지 않은 장면 대사 ${loose.length}개: 앞 대사 문맥을 장면 순서로만 찾습니다`, examples: loose.slice(0, 5).map((unit) => unit.key) });
   }
   if (file.characters.length) {
     const names = new Set(file.characters.flatMap((character) => [character.name, ...character.aliases]));

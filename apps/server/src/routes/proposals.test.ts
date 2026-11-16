@@ -5,14 +5,14 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { propose } from '../services/proposals.ts';
 import { proposalRoutes } from './proposals.ts';
 
 describe('proposal routes', () => {
   it('lists proposals, filters by status, and decides many at once oldest first', async () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u0', group: 'g', source: 'Hi' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u0', group: 'g', source: 'Hi' }] }));
     const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', proposalRoutes);
     const first = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_knowledge', input: { characters: [{ name: 'Alice' }] } });
     const second = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_knowledge', input: { relationships: [{ from: 'Alice', to: 'Alice', kind: '자기' }] } });

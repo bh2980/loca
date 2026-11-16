@@ -4,7 +4,7 @@ import { pathToFileURL } from 'node:url';
 import { Command, Option } from 'commander';
 import { hc } from 'hono/client';
 import type { AppType, ToolInputs, ToolResults } from '@loca/server/app';
-import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, TERM_MODE_LABELS, termScopeLabel, speechSpectrumLabel, type SpeechSpectrum, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
+import { acceptedLabel, AUTO_MARKS, FEED_EVENT, type ChangeEvent, type Topic, CHECK_KINDS, EXCLUSION_REASON_LABELS, CONTEXT_ITEM_KINDS, importFileJsonSchema, importFileSchema, importWarnings, sourceFileSchema, KNOWLEDGE_MARK_IDS, KNOWLEDGE_STATUS_LABELS, LINE_MARK_IDS, lineChangeSchema, summarizeImport, retryRuleSchema, retrySummary, TERM_MARK_IDS, TERM_MODE_LABELS, termScopeLabel, speechSpectrumLabel, type SpeechSpectrum, type AutoMark, type KnowledgeStatus, type LineFilterInput, type RunScopeInput, type LineMark, personLabel, DECIDED_BY, type DecidedBy, EXCLUDED_FILTERS, type ExcludedFilter, RESULT_REST, type ResultRest, INPUT_TYPES, bySubject, nodeSummary, nodeDetails, type Subject } from '@loca/shared';
 
 /**
  * loca — the workbench from a terminal, for people and for agents with a shell (codex, claude…).
@@ -61,7 +61,7 @@ async function projectId(): Promise<string> {
   if (cachedProject) return cachedProject;
   const wanted = globals().project ?? process.env.LOCA_PROJECT;
   const projects = await unwrap(api().cli.projects.$get());
-  if (!projects.length) throw new CliError('프로젝트가 없습니다. 앱에서 표준 파일을 먼저 가져오세요.');
+  if (!projects.length) throw new CliError('프로젝트가 없습니다. 앱에서 만들거나 loca projects create <이름> / loca projects import <파일>로 만드세요.');
   const match = wanted
     ? (projects.find((project) => project.id === wanted) ??
       projects.find((project) => project.name.toLowerCase() === wanted.toLowerCase()) ??
@@ -355,7 +355,7 @@ function filterFrom(options: FilterOptions): LineFilterInput {
 
 // ── commands ─────────────────────────────────────────────────────────
 
-const projects = program.command('projects').description('프로젝트: 목록, 표준 파일로 새로 만들기');
+const projects = program.command('projects').description('프로젝트: 목록, 새로 만들기(빈 프로젝트 또는 표준 파일로)');
 
 projects
   .command('list', { isDefault: true })
@@ -367,9 +367,23 @@ projects
   });
 
 projects
+  .command('create <이름>')
+  .description('빈 프로젝트 만들기 (앱의 새 프로젝트와 같음). 홈 설정의 기본값을 복사해 가고, 묶음과 대사는 나중에 씁니다(loca call create_group · create_unit)')
+  .option('--source <언어>', '원문 언어 코드', 'en')
+  .option('--target <언어>', '번역 언어 코드', 'ko')
+  .option('--description <설명>', '프로젝트 설명', '')
+  .action(async (name: string, options: { source: string; target: string; description: string }) => {
+    const created = await unwrap(api().projects.$post({ json: { name, description: options.description, sourceLanguage: options.source, targetLanguage: options.target } }));
+    if (globals().json) return print(created);
+    console.log(`프로젝트를 만들었습니다: ${name}  (${created.projectId})\n  이 프로젝트로: LOCA_PROJECT=${created.projectId}`);
+  });
+
+projects
   .command('import <파일>')
-  .description('표준 파일(loca/v1)로 새 프로젝트 만들기 (앱의 가져오기와 같음; 있던 프로젝트는 건드리지 않음). 먼저 loca format check로 검사합니다. 새 프로젝트는 홈 설정의 기본값을 복사해 가고, 연결 키는 사람이 앱에서 넣습니다')
-  .action(async (file: string) => {
+  .description('표준 파일(loca/v1)로 새 프로젝트 만들기 (앱의 새 프로젝트 › 파일에서와 같음; 있던 프로젝트는 건드리지 않음). 먼저 loca format check로 검사합니다. 빈 프로젝트를 만들고 파일을 원문 넣기처럼 넣으므로, 그 파일은 원문 넣기 기록(loca source log)에 남습니다. 새 프로젝트는 홈 설정의 기본값을 복사해 가고, 연결 키는 사람이 앱에서 넣습니다. 파일의 원문에 시작 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다')
+  .option('--format <ids...>', '서식 규칙에 같이 켤 서식 (거절 메시지의 id)')
+  .option('--no-format', '그 서식을 켜지 않고 만들기')
+  .action(async (file: string, options: { format?: string[] | false }) => {
     const data = readJsonArg(file === '-' ? '-' : `@${file}`);
     const checked = await unwrap(api().projects.validate.$post({ json: data }));
     if (!checked.ok) {
@@ -377,9 +391,29 @@ projects
       if (globals().json) return print(checked);
       return console.log(`형식 오류 ${checked.issues.length}개 (loca format check ${file}로 자세히):\n${checked.issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
     }
-    const summary = await unwrap(api().projects.$post({ json: data as never }));
+    // Turning a format on is the person's call: asked before the project is made.
+    if (options.format === undefined && checked.formats.length) {
+      process.exitCode = 1;
+      if (globals().json) return print({ ok: false, formats: checked.formats });
+      return console.log(['파일의 원문에 서식 규칙에 없는 서식이 있습니다.', ...formatQuestion(checked.formats)].join('\n'));
+    }
+    const formats = options.format === false ? [] : (options.format ?? []);
+    const summary = await unwrap(api().projects.import.$post({ query: { name: file === '-' ? undefined : path.basename(file), formats: formats.join(',') || undefined }, json: data as never }));
     if (globals().json) return print(summary);
     console.log(`프로젝트를 만들었습니다: ${checked.summary.name}  (${summary.projectId})\n  묶음 ${summary.groups} · 대사 ${summary.units} · 그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}\n  이 프로젝트로: LOCA_PROJECT=${summary.projectId}`);
+  });
+
+projects
+  .command('export [파일]')
+  .description('프로젝트 전체를 표준 파일(loca/v1) 하나로 내보내기 (앱의 설정 › 프로젝트 › 프로젝트 파일로 내보내기와 같음): 상태·태그·워크플로, 대사와 번역·상태·메모·태그, 대사 그래프, 지식, 용어. loca projects import로 같은 프로젝트를 다시 만듭니다. 이력·실행·AI 기록·채팅·연결과 키는 빠집니다. 파일을 주지 않으면 <이름>.loca.json, - 이면 표준 출력')
+  .action(async (target: string | undefined) => {
+    const file = await unwrap(api().projects[':projectId'].export.$get({ param: { projectId: await projectId() } }));
+    const text = `${JSON.stringify(file, null, 2)}\n`;
+    if (target === '-') return void process.stdout.write(text);
+    const out = target ?? `${file.project.name.replace(/[\\/:*?"<>|]/g, '_')}.loca.json`;
+    writeFileSync(out, text);
+    if (globals().json) return print({ file: out, units: file.units.length });
+    console.log(`내보냈습니다: ${out}\n  대사 ${file.units.length.toLocaleString()} · 묶음 ${file.groups.length.toLocaleString()} · 상태 ${file.statuses?.length ?? 0} · 워크플로 ${file.workflows?.length ?? 0} · 인물 ${file.characters?.length ?? 0} · 용어 ${file.terms?.length ?? 0}`);
   });
 
 withFilters(program.command('lines').description('대사 찾기. 필터를 조합합니다. 한 번에 --limit(기본 200)개, --all이면 끝까지'))
@@ -1183,6 +1217,117 @@ withRunScope(runs.command('start <워크플로>'))
     await followRun(outcome, options, '실행 시작');
   });
 
+/** Where a 원문 넣기 came from, as its log says it. */
+const SOURCE_VIA = { app: '앱', proposal: '제안', new: '새 프로젝트' } as const;
+
+/** The formats new lines use that the format rules lack, and how to answer whether to turn them on. */
+const formatQuestion = (formats: { id: string; label: string; count: number; examples: string[] }[]) =>
+  formats.length
+    ? [
+        ...formats.map((format) => `  새 서식  ${format.id}${format.label !== format.id ? ` (${format.label})` : ''} · 대사 ${format.count.toLocaleString()}개 · 예: ${format.examples.slice(0, 3).join(' ')}`),
+        `  서식 규칙에 같이 켜시겠습니까? 켜기: --format ${formats.map((format) => format.id).join(' ')} (일부만 골라도 됨) · 켜지 않기: --no-format`,
+      ]
+    : [];
+
+const source = program.command('source').description('있던 프로젝트에 표준 파일(loca/v1)의 원문 더하기: 대사를 번역하다 빠진 UI 스크립트를 넣을 때처럼. 파일은 key로 프로젝트와 맞춰 봅니다');
+
+source
+  .command('diff <파일>')
+  .description('파일을 넣으면 무엇이 바뀌는지 비교만 하기 (아무것도 쓰지 않음): 새로 들어올 것, 원문이 바뀐 것, 같은 것, 파일이 다시 가져온 묶음에서 빠진 대사. 파일은 project를 빼도 되고, 프로젝트에 있는 묶음·대사·노드·인물을 key나 이름으로 가리켜도 됩니다. 어디에도 없는 참조가 있으면 종료 코드 1')
+  .action(async (file: string) => {
+    const parsed = sourceFileSchema.safeParse(readJsonArg(file === '-' ? '-' : `@${file}`));
+    if (!parsed.success) {
+      process.exitCode = 1;
+      const issues = parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+      if (globals().json) return print({ ok: false, issues });
+      return console.log(`형식 오류 ${issues.length}개:\n${issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
+    }
+    const id = await projectId();
+    const diff = await unwrap(api().projects[':projectId'].source.diff.$post({ param: { projectId: id }, json: parsed.data }));
+    if (diff.unresolved.length) process.exitCode = 1;
+    if (globals().json) return print(diff);
+    const examples = (keys: string[]) => (keys.length ? ` (${keys.slice(0, 5).join(', ')}${keys.length > 5 ? ' …' : ''})` : '');
+    const changes = (items: { key: string; fields: string[] }[]) => items.slice(0, 10).map((item) => `\n    ${item.key}: ${item.fields.join(', ')}`).join('') + (items.length > 10 ? `\n    … 외 ${items.length - 10}개` : '');
+    const row = (label: string, keys: { added: string[]; changed: { key: string; fields: string[] }[]; same: number }) =>
+      console.log(`  ${label}  새로 ${keys.added.length.toLocaleString()}${examples(keys.added)} · 바뀜 ${keys.changed.length.toLocaleString()} · 같음 ${keys.same.toLocaleString()}${changes(keys.changed)}`);
+    row('묶음', diff.groups);
+    row('대사', diff.units);
+    if (diff.units.missing.length) console.log(`  파일이 다시 가져온 묶음에서 빠진 대사 ${diff.units.missing.length.toLocaleString()}${examples(diff.units.missing)}`);
+    if (diff.graph.nodes.added.length + diff.graph.nodes.changed.length + diff.graph.nodes.same) row('그래프 노드', diff.graph.nodes);
+    if (diff.graph.edges.added + diff.graph.edges.same) console.log(`  연결  새로 ${diff.graph.edges.added.toLocaleString()} · 같음 ${diff.graph.edges.same.toLocaleString()}`);
+    const knowledge = Object.entries({ 인물: diff.knowledge.characters, 관계: diff.knowledge.relationships, 노트: diff.knowledge.documents, 용어: diff.knowledge.terms, 사건: diff.knowledge.events, 말투: diff.knowledge.speechRules })
+      .filter(([, item]) => item.added + item.existing)
+      .map(([label, item]) => `${label} 새로 ${item.added} · 있음 ${item.existing}`);
+    if (knowledge.length) console.log(`  지식  ${knowledge.join(' · ')}`);
+    if (diff.graph.nodes.own) console.log(`  그래프 노드  노드 없는 새 장면 대사마다 하나씩 ${diff.graph.nodes.own.toLocaleString()}`);
+    for (const line of formatQuestion(diff.formats)) console.log(line);
+    const changedKeys = diff.groups.changed.length + diff.units.changed.length + diff.graph.nodes.changed.length;
+    if (changedKeys) console.log(`  프로젝트와 다르게 적힌 key ${changedKeys.toLocaleString()}개는 그대로 둡니다. 파일대로 바꾸려면 source add --update (원문이 바뀐 대사는 다시 번역할 상태로)`);
+    for (const warning of diff.warnings) console.log(`  경고  ${warning}`);
+    if (diff.unresolved.length) console.log(`어디에도 없는 참조 ${diff.unresolved.length}개: 이대로는 넣을 수 없습니다\n${diff.unresolved.slice(0, 20).map((item) => `  ${item.path}: ${item.message}`).join('\n')}`);
+  });
+
+source
+  .command('add <파일>')
+  .description('파일에서 프로젝트에 없는 key와 지식만 더하기를 제안으로 올리기: 새 묶음·대사·그래프 노드·연결과 새 인물·관계·말투·사건·노트·용어. 프로젝트에 있는 key와 지식은 그대로 두고 파일에 없는 대사도 지우지 않습니다. 먼저 loca source diff로 확인하세요. 새 대사에 서식 규칙에 없는 서식이 있으면 --format이나 --no-format을 줄 때까지 거절합니다. 반영된 것은 loca proposals undo로 한 번에 되돌립니다')
+  .option('--format <ids...>', '서식 규칙에 같이 켤 새 서식 (source diff의 새 서식 id)')
+  .option('--no-format', '새 서식을 서식 규칙에 켜지 않고 더하기')
+  .option('--update', '프로젝트와 다르게 적힌 key도 파일대로 바꾸기: 원문·화자·청자·묶음 이동, 묶음 제목, 노드 이름. 원문이 바뀐 대사는 번역을 남긴 채 시작 상태로. 사람이 정한 청자, 묶음 종류, 노드에 담긴 대사는 바꾸지 않음')
+  .action(async (file: string, options: { format?: string[] | false; update?: boolean }) => {
+    const parsed = sourceFileSchema.safeParse(readJsonArg(file === '-' ? '-' : `@${file}`));
+    if (!parsed.success) {
+      process.exitCode = 1;
+      const issues = parsed.error.issues.map((issue) => ({ path: issue.path.join('.'), message: issue.message }));
+      if (globals().json) return print({ ok: false, issues });
+      return console.log(`형식 오류 ${issues.length}개:\n${issues.slice(0, 20).map((issue) => `  ${issue.path || '(파일)'}: ${issue.message}`).join('\n')}`);
+    }
+    const formats = options.format === false ? [] : options.format;
+    if (!formats) {
+      // Turning a format on is the person's call: asked here before anything is proposed.
+      const diff = await unwrap(api().projects[':projectId'].source.diff.$post({ param: { projectId: await projectId() }, json: parsed.data }));
+      if (diff.formats.length) {
+        process.exitCode = 1;
+        if (globals().json) return print({ ok: false, formats: diff.formats });
+        return console.log(['새 대사에 서식 규칙에 없는 서식이 있습니다.', ...formatQuestion(diff.formats)].join('\n'));
+      }
+    }
+    const outcome = await proposeTool('add_source', { ...parsed.data, formats, update: options.update === true, name: file === '-' ? undefined : path.basename(file) } as ToolInputs['add_source']);
+    printOutcome(outcome, '원문 더하기');
+    const added = outcome.applied && !globals().json ? (outcome.result as { added?: Record<string, number>; kept?: Record<string, number>; missing?: number; knowledge?: { added: Record<string, number>; kept: number }; formats?: string[]; updated?: { units: number; groups: number; graphNodes: number; restarted: number; skipped: { key: string; reason: string }[] }; tagsSkipped?: { key: string; reason: string }[] } | null) : null;
+    if (!added?.added) return;
+    console.log(`  더함  묶음 ${added.added.groups} · 대사 ${added.added.units} · 그래프 노드 ${added.added.graphNodes} · 연결 ${added.added.graphEdges}`);
+    const update = added.updated;
+    if (update && update.units + update.groups + update.graphNodes) console.log(`  바꿈  대사 ${update.units} · 묶음 ${update.groups} · 노드 ${update.graphNodes}${update.restarted ? ` (원문이 바뀐 ${update.restarted}개는 다시 번역할 상태로)` : ''}`);
+    for (const skip of update?.skipped.slice(0, 20) ?? []) console.log(`  바꾸지 않음  ${skip.key}: ${skip.reason}`);
+    const kept = options.update ? 0 : (added.kept?.groups ?? 0) + (added.kept?.units ?? 0) + (added.kept?.graphNodes ?? 0);
+    if (kept) console.log(`  그대로 둠  파일과 다른 key ${kept}개 (프로젝트의 것을 유지, 바꾸려면 --update)`);
+    if (added.missing) console.log(`  그대로 둠  파일에 없는 대사 ${added.missing}개 (지우지 않음)`);
+    const knowledgeLabels: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' };
+    const newKnowledge = Object.entries(added.knowledge?.added ?? {}).filter(([, n]) => n).map(([kind, n]) => `${knowledgeLabels[kind] ?? kind} ${n}`);
+    if (newKnowledge.length) console.log(`  더함  지식 ${newKnowledge.join(' · ')}`);
+    if (added.knowledge?.kept) console.log(`  그대로 둠  프로젝트에 이미 있는 지식 ${added.knowledge.kept}개`);
+    for (const skip of added.tagsSkipped ?? []) console.log(`  붙이지 않은 태그  ${skip.key}: ${skip.reason}`);
+    if (added.formats?.length) console.log(`  서식 규칙에 켬  ${added.formats.join(', ')}`);
+    console.log(`  되돌리기: loca proposals undo ${outcome.proposalId}`);
+  });
+
+source
+  .command('log')
+  .description('원문 넣기 기록: 언제 어떤 파일이 무엇을 더하고 바꿨는지, 되돌릴 수 있는지. 터미널이 올린 것은 loca proposals undo로, 앱에서 넣은 것은 앱의 원문 넣기 화면에서 되돌립니다')
+  .action(async () => {
+    const rows = await unwrap(api().projects[':projectId'].source.imports.$get({ param: { projectId: await projectId() } }));
+    if (globals().json) return printList(rows.length, rows);
+    if (!rows.length) return console.log('원문 넣기 기록이 없습니다.');
+    const labels: Record<string, string> = { characters: '인물', relationships: '관계', speechRules: '말투', events: '사건', documents: '노트', terms: '용어' };
+    for (const row of rows) {
+      const { added, knowledge, updated } = row.summary;
+      const knew = Object.entries(knowledge).filter(([, n]) => n).map(([kind, n]) => `${labels[kind] ?? kind} ${n}`);
+      const parts = [`묶음 ${added.groups} · 대사 ${added.units} · 노드 ${added.graphNodes} · 연결 ${added.graphEdges}`, knew.length && `지식 ${knew.join(' · ')}`, updated.units + updated.groups + updated.graphNodes && `바꿈 대사 ${updated.units} · 묶음 ${updated.groups} · 노드 ${updated.graphNodes}`, row.summary.formats.length && `서식 ${row.summary.formats.join(', ')}`].filter(Boolean);
+      const state = row.undoneAt ? '되돌림' : row.undoId ? '되돌릴 수 있음' : '되돌릴 수 없음 (보관 기간 30일 지남)';
+      console.log(`${new Date(row.createdAt).toLocaleString()}  ${row.name ?? '(이름 없음)'}  ${SOURCE_VIA[row.via]}  [${state}]\n  ${parts.join(' · ')}`);
+    }
+  });
+
 const graph = program.command('graph').description('대사 그래프 잇기(변경은 제안으로 올라가 앱에서 수락). 장면 연결은 저장되지 않고 대사 그래프에서 계산됩니다');
 
 graph
@@ -1202,7 +1347,7 @@ graph
 
 graph
   .command('order')
-  .description('대본 순서로 잇기 제안 올리기: 장면 안에서 노드를 대본 순서대로 잇습니다. 이미 나가는 길·들어오는 길이 있는 노드는 건드리지 않습니다 (그래프 없이 가져온 파일용)')
+  .description('대본 순서로 잇기 제안 올리기: 장면 안에서 노드를 대본 순서대로 잇습니다. 이미 나가는 길·들어오는 길이 있는 노드는 건드리지 않습니다 (연결 없이 들어온 대사용: 그래프 없는 파일, 손으로 쓴 장면)')
   .option('--scene <scenes...>', '장면 (키·id·제목): 그 장면의 모든 노드')
   .option('--line <keys...>', '대사 키: 이 대사들의 노드끼리만 (장면별로)')
   .action(async (options: { scene?: string[]; line?: string[] }) => {
@@ -1438,7 +1583,7 @@ format
     const warnings = importWarnings(result.data);
     if (globals().json) return print({ ok: true, summary, warnings });
     console.log(`형식이 맞습니다: ${summary.name}`);
-    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
+    console.log(`  묶음 ${summary.groups} · 대사 ${summary.units} · 인물 ${summary.characters} · 관계 ${summary.relationships} · 말투 ${summary.speechRules} · 사건 ${summary.events} · 노트 ${summary.documents} · 용어 ${summary.terms}`);
     if (summary.excluded) console.log(`  번역 제외로 보이는 원문 ${summary.excluded} (${Object.entries(summary.excludedBy).map(([reason, count]) => `${EXCLUSION_REASON_LABELS[reason as keyof typeof EXCLUSION_REASON_LABELS]} ${count}`).join(' · ')}): 진행률·실행·내보내기에서 빠집니다. 규칙은 앱의 설정 › 에디터 › 번역 제외`);
     console.log(summary.graphNodes ? `  그래프 노드 ${summary.graphNodes} · 연결 ${summary.graphEdges}` : '  그래프 없음: 앞 대사 문맥을 장면 순서로만 찾습니다');
     for (const warning of warnings) console.log(`  경고  ${warning.message}${warning.examples.length ? ` (예: ${warning.examples.join(', ')})` : ''}`);

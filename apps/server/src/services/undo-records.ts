@@ -22,6 +22,8 @@ type Tx = Parameters<Parameters<Db['transaction']>[0]>[0];
  * to, and the rest is still worth putting back. `subjects`: run items name these rows without a foreign key.
  */
 const TABLES = {
+  // Only rewritten (a project setting a change turned on with its rows, such as format rules), never removed or made.
+  projects: { key: ['id'] },
   tags: { key: ['id'] },
   groups: { key: ['id'] },
   units: { key: ['id'], subjects: true },
@@ -106,6 +108,8 @@ function prune(tx: Tx, projectId: string) {
   tx.delete(s.undoRecords).where(and(eq(s.undoRecords.projectId, projectId), lt(s.undoRecords.createdAt, new Date(Date.now() - KEEP_MS)))).run();
   const newest = tx.select({ id: s.undoRecords.id }).from(s.undoRecords).where(eq(s.undoRecords.projectId, projectId)).orderBy(desc(s.undoRecords.createdAt)).limit(KEEP_MAX + 1).all();
   if (newest.length > KEEP_MAX) tx.delete(s.undoRecords).where(and(eq(s.undoRecords.projectId, projectId), notInArray(s.undoRecords.id, newest.slice(0, KEEP_MAX).map((row) => row.id)))).run();
+  // A 원문 넣기 whose record went with them can no longer be taken back.
+  tx.run(sql`update ${s.sourceImports} set undo_id = null where project_id = ${projectId} and undo_id is not null and undo_id not in (select id from ${s.undoRecords})`);
 }
 
 const GONE = '되돌릴 수 없습니다. 이미 되돌렸거나 보관 기간(30일)이 지났습니다.';
@@ -126,6 +130,14 @@ export function undoRecorded(db: Db, projectId: string, id: string, kind?: strin
   try {
     db.transaction((tx) => {
       const columnsOf = (table: UndoTable) => new Set(tx.all<{ name: string }>(sql`select name from pragma_table_info(${table})`).map((column) => column.name));
+      // The columns it rewrote first: a row moved into a row the change made (a line into a new group) goes back
+      // before what it was moved into goes, so the delete does not cascade into it.
+      for (const { table, id: rowId, values } of data.rewritten) {
+        if (!isTable(table)) continue;
+        const known = columnsOf(table);
+        const columns = Object.keys(values).filter((column) => known.has(column));
+        if (columns.length) tx.run(sql`update ${name(table)} set ${sql.join(columns.map((column) => sql`${name(column)} = ${values[column]}`), sql`, `)} where id = ${rowId}`);
+      }
       // What the change made, the rows that point at others first.
       for (const table of [...ORDER].reverse()) {
         const ids = data.made.filter((part) => part.table === table).flatMap((part) => part.ids);
@@ -152,13 +164,9 @@ export function undoRecorded(db: Db, projectId: string, id: string, kind?: strin
           } else restored += tx.run(sql`insert into ${into} values (${values})`).changes;
         }
       }
-      for (const { table, id: rowId, values } of data.rewritten) {
-        if (!isTable(table)) continue;
-        const known = columnsOf(table);
-        const columns = Object.keys(values).filter((column) => known.has(column));
-        if (columns.length) tx.run(sql`update ${name(table)} set ${sql.join(columns.map((column) => sql`${name(column)} = ${values[column]}`), sql`, `)} where id = ${rowId}`);
-      }
       tx.delete(s.undoRecords).where(eq(s.undoRecords.id, id)).run();
+      // A 원문 넣기 taken back says so in its log line.
+      tx.update(s.sourceImports).set({ undoId: null, undoneAt: new Date() }).where(eq(s.sourceImports.undoId, id)).run();
       if (structural) {
         refreshNodeGroups(tx, projectId);
         resequence(tx, projectId);

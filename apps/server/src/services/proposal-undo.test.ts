@@ -4,14 +4,14 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal, propose, takeDecisions } from './proposals.ts';
 import { undoChanges } from './change-gate.ts';
 import { saveLine } from '../domain/line-save.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Undo' }, groups: [{ key: 'g', title: 'Scene' }],
     units: [{ key: 'line', group: 'g', source: 'Hello' }, { key: 'other', group: 'g', source: 'Bye' }],
   }));

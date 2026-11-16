@@ -2,7 +2,7 @@ import { useCallback, useMemo } from 'react';
 import { queryOptions } from '@tanstack/react-query';
 import { createOptimisticAction, useLiveQuery } from '@tanstack/react-db';
 import type { InferRequestType } from 'hono/client';
-import { agentSettingsSchema, APP_FEED, lineExclusion, type LineTranslate, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type SavedPrompt } from '@loca/shared';
+import { agentSettingsSchema, APP_FEED, lineExclusion, type LineTranslate, type AppDefaultSection, type DetectedCustomFormatRule, type DetectedFormatPreset, type FormatPreset, type ImportFile, type NewProject, type SavedPrompt } from '@loca/shared';
 import { ApiError, client, unwrap } from './api';
 import { liveRows, projectCollection, sent } from './collections';
 import { key } from './query-keys';
@@ -143,8 +143,24 @@ export const deleteProject = (projectId: string) => sent(APP_FEED, client.projec
 /** Checks a project file without importing it: what it holds and what is wrong with it. */
 export const validateProjectFile = (body: unknown) => unwrap(client.projects.validate.$post({ json: body }));
 
-/** A new project from a file: done once the projects list has it. */
-export const importProjectFile = (data: unknown) => sent(APP_FEED, client.projects.$post({ json: data as never }));
+/** 프로젝트 파일로 내보내기: the whole project as one standard file, handed to the browser to save as `<name>.loca.json`. */
+export async function downloadProjectFile(projectId: string) {
+  const response = await client.projects[':projectId'].export.$get({ param: { projectId } });
+  if (!response.ok) await unwrap(Promise.resolve(response));
+  const name = /filename="([^"]+)"/.exec(response.headers.get('content-disposition') ?? '')?.[1];
+  const url = URL.createObjectURL(await response.blob());
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name ? decodeURIComponent(name) : 'project.loca.json';
+  link.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** A new, empty project: done once the projects list has it. */
+export const createProject = (project: NewProject) => sent(APP_FEED, client.projects.$post({ json: project }));
+
+/** A new project from a file, with the offered formats to turn on and the file's name for its 원문 넣기 log: done once the projects list has it. */
+export const importProjectFile = (file: ImportFile, options: { name?: string; formats: string[] }) => sent(APP_FEED, client.projects.import.$post({ query: { name: options.name, formats: options.formats.join(',') || undefined }, json: file }));
 
 /** 홈 기본값 가져오기: the checked sections of the home's defaults come into this project; answers with what each did. */
 export const pullDefaults = (projectId: string, sections: AppDefaultSection[]) => sent(projectId, client.projects[':projectId'].defaults.pull.$post({ param: { projectId }, json: { sections } }));

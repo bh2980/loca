@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import * as s from '../db/schema.ts';
 import { onError, type Env } from '../http.ts';
 import { sourceRoutes } from './source.ts';
@@ -11,7 +11,7 @@ import { sourceRoutes } from './source.ts';
 describe('the translations of a graph\'s cards', () => {
   it("come from the card's first line, which the graph names for the nodes of the section", async () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Cards' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u1', group: 'g', source: 'Hello' }, { key: 'u2', group: 'g', source: 'Bye' }, { key: 'u3', group: 'g', source: 'Elsewhere' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Cards' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u1', group: 'g', source: 'Hello' }, { key: 'u2', group: 'g', source: 'Bye' }, { key: 'u3', group: 'g', source: 'Elsewhere' }] }));
     const project = { id: projectId };
     const group = db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).get()!;
     const byKey = (key: string) => db.select().from(s.units).where(eq(s.units.key, key)).get()!;

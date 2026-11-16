@@ -5,7 +5,7 @@ import { importFileSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { sourceRoutes } from './source.ts';
 
 const fixture = importFileSchema.parse({
@@ -21,8 +21,8 @@ const fixture = importFileSchema.parse({
 
 function setup() {
   const db = openDatabase(':memory:');
-  const first = importProject(db, fixture, null as never).projectId;
-  const second = importProject(db, fixture, null as never).projectId;
+  const first = createProjectFromFile(db, fixture, null as never).projectId;
+  const second = createProjectFromFile(db, fixture, null as never).projectId;
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);

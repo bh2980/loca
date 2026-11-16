@@ -9,6 +9,7 @@ import { useTerms } from '@/lib/terms';
 import { useCharacters, useSpeechRules } from '@/lib/knowledge';
 import { useRuns } from '@/lib/runs';
 import { useProject } from '@/lib/project';
+import { useGroups } from '@/lib/groups';
 import { useConnections } from '@/lib/app-data';
 import { stored, STORED } from '@/lib/storage';
 
@@ -37,12 +38,13 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const terms = useTerms(projectId);
   const runs = useRuns(projectId);
   const project = useProject(projectId);
+  const groups = useGroups(projectId);
   const [hidden, setHidden] = useState(() => readHidden(projectId));
   const hide = (value: boolean) => {
     setHidden(value);
     writeHidden(projectId, value);
   };
-  if (!connections.data || !characters.data || !rules.data || !terms.data || !runs.data || !project.data) return null;
+  if (!connections.data || !characters.data || !rules.data || !terms.data || !runs.data || !project.data || !groups.data) return null;
 
   const aiConnections = connections.data.filter((connection) => !connectionCan(connection.kind, 'tool'));
   // Story knowledge exists (whichever workflow, chat or person made it): AI nodes have context to read.
@@ -63,7 +65,29 @@ export function GettingStarted({ projectId }: { projectId: string }) {
   const candidates = terms.data.filter((term) => term.status === 'candidate').length;
   const emptyTerms = terms.data.filter((term) => !term.target.trim()).length;
 
+  // Lines of any kind, 번역 제외 ones too: a project made empty has none until scenes are written in it.
+  const lines = groups.data.reduce((sum, group) => sum + group.total + group.excluded, 0);
+
   const steps: Step[] = [
+    {
+      key: 'source',
+      title: '원문 넣기',
+      done: lines > 0,
+      action: (primary) => (
+        <>
+          <Button asChild variant="ghost">
+            <Link to="/p/$projectId/script" params={{ projectId }}>
+              직접 쓰기
+            </Link>
+          </Button>
+          <Button asChild variant={primary ? 'default' : 'outline'}>
+            <Link to="/p/$projectId/import" params={{ projectId }}>
+              파일에서 넣기
+            </Link>
+          </Button>
+        </>
+      ),
+    },
     {
       key: 'ai',
       title: 'AI 연결 추가',

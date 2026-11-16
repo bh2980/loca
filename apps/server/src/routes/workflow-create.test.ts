@@ -6,14 +6,14 @@ import { openDatabase } from '../db/index.ts';
 import { eq } from 'drizzle-orm';
 import * as s from '../db/schema.ts';
 import { proposeChange, undoChanges } from '../services/change-gate.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { workflowRoutes } from './workflows.ts';
 vi.mock('../services/layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
 const db = openDatabase(':memory:');
 afterEach(() => db.$client.close());
 
 it('creates a blank workflow named 새 워크플로, then 새 워크플로 2, 3 as names are taken; an explicit name is kept', async () => {
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
   const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
   const post = async (body: unknown) => {
     const response = await app.request(`/projects/${projectId}/workflows`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
@@ -31,7 +31,7 @@ it('creates a blank workflow named 새 워크플로, then 새 워크플로 2, 3 
 
 it('creates from a template with the project\'s status ids; an unknown key is a 400; the name is made unique', async () => {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
   const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
   const post = (body: unknown) => app.request(`/projects/${projectId}/workflows`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
   expect((await post({ template: 'nope' })).status).toBe(400);
@@ -53,7 +53,7 @@ it('creates from a template with the project\'s status ids; an unknown key is a 
 
 it('복제 is one service for the app and the agent: a copy with the definition and description, under a name of its own, undone by deleting it', async () => {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'a', title: 'A' }], units: [{ key: 'one', group: 'a', source: 'One' }] }), null as never);
   const app = new Hono<Env>().onError(onError).use(async (c, next) => { c.set('deps', { db } as never); await next(); }).route('/', workflowRoutes);
   const source = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all()[0]!;
   db.update(s.workflows).set({ description: '설명', version: 7 }).where(eq(s.workflows.id, source.id)).run();

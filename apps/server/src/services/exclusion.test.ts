@@ -4,7 +4,7 @@ import { DEFAULT_FORMAT_RULES, exclusionReason, importFileSchema, lineExclusion 
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { excludedInScope, selectRunUnits } from '../engine/subjects.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { excludedSql, lineFactConditions } from '../domain/line-marks.ts';
 import { findLines } from './script-query.ts';
 
@@ -40,7 +40,7 @@ describe('번역 제외 rules', () => {
 describe('번역 제외 in the project', () => {
   const setup = () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({
       format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }],
       units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hello' }, { key: 'b', group: 'g', source: '{0}' }, { key: 'c', group: 'g', source: '...' }, { key: 'd', group: 'g', source: 'BTN_OK' }],
     }));
@@ -77,7 +77,7 @@ describe('번역 제외 in the project', () => {
 describe('숨기기 filters', () => {
   it('leave out lines by 번역 제외, memo, tag, status or speaker, any one of each', () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({
       format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }],
       units: [{ key: 'a', group: 'g', speaker: 'A', source: 'Hello' }, { key: 'b', group: 'g', speaker: 'B', source: 'Bye' }, { key: 'c', group: 'g', source: '{0}' }],
     }));

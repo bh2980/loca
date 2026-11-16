@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { promptEntries } from './prompts.ts';
 import { Runner, type ModelPort } from './runner.ts';
 import { createRun } from './run-create.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { preflight } from './preflight.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
@@ -43,7 +43,7 @@ describe('preflight', () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
-    const { projectId } = importProject(db, importFileSchema.parse(realistic(3000).file), choice);
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse(realistic(3000).file), choice);
     const workflow = translateOnlyWorkflow(db, projectId);
     const scope = {};
 
@@ -86,7 +86,7 @@ describe('preflight split', () => {
   const setup = (connection: Partial<typeof s.connections.$inferInsert>, batch: { maxTokens?: number } = {}) => {
     const db = openDatabase(':memory:');
     const row = db.insert(s.connections).values({ kind: 'openai', name: '연결', baseUrl: 'http://x/v1', ...connection }).returning().get();
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }, { key: 'b', group: 'g', source: 'Bye' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }, { key: 'b', group: 'g', source: 'Bye' }] }));
     const config = presetConfig('translate', { connectionId: row.id, model: 'm' });
     const nodes = [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config: { ...config, batch: { ...config.batch, ...batch } } }];
     const definition = workflowDefinitionSchema.parse({ nodes, edges: [{ id: '1', source: 'entry', sourceHandle: 'out', target: 'ai' }] });
@@ -118,7 +118,7 @@ describe('preflight split', () => {
   it('sizes the same after past requests, short or cut off', async () => {
     const db = openDatabase(':memory:');
     const row = db.insert(s.connections).values({ kind: 'openai', name: '연결', baseUrl: 'http://x/v1', modelLimits: { m: { contextWindow: 1_000_000, maxOutput: 65_536, by: 'api' } } }).returning().get();
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'x'.repeat(8_000) }, { key: 'b', group: 'g', source: 'x'.repeat(8_000) }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'x'.repeat(8_000) }, { key: 'b', group: 'g', source: 'x'.repeat(8_000) }] }));
     const ids = db.select({ id: s.units.id }).from(s.units).all().map((unit) => unit.id);
     const definition = workflowDefinitionSchema.parse({
       nodes: [{ id: 'entry', type: 'entry', position: { x: 0, y: 0 }, config: {} }, { id: 'ai', type: 'ai', position: { x: 0, y: 0 }, config: presetConfig('translate', { connectionId: row.id, model: 'm' }) }],
@@ -138,7 +138,7 @@ describe('preflight split', () => {
   it('keeps room in the call cap for retry rules, at their worst', async () => {
     const db = openDatabase(':memory:');
     const connection = db.insert(s.connections).values({ kind: 'openai', name: 'mock', baseUrl: 'http://mock/v1' }).returning().get();
-    const { projectId } = importProject(db, importFileSchema.parse(realistic(600).file), { connectionId: connection.id, model: 'm' });
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse(realistic(600).file), { connectionId: connection.id, model: 'm' });
     const workflow = translateOnlyWorkflow(db, projectId);
     expect(workflow.definition.settings.retries[0]).toMatchObject({ scale: 0.5, maxTimes: 2 });
     const withRetry = await preflight(db, workflow, {});

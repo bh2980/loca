@@ -7,12 +7,12 @@ import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { knowledgeRoutes } from '../routes/knowledge.ts';
 import { agentTools } from '../services/agent-tools.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 
 function setup() {
   const db = openDatabase(':memory:');
   const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Hi.' }] });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);

@@ -2,8 +2,10 @@ import type { ReactNode } from "react"
 import { cn } from "../lib/utils"
 
 /** The scrolling body of a page of forms or collections (settings): its inset and width tier. */
-export function PageBody({ children, width = "default", fill = false, framed = false }: {
+export function PageBody({ children, width = "default", fill = false, framed = false, label = "설정 내용" }: {
   children: ReactNode
+  /** What the region is called to assistive technology. */
+  label?: string
   width?: "default" | "compact" | "wide"
   fill?: boolean
   /** A bounded surface for collections; callers keep their own inner scrolling. */
@@ -12,7 +14,7 @@ export function PageBody({ children, width = "default", fill = false, framed = f
   return (
     <div
       role="region"
-      aria-label="설정 내용"
+      aria-label={label}
       tabIndex={fill ? undefined : 0}
       className="h-full min-h-0 flex-1 overflow-auto"
     >

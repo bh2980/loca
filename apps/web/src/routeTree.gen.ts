@@ -10,6 +10,7 @@
 
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
+import { Route as NewRouteImport } from './routes/new'
 import { Route as SettingsRouteImport } from './routes/settings'
 import { Route as PProjectIdRouteImport } from './routes/p.$projectId'
 import { Route as SettingsIndexRouteImport } from './routes/settings.index'
@@ -18,6 +19,7 @@ import { Route as SettingsProfileRouteImport } from './routes/settings.profile'
 import { Route as PProjectIdIndexRouteImport } from './routes/p.$projectId.index'
 import { Route as PProjectIdGlossaryRouteImport } from './routes/p.$projectId.glossary'
 import { Route as PProjectIdGraphRouteImport } from './routes/p.$projectId.graph'
+import { Route as PProjectIdImportRouteImport } from './routes/p.$projectId.import'
 import { Route as PProjectIdKeysRouteImport } from './routes/p.$projectId.keys'
 import { Route as PProjectIdKnowledgeRouteImport } from './routes/p.$projectId.knowledge'
 import { Route as PProjectIdScriptRouteImport } from './routes/p.$projectId.script'
@@ -40,6 +42,11 @@ import { Route as PProjectIdWorkflowsWorkflowIdRouteImport } from './routes/p.$p
 const IndexRoute = IndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const NewRoute = NewRouteImport.update({
+  id: '/new',
+  path: '/new',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SettingsRoute = SettingsRouteImport.update({
@@ -80,6 +87,11 @@ const PProjectIdGlossaryRoute = PProjectIdGlossaryRouteImport.update({
 const PProjectIdGraphRoute = PProjectIdGraphRouteImport.update({
   id: '/graph',
   path: '/graph',
+  getParentRoute: () => PProjectIdRoute,
+} as any)
+const PProjectIdImportRoute = PProjectIdImportRouteImport.update({
+  id: '/import',
+  path: '/import',
   getParentRoute: () => PProjectIdRoute,
 } as any)
 const PProjectIdKeysRoute = PProjectIdKeysRouteImport.update({
@@ -184,6 +196,7 @@ const PProjectIdWorkflowsWorkflowIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -191,6 +204,7 @@ export interface FileRoutesByFullPath {
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/import': typeof PProjectIdImportRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
@@ -213,11 +227,13 @@ export interface FileRoutesByFullPath {
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/settings/appearance': typeof SettingsAppearanceRoute
   '/settings/profile': typeof SettingsProfileRoute
   '/settings': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/import': typeof PProjectIdImportRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
@@ -241,6 +257,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
+  '/new': typeof NewRoute
   '/settings': typeof SettingsRouteWithChildren
   '/p/$projectId': typeof PProjectIdRouteWithChildren
   '/settings/appearance': typeof SettingsAppearanceRoute
@@ -248,6 +265,7 @@ export interface FileRoutesById {
   '/settings/': typeof SettingsIndexRoute
   '/p/$projectId/glossary': typeof PProjectIdGlossaryRoute
   '/p/$projectId/graph': typeof PProjectIdGraphRoute
+  '/p/$projectId/import': typeof PProjectIdImportRoute
   '/p/$projectId/keys': typeof PProjectIdKeysRoute
   '/p/$projectId/knowledge': typeof PProjectIdKnowledgeRoute
   '/p/$projectId/script': typeof PProjectIdScriptRoute
@@ -272,6 +290,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/new'
     | '/settings'
     | '/p/$projectId'
     | '/settings/appearance'
@@ -279,6 +298,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/import'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
@@ -301,11 +321,13 @@ export interface FileRouteTypes {
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
+    | '/new'
     | '/settings/appearance'
     | '/settings/profile'
     | '/settings'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/import'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
@@ -328,6 +350,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/'
+    | '/new'
     | '/settings'
     | '/p/$projectId'
     | '/settings/appearance'
@@ -335,6 +358,7 @@ export interface FileRouteTypes {
     | '/settings/'
     | '/p/$projectId/glossary'
     | '/p/$projectId/graph'
+    | '/p/$projectId/import'
     | '/p/$projectId/keys'
     | '/p/$projectId/knowledge'
     | '/p/$projectId/script'
@@ -358,6 +382,7 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
+  NewRoute: typeof NewRoute
   SettingsRoute: typeof SettingsRouteWithChildren
   PProjectIdRoute: typeof PProjectIdRouteWithChildren
 }
@@ -369,6 +394,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof IndexRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/new': {
+      id: '/new'
+      path: '/new'
+      fullPath: '/new'
+      preLoaderRoute: typeof NewRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/settings': {
@@ -425,6 +457,13 @@ declare module '@tanstack/react-router' {
       path: '/graph'
       fullPath: '/p/$projectId/graph'
       preLoaderRoute: typeof PProjectIdGraphRouteImport
+      parentRoute: typeof PProjectIdRoute
+    }
+    '/p/$projectId/import': {
+      id: '/p/$projectId/import'
+      path: '/import'
+      fullPath: '/p/$projectId/import'
+      preLoaderRoute: typeof PProjectIdImportRouteImport
       parentRoute: typeof PProjectIdRoute
     }
     '/p/$projectId/keys': {
@@ -585,6 +624,7 @@ const SettingsRouteWithChildren = SettingsRoute._addFileChildren(
 interface PProjectIdRouteChildren {
   PProjectIdGlossaryRoute: typeof PProjectIdGlossaryRoute
   PProjectIdGraphRoute: typeof PProjectIdGraphRoute
+  PProjectIdImportRoute: typeof PProjectIdImportRoute
   PProjectIdKeysRoute: typeof PProjectIdKeysRoute
   PProjectIdKnowledgeRoute: typeof PProjectIdKnowledgeRoute
   PProjectIdScriptRoute: typeof PProjectIdScriptRoute
@@ -604,6 +644,7 @@ interface PProjectIdRouteChildren {
 const PProjectIdRouteChildren: PProjectIdRouteChildren = {
   PProjectIdGlossaryRoute: PProjectIdGlossaryRoute,
   PProjectIdGraphRoute: PProjectIdGraphRoute,
+  PProjectIdImportRoute: PProjectIdImportRoute,
   PProjectIdKeysRoute: PProjectIdKeysRoute,
   PProjectIdKnowledgeRoute: PProjectIdKnowledgeRoute,
   PProjectIdScriptRoute: PProjectIdScriptRoute,
@@ -626,6 +667,7 @@ const PProjectIdRouteWithChildren = PProjectIdRoute._addFileChildren(
 
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
+  NewRoute: NewRoute,
   SettingsRoute: SettingsRouteWithChildren,
   PProjectIdRoute: PProjectIdRouteWithChildren,
 }

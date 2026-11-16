@@ -3,29 +3,38 @@ import { Hono } from 'hono';
 import { and, eq, inArray } from 'drizzle-orm';
 import { ACTIVE_RUN_STATUSES } from '../engine/run-create.ts';
 import { z } from 'zod';
-import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, patchOf, summarizeImport } from '@loca/shared';
+import { agentSettingsSchema, detectFormatRules, importFileSchema, importWarnings, newProjectSchema, patchOf, summarizeImport } from '@loca/shared';
 import { found, validate, type Env } from '../http.ts';
 import * as s from '../db/schema.ts';
 import { createStatus, createTag, deleteStatuses, deleteTags, orderStatuses, orderTags, updateStatus, updateTag } from '../services/project-taxonomy.ts';
 import { projectSettingsInput, updateProjectSettings } from '../services/project-settings.ts';
-import { importProject } from '../services/importer.ts';
-import { cancelLayout, computeLayouts } from '../services/layout.ts';
+import { createProject, createProjectFromFile, fileFormatOffers } from '../services/project-create.ts';
+import { exportProject } from '../services/project-export.ts';
+import { cancelLayout } from '../services/layout.ts';
 import { REGEX_TARGETS, generateRegex } from '../services/regex-assist.ts';
 import { editorCallsToday } from '../services/editor-complete.ts';
 import { statusInput, tagInput } from '../schemas/projects.ts';
 
 export const projectRoutes = new Hono<Env>()
+  /** Checks a file a new project would be made from: what it holds, what looks off, and the formats to ask about turning on. */
   .post('/validate', validate('json', z.unknown()), (c) => {
     const result = importFileSchema.safeParse(c.req.valid('json'));
     if (!result.success)
       return c.json({ ok: false as const, issues: result.error.issues.slice(0, 50).map((issue) => ({ path: issue.path.join('.'), message: issue.message })) });
-    return c.json({ ok: true as const, summary: summarizeImport(result.data), warnings: importWarnings(result.data) });
+    return c.json({ ok: true as const, summary: summarizeImport(result.data), warnings: importWarnings(result.data), formats: fileFormatOffers(result.data) });
   })
-  .post('/', validate('json', importFileSchema), (c) => {
-    const { db } = c.var.deps;
-    const summary = importProject(db, c.req.valid('json'), undefined, c.var.deps.secrets);
-    void computeLayouts(db, summary.projectId);
-    return c.json(summary, 201);
+  /** 새 프로젝트: an empty one from the 홈 설정; its lines are written or imported later. */
+  .post('/', validate('json', newProjectSchema), (c) => c.json(createProject(c.var.deps.db, c.req.valid('json'), c.var.deps.secrets), 201))
+  /** A new project from a standard file (`formats`: the offered ones to turn on, comma-separated; `name`: the file's, for the 원문 넣기 log). */
+  .post('/import', validate('query', z.object({ name: z.string().trim().max(200).optional(), formats: z.string().optional() })), validate('json', importFileSchema), (c) => {
+    const { name, formats } = c.req.valid('query');
+    return c.json(createProjectFromFile(c.var.deps.db, c.req.valid('json'), undefined, c.var.deps.secrets, { name, formats: formats ? formats.split(',').filter(Boolean) : [] }), 201);
+  })
+  /** 프로젝트 파일로 내보내기: the whole project as one standard file that makes it again, saved as `<name>.loca.json`. */
+  .get('/:projectId/export', (c) => {
+    const file = exportProject(c.var.deps.db, c.req.param('projectId'));
+    c.header('content-disposition', `attachment; filename="${encodeURIComponent(`${file.project.name}.loca.json`)}"`);
+    return c.json(file);
   })
   /** How many 에디터 AI completions the project made today (its daily cap counts them; ai_calls, calls topic). */
   .get('/:projectId/editor-calls', (c) => c.json({ today: editorCallsToday(c.var.deps.db, c.req.param('projectId')) }))

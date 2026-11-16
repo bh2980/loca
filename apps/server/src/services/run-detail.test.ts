@@ -7,7 +7,7 @@ import { createRun } from '../engine/run-create.ts';
 import { Runner, type ModelPort } from '../engine/runner.ts';
 import { promptEntries } from '../engine/prompts.ts';
 import { translateOnlyWorkflow } from '../engine/test-workflows.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { runItemIds, runNodeExits, runProgress } from './run-detail.ts';
 import { memoryStore } from '../domain/secrets.ts';
@@ -27,7 +27,7 @@ function setup() {
   const connection = db.insert(s.connections).values({ kind: 'openai', name: 'fake', baseUrl: 'http://localhost:1/v1' }).returning().get();
   db.update(s.connections).set({ modelLimits: { m: { maxOutput: 1000, by: 'api' } } }).where(eq(s.connections.id, connection.id)).run();
   const choice = { connectionId: connection.id, model: 'm' };
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'one' }, { key: 'b', group: 'g', source: 'two' }, { key: 'c', group: 'g', source: 'three' }] }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'one' }, { key: 'b', group: 'g', source: 'two' }, { key: 'c', group: 'g', source: 'three' }] }), choice);
   const workflow = translateOnlyWorkflow(db, projectId);
   const runId = createRun(db, { projectId, workflow, models: snapshotWorkflowModels(db, workflow.definition), scope: {} }).runId;
   return { db, projectId, runId };

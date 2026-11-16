@@ -3,7 +3,7 @@ import { and, eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { createGroup, updateGroup, updateUnit } from './source-mutations.ts';
 import { createLine, deleteGroup, deleteLines } from './graph-edit.ts';
 vi.mock('./layout.ts', () => ({ computeLayouts: vi.fn(async () => {}), cancelViewLayouts: vi.fn() }));
@@ -13,7 +13,7 @@ afterEach(() => { for (const db of databases.splice(0)) db.$client.close(); });
 function setup() {
   const db = openDatabase(':memory:');
   databases.push(db);
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1', project: { name: 'Source editing' },
     groups: [{ key: 'g', title: 'Original', section: 'Chapter 1' }],
     units: [{ key: 'a', group: 'g', source: 'Before', translation: '기존 번역' }, { key: 'b', group: 'g', source: 'Next' }],

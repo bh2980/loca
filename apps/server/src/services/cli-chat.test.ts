@@ -11,7 +11,7 @@ import { cliChatResponse } from './cli-chat.ts';
 import { runChatTurn } from './chat-turn.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { enqueueSteer } from './chat-interject.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { decideProposal, hasUnreportedDecisions, propose } from './proposals.ts';
 
 /** The running agent process that has this session open, if any. */
@@ -29,7 +29,7 @@ function setup() {
     units: [{ key: 'a1', group: 'g1', speaker: 'Alice', source: "You're late." }],
     characters: [{ name: 'Alice' }],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const chat = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get();
   return { db, projectId, chat };
 }

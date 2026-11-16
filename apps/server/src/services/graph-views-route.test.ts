@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { agentTools } from './agent-tools.ts';
 import { listViews, readView, routeNodes, saveView, updateView } from './graph-views.ts';
 import { onError, type Env } from '../http.ts';
@@ -43,7 +43,7 @@ const fixture = importFileSchema.parse({
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, fixture);
+  const { projectId } = createProjectFromFile(db, fixture);
   const ids = new Map(db.select({ id: s.graphNodes.id, key: s.graphNodes.key }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all().map((node) => [node.key, node.id]));
   const id = (key: string) => ids.get(key)!;
   return { db, projectId, id };

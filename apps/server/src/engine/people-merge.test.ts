@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema, peopleRelationsTemplate, UNRESOLVED_RELATIONSHIP_KIND, validateWorkflow, workflowDefinitionSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { snapshotWorkflowModels } from '../domain/model-target.ts';
 import { memoryStore } from '../domain/secrets.ts';
 import { Runner, type ModelPort } from './runner.ts';
@@ -19,7 +19,7 @@ describe('인물·관계 추출 template, end to end', () => {
     const choice = { connectionId: connection.id, model: 'm' };
     const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
     const units = groups.flatMap((group, scene) => [0, 1].map((n) => ({ key: `${group.key}-${n}`, group: group.key, speaker: scene === 1 ? 'MIRA' : 'KAI', source: `S${scene} L${n}` })));
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'People' }, groups, units }), choice);
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'People' }, groups, units }), choice);
     // Stored before the run: one imported with a placeholder profile, one written by an earlier AI run nobody touched, and a person's speech rule.
     db.insert(s.characters).values([
       { projectId, name: 'MIRA', profile: '가져온 자리표시자', speech: '가져온 말버릇', role: 'minor', origin: 'import', status: 'confirmed' },
@@ -109,7 +109,7 @@ describe('인물·관계 추출 template, end to end', () => {
     const groups = [1, 2, 3].map((n) => ({ key: `g${n}`, title: `Scene ${n}` }));
     // Every scene is KAI then MIRA: one turn per scene, three over the run.
     const units = groups.flatMap((group) => ['KAI', 'MIRA'].map((speaker, n) => ({ key: `${group.key}-${n}`, group: group.key, speaker, source: `${speaker} says ${group.key}` })));
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Pairs' }, groups, units }), choice);
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Pairs' }, groups, units }), choice);
     db.insert(s.characters).values([{ projectId, name: 'MIRA', status: 'confirmed' }, { projectId, name: 'KAI', status: 'confirmed' }]).run();
     const template = peopleRelationsTemplate({ model: choice, issueTags: issueTagIds(db, projectId) });
     const definition = workflowDefinitionSchema.parse({

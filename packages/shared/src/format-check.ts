@@ -470,6 +470,30 @@ const EXTRA_TOKEN_FAMILIES: { label: string; kind: 'placeholder' | 'tag'; patter
   { label: '전각 괄호 태그', kind: 'tag', pattern: String.raw`【[^】\r\n]{1,24}】` },
 ];
 
+/** A format the texts use that the project's rules do not keep: a preset not turned on, or a custom pattern it lacks. `id`: the preset's id, or the custom pattern's label. */
+export interface FormatOffer {
+  id: string;
+  label: string;
+  kind: 'placeholder' | 'tag';
+  count: number;
+  examples: string[];
+}
+
+/** The formats `texts` use that `rules` do not keep (what turning on would add), most used first. */
+export function newFormats(texts: Iterable<string>, rules: FormatRules): FormatOffer[] {
+  const detected = detectFormatRules(texts);
+  const presets = detected.presets.filter((preset) => preset.count > 0 && !rules.presets.includes(preset.id)).map((preset) => ({ id: preset.id, label: FORMAT_PRESETS[preset.id].label, kind: FORMAT_PRESETS[preset.id].kind, count: preset.count, examples: preset.examples }));
+  const custom = detected.customCandidates.filter((candidate) => !rules.custom.some((rule) => rule.pattern === candidate.pattern)).map((candidate) => ({ id: candidate.label, label: candidate.label, kind: candidate.kind, count: candidate.count, examples: candidate.examples }));
+  return [...presets, ...custom].sort((a, b) => b.count - a.count);
+}
+
+/** `rules` with the formats of these ids (newFormats) turned on; an id it does not know is left out. */
+export function withFormats(rules: FormatRules, ids: readonly string[]): FormatRules {
+  const presets = ids.filter((id): id is FormatPreset => Object.hasOwn(FORMAT_PRESETS, id) && !rules.presets.includes(id as FormatPreset));
+  const custom = EXTRA_TOKEN_FAMILIES.filter((family) => ids.includes(family.label) && !rules.custom.some((rule) => rule.pattern === family.pattern));
+  return { presets: [...rules.presets, ...presets], custom: [...rules.custom, ...custom] };
+}
+
 /**
  * Scans script source lines without AI to detect which token presets and custom patterns appear in
  * the project, how many lines use each, and sample tokens from the script.

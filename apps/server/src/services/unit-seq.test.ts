@@ -12,7 +12,7 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { sourceRoutes } from '../routes/source.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { registerMigrationFunctions } from '../db/index.ts';
 import { findLines } from './script-query.ts';
 
@@ -30,7 +30,7 @@ function interleaved() {
     ],
     units: ['zeta', 'alpha'].flatMap((group) => [0, 1, 2].map((order) => ({ key: `${group}.${order}`, group, order, source: `${group} ${order}` }))),
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   return { db, projectId };
 }
 const expected = ['alpha.0', 'alpha.1', 'alpha.2', 'zeta.0', 'zeta.1', 'zeta.2'];

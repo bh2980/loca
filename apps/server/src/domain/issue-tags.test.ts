@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { issueTagIds, seedIssueTags } from './issue-tags.ts';
 import { attachUnitTags } from './tag-scope.ts';
 import { saveLine } from './line-save.ts';
@@ -19,7 +19,7 @@ function setup() {
       { key: 'a2', group: 'g1', speaker: 'Bob', source: 'Bye.', tags: ['음성'] },
     ],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const unit = (key: string) => db.select().from(s.units).where(eq(s.units.key, key)).get()!;
   const tagsOf = (key: string) =>
     db.select({ name: s.tags.name }).from(s.unitTags).innerJoin(s.tags, eq(s.tags.id, s.unitTags.tagId)).where(eq(s.unitTags.unitId, unit(key).id)).all().map((tag) => tag.name).sort();

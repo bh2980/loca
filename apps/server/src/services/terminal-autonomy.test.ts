@@ -7,7 +7,7 @@ import { Runner, type ModelPort } from '../engine/runner.ts';
 import { createRun } from '../engine/run-create.ts';
 import { agentTools } from './agent-tools.ts';
 import { proposeChange, undoChanges } from './change-gate.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { exportLines } from './script-query.ts';
 import { decideProposal } from './proposals.ts';
 import { runErrors } from './run-errors.ts';
@@ -31,7 +31,7 @@ function setup() {
       { from: 'n.b2', to: 'n.c' },
     ],
   };
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units, graph }), choice);
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units, graph }), choice);
   return { db, projectId, choice };
 }
 

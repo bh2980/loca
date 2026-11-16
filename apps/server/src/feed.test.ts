@@ -11,7 +11,7 @@ import { feedRows, feedSnapshot, heldRows } from './feed.ts';
 import { knowledgeRoutes } from './routes/knowledge.ts';
 import { deleteItems } from './services/item-delete.ts';
 import { setKnowledgeTag } from './domain/knowledge-tags.ts';
-import { importProject } from './services/importer.ts';
+import { createProjectFromFile } from './services/project-create.ts';
 import { saveTerm } from './domain/terms.ts';
 import { unitRowsByIds } from './services/unit-rows.ts';
 import { runItemRows } from './services/run-detail.ts';
@@ -22,7 +22,7 @@ const NO_KEYS = { secrets: memoryStore() };
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Feed' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'The Gate opens' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Feed' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'The Gate opens' }] }));
   // What setup itself wrote is not what these tests look at.
   feedRows(db, NO_KEYS, projectId);
   feedRows(db, NO_KEYS, APP_FEED);
@@ -115,7 +115,7 @@ describe('the row feed', () => {
 
   it('keeps projects apart', () => {
     const { db, projectId, term } = setup();
-    const other = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Other' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'x' }] })).projectId;
+    const other = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Other' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'x' }] })).projectId;
     feedRows(db, NO_KEYS, other);
     term('Gate');
     expect(feedRows(db, NO_KEYS, other)).toBeNull();
@@ -189,7 +189,7 @@ describe('lines in the row feed', () => {
   it('asks to read the held lines again instead of sending a bulk change', () => {
     const units = Array.from({ length: FEED_UNITS_LIMIT + 1 }, (_, index) => ({ key: `u${index}`, group: 'g', source: `Line ${index}` }));
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Bulk' }, groups: [{ key: 'g', title: 'G' }], units }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Bulk' }, groups: [{ key: 'g', title: 'G' }], units }));
     expect(feedRows(db, NO_KEYS, projectId)!.rows.units).toEqual({ upsert: [], delete: [], reload: true });
     db.update(s.units).set({ note: '메모' }).where(eq(s.units.key, 'u1')).run();
     expect(feedRows(db, NO_KEYS, projectId)!.rows.units?.changed).toHaveLength(1);

@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema, messageChips } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { selectRunUnits } from '../engine/subjects.ts';
 import { chatRunScope } from './chat-run-scope.ts';
 import { mergeIncoming } from './chat-record.ts';
@@ -22,7 +22,7 @@ const setup = () => {
     characters: [{ name: 'Lookout', aliases: ['The Lookout'] }, { name: 'Silent' }],
     terms: [{ source: 'Rat', target: '쥐' }],
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const workflows = db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all();
   const lines = workflows.find((workflow) => workflow.name === '번역')!;
   // A workflow whose entry takes terms.

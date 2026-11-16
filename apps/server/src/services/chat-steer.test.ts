@@ -7,7 +7,7 @@ import { expandRecord, transcript } from './chat-record.ts';
 import { startTurn, steerable } from './chat-turn-registry.ts';
 import { dequeueSteer, enqueueSteer, hasSteers, interjectionPrompt, stopWithQueued, takeSteers, writeInterjections } from './chat-interject.ts';
 import { eq } from 'drizzle-orm';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 
 const user = (id: string, text: string): UIMessage => ({ id, role: 'user', parts: [{ type: 'text', text }] });
 
@@ -37,7 +37,7 @@ describe('steering (#44)', () => {
 
   it('queues messages for the running turn, refuses once it is closing, and hands them back on stop', () => {
     const db = openDatabase(':memory:');
-    const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
+    const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'T' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'a', group: 'g', source: 'Hi' }] }));
     const id = db.insert(s.chatSessions).values({ projectId, title: '새 대화' }).returning().get().id;
     const turn = startTurn(db, 'p', id);
     expect(steerable(db, id)).toBe(true);

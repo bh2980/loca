@@ -3,7 +3,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { closeInterruptedProposals, decideProposal, INTERRUPTED_PROPOSAL, listedProposal, propose, takeDecisions } from './proposals.ts';
 
 const proposal = (changes: unknown[]) => ({ id: 'p', projectId: 'x', sessionId: null, source: 'cli' as const, tool: 'propose_changes', input: { origin: 'ai', changes }, status: 'pending' as const, result: null, createdAt: new Date(), decidedAt: null });
@@ -21,7 +21,7 @@ describe('proposal list', () => {
 
 function setup() {
   const db = openDatabase(':memory:');
-  const { projectId } = importProject(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units: [{ key: 'a1', group: 'g1', source: 'Hi.' }] }));
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({ format: 'loca/v1', project: { name: 'Test' }, groups: [{ key: 'g1', title: 'Harbor' }], units: [{ key: 'a1', group: 'g1', source: 'Hi.' }] }));
   const proposal = propose(db, { projectId, sessionId: null, source: 'cli', tool: 'save_document', input: { title: '세계관', body: '항구 도시' } });
   const documents = () => db.select().from(s.documents).where(eq(s.documents.projectId, projectId)).all();
   return { db, proposal, documents };

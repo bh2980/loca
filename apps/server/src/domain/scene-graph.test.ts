@@ -4,7 +4,7 @@ import { eq } from 'drizzle-orm';
 import { importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { deriveSceneEdges, deriveSceneGraph, depthBlocks, reduceSceneEdges } from './scene-graph.ts';
 
 describe('scene graph', () => {
@@ -93,7 +93,7 @@ describe('scene graph of the sample project (#54: it showed 그래프가 없습�
   it('links relay-station’s five scenes as its dialogue graph does', () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse(JSON.parse(readFileSync(new URL('../../../../samples/relay-station.json', import.meta.url), 'utf8')));
-    const { projectId } = importProject(db, file);
+    const { projectId } = createProjectFromFile(db, file);
     const title = new Map(db.select().from(s.groups).where(eq(s.groups.projectId, projectId)).all().map((group) => [group.id, group.title]));
     const nodes = db.select({ id: s.graphNodes.id, groupId: s.graphNodes.groupId }).from(s.graphNodes).where(eq(s.graphNodes.projectId, projectId)).all();
     const edges = db.select({ fromId: s.graphEdges.fromId, toId: s.graphEdges.toId }).from(s.graphEdges).where(eq(s.graphEdges.projectId, projectId)).all();

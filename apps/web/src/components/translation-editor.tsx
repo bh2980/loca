@@ -252,7 +252,11 @@ export function TranslationEditor({
       )}
       <DraftChecks unitId={unit.id} source={unit.source} draft={draft} units={line.units} terms={line.terms} tags={tags} rules={project.data?.formatRules ?? undefined} targetLanguage={project.data?.targetLanguage} onPlace={placeMissing} />
       <Inline wrap gap="condensed" paddingTop="tight">
-        {dirty && <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote>}
+        {/* Throwing the unsaved edit away sits beside the note that says there is one, not in the ⋯ menu. */}
+        {dirty && <Inline as="span" gap="tight">
+          <EditorDraftNote>저장 안 한 수정 · 이 브라우저에 보관됨</EditorDraftNote>
+          <Button variant="ghost" size="inline" tone="muted" disabled={save.isPending} onClick={() => clearDraft()}><Undo2 /> 되돌리기</Button>
+        </Inline>}
         {save.isPending && <Text variant="caption" tone="muted" aria-live="polite">저장 중…</Text>}
         {marks === undefined && !dirty && unit.statusBy === 'ai' && (
           <Inline as="span" gap="tight" variant="caption" tone="muted">
@@ -280,7 +284,6 @@ export function TranslationEditor({
             <DropdownMenuContent align="end" width="fit">
               {dirty && <>
                 <DropdownMenuItem disabled={save.isPending} onSelect={() => run(false)}><Save /> 저장만 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorSave'))}</Text></DropdownMenuItem>
-                <DropdownMenuItem onSelect={() => clearDraft()}><Undo2 /> 되돌리기</DropdownMenuItem>
               </>}
               {dirty && <DropdownMenuSeparator />}
               <DropdownMenuItem onSelect={putSource}><ClipboardPaste /> 원문 넣기 <Text marginLeft="auto" variant="caption" tone="muted">{keyLabel(keyOf('editorCopySource'))}</Text></DropdownMenuItem>

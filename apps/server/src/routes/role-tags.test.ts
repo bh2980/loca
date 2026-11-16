@@ -6,7 +6,7 @@ import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { characterRows } from '../feed.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { knowledgeRoutes } from './knowledge.ts';
 import { projectRoutes } from './projects.ts';
 import { sourceRoutes } from './source.ts';
@@ -15,7 +15,7 @@ describe('tags and automatic tags', () => {
   it('every tag is a person\'s to rename, recolour and delete; an automatic tag\'s name and colour are a project setting', async () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Line' }] });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const tag = db.select().from(s.tags).where(eq(s.tags.name, 'AI 실패')).get()!;
     const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {
@@ -43,7 +43,7 @@ describe('tag scope (붙는 곳)', () => {
   it('defaults to everywhere, refuses out-of-scope attaching and narrowing while attached', async () => {
     const db = openDatabase(':memory:');
     const file = importFileSchema.parse({ format: 'loca/v1', project: { name: 'P' }, groups: [{ key: 'g', title: 'G' }], units: [{ key: 'u', group: 'g', source: 'Line' }] });
-    const { projectId } = importProject(db, file, null as never);
+    const { projectId } = createProjectFromFile(db, file, null as never);
     const unit = db.select().from(s.units).get()!;
     const app = new Hono<Env>().onError(onError)
       .use(async (c, next) => {

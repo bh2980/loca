@@ -843,6 +843,37 @@ export interface UndoData {
  * edit of the dialogue graph): kept here, not in memory, so ⌘/Ctrl+Z in the app and an accepted proposal's 되돌리기
  * work after a restart. Used once, then deleted; old ones are pruned (services/undo-records.ts).
  */
+/** What one 원문 넣기 brought, as its log line shows it (per kind, how many). */
+export interface SourceImportSummary {
+  added: { groups: number; units: number; graphNodes: number; graphEdges: number };
+  knowledge: Record<'characters' | 'relationships' | 'documents' | 'terms' | 'events' | 'speechRules', number>;
+  updated: { units: number; groups: number; graphNodes: number; restarted: number };
+  formats: string[];
+}
+
+/**
+ * The project's 원문 넣기 log: each file that added to it or changed it (원문 넣기 in the app, an accepted add_source),
+ * with the undo record that takes it back while that is kept.
+ */
+export const sourceImports = sqliteTable(
+  'source_imports',
+  {
+    id: id(),
+    projectId: projectId(),
+    /** The file's name, as the app or the terminal gave it. */
+    name: text('name'),
+    /** app: a person on 원문 넣기; proposal: an accepted add_source (the terminal or a chat); new: the file the project was made from. */
+    via: text('via', { enum: ['app', 'proposal', 'new'] }).notNull(),
+    summary: json<SourceImportSummary>('summary').notNull(),
+    /** Its undo record while there is one to put it back with; cleared when that is gone (taken back, or past its keeping). */
+    undoId: text('undo_id'),
+    /** When it was taken back. */
+    undoneAt: integer('undone_at', { mode: 'timestamp_ms' }),
+    createdAt: createdAt(),
+  },
+  (t) => [index('source_imports_project').on(t.projectId, t.createdAt)],
+);
+
 export const undoRecords = sqliteTable(
   'undo_records',
   {

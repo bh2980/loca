@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { importFileSchema, savedPromptsSchema } from '@loca/shared';
 import { onError, type Env } from '../http.ts';
 import { openDatabase } from '../db/index.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { chatRoutes, describeView } from './chat.ts';
 import { projectRoutes } from './projects.ts';
 
@@ -18,7 +18,7 @@ const setup = () => {
       { key: 'u2', group: 'scene-a', source: 'Hello', speaker: 'Jonas' },
     ],
   });
-  const { projectId } = importProject(db, file, null as never);
+  const { projectId } = createProjectFromFile(db, file, null as never);
   const app = new Hono<Env>().onError(onError)
     .use(async (c, next) => {
       c.set('deps', { db } as never);

@@ -7,7 +7,7 @@ import { DEFAULT_STATUSES, importFileSchema } from '@loca/shared';
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { pullDefaults, pushDefaults, readAppDefaults, writeAppDefaults } from './app-defaults.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 import { memoryStore } from './secrets.ts';
 import { workflowIssues } from '../services/workflow-issues.ts';
 
@@ -26,7 +26,7 @@ const statusNames = (db: ReturnType<typeof setup>['db'], projectId: string) => d
 describe('a new project starts from the 홈 설정', () => {
   it('without home changes: the statuses, tag and five workflows a project starts with', () => {
     const { db } = setup();
-    const { projectId } = importProject(db, file());
+    const { projectId } = createProjectFromFile(db, file());
     expect(statusNames(db, projectId)).toEqual(DEFAULT_STATUSES.map((status) => status.name));
     expect(db.select().from(s.workflows).where(eq(s.workflows.projectId, projectId)).all().map((row) => row.name)).toEqual(['번역', '검수', '청자 추정', '인물·관계 추출', '사건 추출']);
     const units = db.select({ key: s.units.key, status: s.statuses.name }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).all();
@@ -36,7 +36,7 @@ describe('a new project starts from the 홈 설정', () => {
   it('copies the home connections with their keys, and points its settings at the copies', () => {
     const { db, secrets, home } = setup();
     writeAppDefaults(db, { agentSettings: { ...readAppDefaults(db).agentSettings, chatModel: { connectionId: home.id, model: 'gpt' } } });
-    const { projectId } = importProject(db, file(), undefined, secrets);
+    const { projectId } = createProjectFromFile(db, file(), undefined, secrets);
     const [copy] = connectionsOf(db, projectId);
     expect(copy).toMatchObject({ name: 'API', kind: 'openai', baseUrl: 'http://localhost:1/v1' });
     expect(copy.id).not.toBe(home.id);
@@ -56,7 +56,7 @@ describe('a new project starts from the 홈 설정', () => {
       tags: [{ id: 't', name: '보스', color: '#0091ad', description: '', scope: ['lines'] }],
       workflows: { templates: ['translation'], saved: [] },
     });
-    const { projectId } = importProject(db, file());
+    const { projectId } = createProjectFromFile(db, file());
     expect(statusNames(db, projectId)).toEqual(['새 줄', '초벌', '끝']);
     expect(db.select().from(s.tags).where(eq(s.tags.projectId, projectId)).all().map((tag) => tag.name).sort()).toEqual([...['AI 실패', '기타 지적', '말투 어긋남', '문체 어색', '용어 위반', '의미 오류', '형식 오류'], '보스'].sort());
     const units = db.select({ key: s.units.key, status: s.statuses.name }).from(s.units).innerJoin(s.statuses, eq(s.statuses.id, s.units.statusId)).all();
@@ -66,7 +66,7 @@ describe('a new project starts from the 홈 설정', () => {
 
   it('a later home change leaves the project as it was', () => {
     const { db } = setup();
-    const { projectId } = importProject(db, file());
+    const { projectId } = createProjectFromFile(db, file());
     writeAppDefaults(db, { aiAutoConfirm: false, statuses: [{ id: 'x', name: '시작', color: '#79818c', kind: 'initial', inReview: false }, { id: 'y', name: '끝', color: '#2a9754', kind: 'final', inReview: false }] });
     expect(db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!.aiAutoConfirm).toBe(true);
     expect(statusNames(db, projectId)).toEqual(DEFAULT_STATUSES.map((status) => status.name));
@@ -90,7 +90,7 @@ describe('a new project starts from the 홈 설정', () => {
 describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
   it('pull replaces values, updates a connection of the same name in place and only adds missing statuses', () => {
     const { db, secrets, home } = setup();
-    const { projectId } = importProject(db, file(), undefined, secrets);
+    const { projectId } = createProjectFromFile(db, file(), undefined, secrets);
     const [copy] = connectionsOf(db, projectId);
     db.update(s.connections).set({ baseUrl: 'http://localhost:9/v1' }).where(eq(s.connections.id, home.id)).run();
     secrets.set(home.id, 'sk-new');
@@ -106,7 +106,7 @@ describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
 
   it('a pushed workflow comes into another project with that project\'s statuses, tags and connection, by name', () => {
     const { db, secrets } = setup();
-    const first = importProject(db, file('A'), undefined, secrets).projectId;
+    const first = createProjectFromFile(db, file('A'), undefined, secrets).projectId;
     const [connection] = connectionsOf(db, first);
     const workflow = db.select().from(s.workflows).where(eq(s.workflows.projectId, first)).all().find((row) => row.name === '번역')!;
     const definition = { ...workflow.definition, nodes: workflow.definition.nodes.map((node) => (node.type === 'ai' ? { ...node, config: { ...node.config, model: { connectionId: connection.id, model: 'gpt' } } } : node)) };
@@ -114,7 +114,7 @@ describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
     pushDefaults(db, first, ['workflows'], [workflow.id]);
     expect(readAppDefaults(db).workflows.saved.map((saved) => saved.name)).toEqual(['내 번역']);
 
-    const second = importProject(db, file('B'), undefined, secrets).projectId;
+    const second = createProjectFromFile(db, file('B'), undefined, secrets).projectId;
     const copied = db.select().from(s.workflows).where(eq(s.workflows.projectId, second)).all().find((row) => row.name === '내 번역')!;
     const [secondConnection] = connectionsOf(db, second);
     const models = copied.definition.nodes.flatMap((node) => (node.type === 'ai' ? [node.config.model.connectionId] : []));
@@ -125,7 +125,7 @@ describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
 
   it('push merges saved instructions by name (the project\'s win) and keeps the home\'s chat settings otherwise', () => {
     const { db } = setup();
-    const { projectId } = importProject(db, file());
+    const { projectId } = createProjectFromFile(db, file());
     writeAppDefaults(db, { agentSettings: { ...readAppDefaults(db).agentSettings, prompts: [{ name: '요약', text: '홈' }, { name: '검수', text: '홈' }] } });
     const project = db.select().from(s.projects).where(eq(s.projects.id, projectId)).get()!;
     db.update(s.projects).set({ agentSettings: { ...project.agentSettings, defaultPermissionMode: 'auto', prompts: [{ name: '요약', text: '프로젝트' }] } }).where(eq(s.projects.id, projectId)).run();
@@ -139,7 +139,7 @@ describe('홈 기본값 가져오기 and 홈 기본값으로 저장', () => {
 describe('credential copies', () => {
   it.each([true, false])('replaces or clears a previous target key on pull and push (source key: %s)', (hasKey) => {
     const { db, secrets, home } = setup();
-    const { projectId } = importProject(db, file(), undefined, secrets);
+    const { projectId } = createProjectFromFile(db, file(), undefined, secrets);
     const [copy] = connectionsOf(db, projectId);
     if (!hasKey) secrets.delete(home.id);
     db.update(s.connections).set({ baseUrl: 'https://new.invalid/v1' }).where(eq(s.connections.id, home.id)).run();
@@ -155,7 +155,7 @@ describe('credential copies', () => {
   it('keeps a failed copy pending and refuses the old key until the keyring recovers', async () => {
     const { connectionTarget } = await import('./model-target.ts');
     const { db, secrets, home } = setup();
-    const { projectId } = importProject(db, file(), undefined, secrets);
+    const { projectId } = createProjectFromFile(db, file(), undefined, secrets);
     const [copy] = connectionsOf(db, projectId);
     secrets.delete(home.id);
     db.update(s.connections).set({ baseUrl: 'https://new.invalid/v1' }).where(eq(s.connections.id, home.id)).run();

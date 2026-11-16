@@ -91,8 +91,11 @@ export const graphSearch = {
   direction: (direction: GraphDirection): GraphSearchChange => (previous) => ({ ...previous, direction }),
   /** A section or a view opened from the menu: the pane's selection does not carry over. */
   section: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, ...NO_PANE, ...(section !== previous.section && NO_FOLDS) }),
-  /** The same from a route view's own menu: picking the view that is open keeps its script. */
-  sectionFromScript: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, script: section === previous.section ? true : undefined, edit: undefined, ...NO_PANE, ...(section !== previous.section && NO_FOLDS) }),
+  /**
+   * The same from a route view's own menu: another view opens laid out as 그래프 + 대본 too (one that is not a route
+   * draws the graph alone); a section of the whole graph has no script.
+   */
+  sectionFromScript: (section: string | undefined): GraphSearchChange => (previous) => ({ ...previous, section, script: viewIdOf(section) ? true : undefined, edit: undefined, ...NO_PANE, ...(section !== previous.section && NO_FOLDS) }),
   /** 그래프 | 그래프 + 대본 of a route view. */
   script: (on: boolean): GraphSearchChange => (previous) => ({ ...previous, script: on || undefined, edit: undefined, ...NO_PANE }),
   /** The open view is gone: the whole graph again. */

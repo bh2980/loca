@@ -19,10 +19,15 @@ export const key = <const A extends readonly unknown[]>(topic: Topic, name: stri
  * - `run-start`: what a run started with (its definition, models, caps). The runs topic changes with every
  *   item; the key carries the run's own turn (status, notice, total, end) from its progress row instead, so
  *   it is asked again exactly when the run itself changes.
+ * - `source-diff`: a picked file compared with the project (원문 넣기), the whole file sent each time (megabytes
+ *   for a big script). The units topic changes with every translation of a run, which never changes what the
+ *   diff compares (keys, sources, speakers, groups); it is asked again when the page adds or takes back
+ *   (lib/source-import.ts), and adding compares anew on the server, so a stale count cannot put in a wrong line.
  */
 export const OWN_FAMILIES = {
   'line-surroundings': ['knowledge', 'graph'],
   'run-start': [],
+  'source-diff': [],
 } as const satisfies Record<string, readonly Topic[]>;
 export type OwnFamily = keyof typeof OWN_FAMILIES;
 

@@ -8,7 +8,7 @@ import * as s from '../db/schema.ts';
 import { workflowRoutes } from '../routes/workflows.ts';
 import { agentTools } from './agent-tools.ts';
 import { prepareProposal } from './agent-catalog.ts';
-import { importProject } from './importer.ts';
+import { createProjectFromFile } from './project-create.ts';
 import { resolveRunStart } from './start-run.ts';
 import { workflowRows } from './workflow-rows.ts';
 
@@ -18,7 +18,7 @@ function setup() {
   const db = openDatabase(':memory:');
   const connection = db.insert(s.connections).values({ kind: 'openai', name: '내 연결', baseUrl: 'http://localhost:1/v1' }).returning().get();
   const choice = { connectionId: connection.id, model: 'm' };
-  const { projectId } = importProject(db, importFileSchema.parse({
+  const { projectId } = createProjectFromFile(db, importFileSchema.parse({
     format: 'loca/v1',
     project: { name: 'T' },
     groups: [{ key: 'g', title: '부두' }],

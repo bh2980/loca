@@ -4,7 +4,7 @@ import { importFileSchema, NOT_A_PERSON_NOTE, UNRESOLVED_RELATIONSHIP_KIND } fro
 import { openDatabase } from '../db/index.ts';
 import * as s from '../db/schema.ts';
 import { aiSaveCharacters, aiSaveDocument, aiSaveEvents, aiSaveRelationships, relationshipRows, aiSaveSpeechRules, aiSaveTerms, aiSaveUnresolvedPairs, aiSetLineListeners, canonicalNames, mergeFoundPeople } from './ai-knowledge.ts';
-import { importProject } from '../services/importer.ts';
+import { createProjectFromFile } from '../services/project-create.ts';
 
 type TestDb = ReturnType<typeof openDatabase>;
 /** Why an item is marked 확인 권장 (its review note), or undefined. */
@@ -23,7 +23,7 @@ function setup() {
       { key: 'a3', group: 'g1', speaker: 'Alice', source: 'Never again.' },
     ],
   });
-  const { projectId } = importProject(db, file);
+  const { projectId } = createProjectFromFile(db, file);
   const write = { projectId, runId: undefined as string | undefined, autoConfirm: true };
   return { db, projectId, write };
 }
